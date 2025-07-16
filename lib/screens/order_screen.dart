@@ -34,33 +34,45 @@ class _OrdersScreenState extends State<OrdersScreen>
   String? _backgroundImageUrl;
   bool _isInitialLoadDone = false;
 
-  // ✅ Premium animation controllers
+  // ✅ ENHANCED: Premium smooth animation controllers
   late AnimationController _floatingCartController;
   late AnimationController _fadeController;
-  late AnimationController _pulseController;
+  late AnimationController _smoothFloatController;
+  late AnimationController _breathingController;
   late AnimationController _bounceController;
+  late AnimationController _clearZoneController;
+  late AnimationController _dragHintController;
+  late AnimationController _continuousFloatController;
 
   late Animation<double> _floatingCartScale;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _floatingCartSlide;
-  late Animation<double> _pulseAnimation;
+  late Animation<double> _smoothFloatAnimation;
+  late Animation<double> _breathingAnimation;
   late Animation<double> _bounceAnimation;
   late Animation<Color?> _colorAnimation;
+  late Animation<double> _clearZoneScale;
+  late Animation<double> _clearZoneOpacity;
+  late Animation<double> _dragHintOpacity;
+  late Animation<double> _continuousFloatAnimation;
+  late Animation<double> _continuousScaleAnimation;
 
   // ✅ NEW: In-memory cache flags
   bool _hasFetchedProducts = false;
   List<Map<String, dynamic>> _cachedProducts = [];
   List<String> _cachedCategories = ['All'];
-  bool _showClearCart = false;
 
-  // ✅ FIXED: Initialize with default values
-  Offset _fabOffset = const Offset(300, 400); // Default position
+  // ✅ FIXED: Floating cart state management
+  Offset _fabOffset = const Offset(300, 400);
   bool _isDragging = false;
+  bool _showClearZone = false;
+  bool _isNearClearZone = false;
+  bool _showDragHint = false;
 
   @override
   void initState() {
     super.initState();
-    _initializePremiumAnimations();
+    _initializeSmoothAnimations();
 
     if (!_isInitialLoadDone) {
       _selectedCategory = widget.category ?? 'All';
@@ -69,41 +81,82 @@ class _OrdersScreenState extends State<OrdersScreen>
       _fetchCartData();
       _isInitialLoadDone = true;
     }
+
+    // Show drag hint after 3 seconds if cart has items, for longer duration
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted && cartCountNotifier.value > 0) {
+        _showDragHintTemporarily();
+      }
+    });
   }
 
-  // ✅ FIXED: Initialize FAB position after first build
+  // ✅ FIXED: Initialize FAB position with proper footer boundaries
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Now we can safely access MediaQuery
     final screenSize = MediaQuery.of(context).size;
-    _fabOffset = Offset(screenSize.width - 72, screenSize.height * 0.7);
+    final bottomNavHeight = kBottomNavigationBarHeight;
+    final safeAreaBottom = MediaQuery.of(context).padding.bottom;
+    final maxBottom = screenSize.height - bottomNavHeight - safeAreaBottom - 70;
+
+    _fabOffset = Offset(
+        screenSize.width - 80,
+        (maxBottom * 0.7).clamp(100.0, maxBottom) // Ensure it's within bounds
+    );
   }
 
-  // ✅ Premium animations initialization
-  void _initializePremiumAnimations() {
+  // ✅ SMOOTH: Enhanced premium animations initialization
+  void _initializeSmoothAnimations() {
+    // ✅ SMOOTH: Longer durations for smoother motion
     _floatingCartController = AnimationController(
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 1200), // ✅ Increased for smoothness
       vsync: this,
     );
 
     _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 1000),
       vsync: this,
     );
 
-    _pulseController = AnimationController(
-      duration: const Duration(milliseconds: 1500),
+    // ✅ NEW: Smooth floating motion controller
+    _smoothFloatController = AnimationController(
+      duration: const Duration(milliseconds: 4000), // ✅ Much longer for smooth sine wave
+      vsync: this,
+    );
+
+    // ✅ NEW: Breathing animation for subtle scale effect
+    _breathingController = AnimationController(
+      duration: const Duration(milliseconds: 3000),
       vsync: this,
     );
 
     _bounceController = AnimationController(
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 800), // ✅ Slower bounce
       vsync: this,
     );
 
+    _clearZoneController = AnimationController(
+      duration: const Duration(milliseconds: 400),
+      vsync: this,
+    );
+
+    _dragHintController = AnimationController(
+      duration: const Duration(milliseconds: 1200),
+      vsync: this,
+    );
+
+    // ✅ NEW: Continuous floating controller
+    _continuousFloatController = AnimationController(
+      duration: const Duration(milliseconds: 6000), // ✅ Very slow for natural motion
+      vsync: this,
+    );
+
+    // ✅ SMOOTH: Enhanced animations with better curves
     _floatingCartScale = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _floatingCartController, curve: Curves.elasticOut),
+      CurvedAnimation(
+        parent: _floatingCartController,
+        curve: Curves.elasticOut,
+      ),
     );
 
     _floatingCartSlide = Tween<Offset>(
@@ -111,31 +164,111 @@ class _OrdersScreenState extends State<OrdersScreen>
       end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: _floatingCartController,
-      curve: Curves.easeOutCubic,
+      curve: Curves.easeOutQuint, // ✅ Much smoother curve
     ));
 
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _fadeController, curve: Curves.easeInOut),
+      CurvedAnimation(
+        parent: _fadeController,
+        curve: Curves.easeInOutCubic,
+      ),
     );
 
-    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.3).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    // ✅ SMOOTH: Sine wave floating motion
+    _smoothFloatAnimation = Tween<double>(begin: -6.0, end: 6.0).animate(
+      CurvedAnimation(
+        parent: _smoothFloatController,
+        curve: Curves.easeInOutSine, // ✅ Sine wave for natural motion
+      ),
     );
 
-    _bounceAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
-      CurvedAnimation(parent: _bounceController, curve: Curves.elasticOut),
+    // ✅ SMOOTH: Subtle breathing scale
+    _breathingAnimation = Tween<double>(begin: 0.98, end: 1.02).animate(
+      CurvedAnimation(
+        parent: _breathingController,
+        curve: Curves.easeInOutSine,
+      ),
     );
 
+    _bounceAnimation = Tween<double>(begin: 1.0, end: 1.15).animate(
+      CurvedAnimation(
+        parent: _bounceController,
+        curve: Curves.elasticOut,
+      ),
+    );
+
+    // ✅ SMOOTH: Gentle color transition
     _colorAnimation = ColorTween(
       begin: kPrimaryColor,
-      end: Colors.deepPurple,
+      end: kPrimaryColor.withOpacity(0.9),
     ).animate(CurvedAnimation(
-      parent: _pulseController,
+      parent: _breathingController,
       curve: Curves.easeInOut,
     ));
 
+    _clearZoneScale = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _clearZoneController,
+        curve: Curves.elasticOut,
+      ),
+    );
+
+    _clearZoneOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _clearZoneController,
+        curve: Curves.easeInOut,
+      ),
+    );
+
+    _dragHintOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _dragHintController,
+        curve: Curves.easeInOut,
+      ),
+    );
+
+    // ✅ NEW: Continuous floating animations
+    _continuousFloatAnimation = Tween<double>(begin: -4.0, end: 4.0).animate(
+      CurvedAnimation(
+        parent: _continuousFloatController,
+        curve: Curves.easeInOutSine,
+      ),
+    );
+
+    _continuousScaleAnimation = Tween<double>(begin: 0.96, end: 1.04).animate(
+      CurvedAnimation(
+        parent: _continuousFloatController,
+        curve: Curves.easeInOutSine,
+      ),
+    );
+
+    // ✅ SMOOTH: Start animations
     _fadeController.forward();
-    _pulseController.repeat(reverse: true);
+
+    // ✅ SMOOTH: Continuous repeating animations with sine waves
+    _smoothFloatController.repeat(reverse: true);
+    _breathingController.repeat(reverse: true);
+    _continuousFloatController.repeat(reverse: true);
+  }
+
+  // ✅ NEW: Show drag hint temporarily with longer duration
+  void _showDragHintTemporarily() {
+    setState(() {
+      _showDragHint = true;
+    });
+    _dragHintController.forward();
+
+    Future.delayed(const Duration(seconds: 5), () { // Increased from 3 to 5 seconds
+      if (mounted) {
+        _dragHintController.reverse().then((_) {
+          if (mounted) {
+            setState(() {
+              _showDragHint = false;
+            });
+          }
+        });
+      }
+    });
   }
 
   Future<void> _fetchBackgroundImage() async {
@@ -251,7 +384,7 @@ class _OrdersScreenState extends State<OrdersScreen>
       // Animate floating cart
       if (totalCount > 0) {
         _floatingCartController.forward();
-        _bounceController.forward(from: 0.0); // Bounce when items added
+        _bounceController.forward(from: 0.0);
       } else {
         _floatingCartController.reverse();
       }
@@ -273,7 +406,6 @@ class _OrdersScreenState extends State<OrdersScreen>
     print('🔄 Updating cart quantity for $name by $delta');
 
     try {
-      // Get existing cart items for this product
       final existingItems = await supabase
           .from('cart')
           .select()
@@ -291,7 +423,6 @@ class _OrdersScreenState extends State<OrdersScreen>
       print('📊 Current: $currentQty, Delta: $delta, New: $newQty');
 
       if (newQty <= 0) {
-        // Remove all items
         for (final item in existingItems) {
           await supabase
               .from('cart')
@@ -301,19 +432,16 @@ class _OrdersScreenState extends State<OrdersScreen>
         _productQuantities.remove(name);
         print('🗑️ Removed all $name items from cart');
       } else {
-        // Update quantity for first item, remove others
         final firstItem = existingItems.first;
         final productPrice = (firstItem['product_price'] as num?)?.toDouble() ?? 0.0;
         final servicePrice = (firstItem['service_price'] as num?)?.toDouble() ?? 0.0;
         final totalPrice = (productPrice + servicePrice) * newQty;
 
-        // Update first item
         await supabase.from('cart').update({
           'product_quantity': newQty,
           'total_price': totalPrice,
         }).eq('id', firstItem['id']);
 
-        // Remove other items
         for (int i = 1; i < existingItems.length; i++) {
           await supabase
               .from('cart')
@@ -325,7 +453,6 @@ class _OrdersScreenState extends State<OrdersScreen>
         print('✅ Updated $name quantity to $newQty');
       }
 
-      // Refresh cart and update UI
       await _fetchCartData();
       _triggerAnimations(name);
 
@@ -351,12 +478,10 @@ class _OrdersScreenState extends State<OrdersScreen>
     print('🔄 Adding $name to cart with $service service (₹$servicePrice)');
 
     try {
-      // Show loading state
       setState(() {
         _addedStatus[name] = true;
       });
 
-      // Check if product with same service already exists
       final existing = await supabase
           .from('cart')
           .select('*')
@@ -366,7 +491,6 @@ class _OrdersScreenState extends State<OrdersScreen>
           .maybeSingle();
 
       if (existing != null) {
-        // Update existing item
         final newQty = (existing['product_quantity'] as int) + 1;
         final newTotalPrice = (basePrice + servicePrice) * newQty;
 
@@ -377,7 +501,6 @@ class _OrdersScreenState extends State<OrdersScreen>
 
         print('✅ Updated existing cart item: $name, qty: $newQty');
       } else {
-        // Insert new item
         await supabase.from('cart').insert({
           'user_id': user.id,
           'product_name': name,
@@ -393,13 +516,9 @@ class _OrdersScreenState extends State<OrdersScreen>
         print('✅ Added new cart item: $name');
       }
 
-      // Update local quantities
       _productQuantities[name] = (_productQuantities[name] ?? 0) + 1;
-
-      // Trigger animations
       _triggerAnimations(name);
 
-      // Reset added status after delay
       await Future.delayed(const Duration(milliseconds: 1500));
       if (mounted) {
         setState(() {
@@ -407,13 +526,10 @@ class _OrdersScreenState extends State<OrdersScreen>
         });
       }
 
-      // Refresh cart data
       await _fetchCartData();
 
     } catch (e) {
       print('❌ Error adding to cart: $e');
-
-      // Reset state on error
       if (mounted) {
         setState(() {
           _addedStatus[name] = false;
@@ -422,13 +538,11 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
   }
 
-  // ✅ Helper method for animations
   void _triggerAnimations(String productName) {
     _controllers[productName]?.forward(from: 0.0);
     _qtyAnimControllers[productName]?.forward(from: 0.9);
   }
 
-  // ✅ Service icons
   IconData _getServiceIcon(String? serviceName) {
     switch (serviceName?.toLowerCase().trim()) {
       case 'wash & iron':
@@ -450,7 +564,6 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
   }
 
-  // ✅ FIXED: Smaller service selection popup
   Future<void> _showServiceSelectionPopup(Map<String, dynamic> product) async {
     final user = supabase.auth.currentUser;
     if (user == null) {
@@ -463,7 +576,6 @@ class _OrdersScreenState extends State<OrdersScreen>
     print('🔄 Loading services...');
 
     try {
-      // Show loading dialog first
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -480,7 +592,6 @@ class _OrdersScreenState extends State<OrdersScreen>
 
       final services = List<Map<String, dynamic>>.from(response);
 
-      // Close loading dialog
       Navigator.pop(context);
 
       if (services.isEmpty) {
@@ -492,7 +603,6 @@ class _OrdersScreenState extends State<OrdersScreen>
 
       print('✅ Services loaded: ${services.length}');
 
-      // Show service selection dialog
       showDialog(
         context: context,
         builder: (BuildContext context) {
@@ -509,7 +619,6 @@ class _OrdersScreenState extends State<OrdersScreen>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Header
                   Text(
                     'Choose Service',
                     style: TextStyle(
@@ -529,7 +638,6 @@ class _OrdersScreenState extends State<OrdersScreen>
                   ),
                   const SizedBox(height: 20),
 
-                  // Services list
                   Flexible(
                     child: ListView.builder(
                       shrinkWrap: true,
@@ -611,8 +719,6 @@ class _OrdersScreenState extends State<OrdersScreen>
                   ),
 
                   const SizedBox(height: 10),
-
-                  // Cancel button
                   TextButton(
                     onPressed: () => Navigator.pop(context),
                     child: const Text('Cancel'),
@@ -625,9 +731,7 @@ class _OrdersScreenState extends State<OrdersScreen>
       );
 
     } catch (e) {
-      // Close loading dialog if open
       Navigator.pop(context);
-
       print('❌ Error loading services: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to load services: $e')),
@@ -635,265 +739,37 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
   }
 
-  // ✅ PREMIUM FLOATING CART - Enhanced with multiple animations
-  Widget _buildFloatingCart() {
-    return ValueListenableBuilder<int>(
-      valueListenable: cartCountNotifier,
-      builder: (context, count, child) {
-        if (count == 0) {
-          _showClearCart = false;
-          return const SizedBox.shrink();
-        }
-
-        final screenSize = MediaQuery.of(context).size;
-        final appBarHeight = Scaffold.of(context).appBarMaxHeight ?? kToolbarHeight;
-        final maxBottom = screenSize.height - kBottomNavigationBarHeight - 80;
-
-        return AnimatedBuilder(
-          animation: Listenable.merge([
-            _floatingCartController,
-            _pulseController,
-            _bounceController,
-          ]),
-          builder: (context, child) {
-            return Stack(
-              children: [
-                // ✅ PREMIUM Clear Cart Zone (appears when dragging)
-                if (_showClearCart)
-                  Positioned(
-                    bottom: kBottomNavigationBarHeight + 16,
-                    left: 0,
-                    right: 0,
-                    child: Center(
-                      child: TweenAnimationBuilder<double>(
-                        duration: const Duration(milliseconds: 300),
-                        tween: Tween(begin: 0.0, end: 1.0),
-                        builder: (context, value, child) {
-                          return Transform.scale(
-                            scale: value,
-                            child: GestureDetector(
-                              onTap: () {
-                                _clearCart();
-                                setState(() => _showClearCart = false);
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      Colors.red.shade400,
-                                      Colors.red.shade600,
-                                    ],
-                                  ),
-                                  borderRadius: BorderRadius.circular(30),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.red.withOpacity(0.4),
-                                      blurRadius: 20,
-                                      spreadRadius: 2,
-                                      offset: const Offset(0, 8),
-                                    ),
-                                  ],
-                                ),
-                                child: const Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.delete_sweep_rounded, color: Colors.white, size: 24),
-                                    SizedBox(width: 12),
-                                    Text(
-                                      'Clear Cart',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-
-                // ✅ PREMIUM Draggable Cart Icon with enhanced animations
-                Positioned(
-                  left: _fabOffset.dx,
-                  top: _fabOffset.dy.clamp(appBarHeight + 20, maxBottom),
-                  child: GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const CartScreen()),
-                      ).then((_) => _fetchCartData());
-                    },
-                    onPanStart: (details) {
-                      setState(() {
-                        _isDragging = true;
-                        _showClearCart = true;
-                      });
-                    },
-                    onPanUpdate: (details) {
-                      final newDx = details.globalPosition.dx - 30;
-                      final newDy = details.globalPosition.dy - 30;
-
-                      setState(() {
-                        _fabOffset = Offset(
-                          newDx.clamp(0, screenSize.width - 60),
-                          newDy.clamp(appBarHeight + 20, maxBottom),
-                        );
-                      });
-                    },
-                    onPanEnd: (details) {
-                      setState(() {
-                        _isDragging = false;
-                        // Snap to nearest side with smooth animation
-                        _fabOffset = Offset(
-                          _fabOffset.dx < screenSize.width / 2 ? 20 : screenSize.width - 80,
-                          _fabOffset.dy,
-                        );
-
-                        Future.delayed(const Duration(seconds: 3), () {
-                          if (mounted) setState(() => _showClearCart = false);
-                        });
-                      });
-                    },
-                    child: SlideTransition(
-                      position: _floatingCartSlide,
-                      child: ScaleTransition(
-                        scale: _floatingCartScale,
-                        child: Transform.scale(
-                          scale: _isDragging ? 1.2 : _bounceAnimation.value,
-                          child: Container(
-                            height: 60,
-                            width: 60,
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  _colorAnimation.value ?? kPrimaryColor,
-                                  (_colorAnimation.value ?? kPrimaryColor).withOpacity(0.8),
-                                ],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: (_colorAnimation.value ?? kPrimaryColor).withOpacity(0.4),
-                                  blurRadius: _isDragging ? 20 : 15,
-                                  spreadRadius: _isDragging ? 4 : 2,
-                                  offset: Offset(0, _isDragging ? 8 : 6),
-                                ),
-                                // Additional inner glow
-                                BoxShadow(
-                                  color: Colors.white.withOpacity(0.2),
-                                  blurRadius: 8,
-                                  spreadRadius: -2,
-                                  offset: const Offset(-2, -2),
-                                ),
-                              ],
-                            ),
-                            child: Stack(
-                              clipBehavior: Clip.none,
-                              children: [
-                                // Cart Icon with pulse effect
-                                Center(
-                                  child: Transform.scale(
-                                    scale: _pulseAnimation.value,
-                                    child: Icon(
-                                      Icons.shopping_bag_rounded,
-                                      color: Colors.white,
-                                      size: 28,
-                                    ),
-                                  ),
-                                ),
-
-                                // Premium count badge with enhanced styling
-                                Positioned(
-                                  top: -8,
-                                  right: -8,
-                                  child: Container(
-                                    height: 28,
-                                    width: 28,
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: [
-                                          Colors.white,
-                                          Colors.grey.shade100,
-                                        ],
-                                      ),
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: (_colorAnimation.value ?? kPrimaryColor).withOpacity(0.3),
-                                        width: 2,
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withOpacity(0.15),
-                                          blurRadius: 8,
-                                          offset: const Offset(0, 4),
-                                        ),
-                                      ],
-                                    ),
-                                    child: Center(
-                                      child: Text(
-                                        count > 99 ? '99+' : '$count',
-                                        style: TextStyle(
-                                          fontSize: count > 99 ? 9 : 12,
-                                          fontWeight: FontWeight.bold,
-                                          color: _colorAnimation.value ?? kPrimaryColor,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-
-                                // ✅ Premium ripple effect when dragging
-                                if (_isDragging)
-                                  Positioned.fill(
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: Colors.white.withOpacity(0.3),
-                                          width: 2,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
+  // ✅ FIXED: Clear cart with proper state management
   Future<void> _clearCart() async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
 
     try {
+      // Clear from database
       await supabase
           .from('cart')
           .delete()
           .eq('user_id', user.id);
 
-      // Reset all cart-related states
+      // ✅ FIXED: Clear all local state properly
       _productQuantities.clear();
       cartCountNotifier.value = 0;
 
+      // Force rebuild of all animation controllers
+      for (final controller in _qtyAnimControllers.values) {
+        controller.reset();
+      }
+
+      // Reset floating cart
+      _floatingCartController.reverse();
+
+      // ✅ FIXED: Force complete UI refresh
       if (mounted) {
+        setState(() {
+          _showClearZone = false;
+          _isNearClearZone = false;
+        });
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Row(
@@ -923,6 +799,367 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
   }
 
+  // ✅ FIXED: Check if cart icon is near clear zone - updated for proper footer positioning
+  bool _isCartNearClearZone() {
+    final screenSize = MediaQuery.of(context).size;
+    final bottomNavHeight = kBottomNavigationBarHeight;
+    final safeAreaBottom = MediaQuery.of(context).padding.bottom;
+    final clearZoneY = screenSize.height - bottomNavHeight - safeAreaBottom - 30 - 40; // Match clear zone position
+    final clearZoneCenter = Offset(screenSize.width * 0.4 + 40, clearZoneY);
+    final cartCenter = Offset(_fabOffset.dx + 30, _fabOffset.dy + 30);
+    final distance = (clearZoneCenter - cartCenter).distance;
+    return distance < 70; // Within 70 pixels for better detection
+  }
+
+  // ✅ SMOOTH FLOATING CART - Enhanced with multiple smooth animations
+  Widget _buildFloatingCart() {
+    return ValueListenableBuilder<int>(
+      valueListenable: cartCountNotifier,
+      builder: (context, count, child) {
+        if (count == 0) {
+          return const SizedBox.shrink();
+        }
+
+        final screenSize = MediaQuery.of(context).size;
+        final appBarHeight = Scaffold.of(context).appBarMaxHeight ?? kToolbarHeight;
+
+        // ✅ FIXED: Proper bottom boundary calculation to stay above footer
+        final bottomNavHeight = kBottomNavigationBarHeight;
+        final safeAreaBottom = MediaQuery.of(context).padding.bottom;
+        final maxBottom = screenSize.height - bottomNavHeight - safeAreaBottom - 70; // Proper margin above footer
+        final minTop = appBarHeight + 20;
+
+        return AnimatedBuilder(
+          animation: Listenable.merge([
+            _floatingCartController,
+            _smoothFloatController,
+            _breathingController,
+            _bounceController,
+            _clearZoneController,
+            _dragHintController,
+            _continuousFloatController,
+          ]),
+          builder: (context, child) {
+            return Stack(
+              children: [
+                // ✅ ENHANCED: Clear Zone with X icon - positioned properly above footer
+                if (_showClearZone)
+                  Positioned(
+                    bottom: bottomNavHeight + safeAreaBottom + 30, // Always above footer with proper spacing
+                    left: screenSize.width * 0.4, // Near center, slightly left
+                    child: ScaleTransition(
+                      scale: _clearZoneScale,
+                      child: FadeTransition(
+                        opacity: _clearZoneOpacity,
+                        child: Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            gradient: RadialGradient(
+                              colors: [
+                                (_isNearClearZone ? Colors.red.shade300 : Colors.red.shade400).withOpacity(0.3),
+                                (_isNearClearZone ? Colors.red.shade500 : Colors.red.shade600).withOpacity(0.5),
+                              ],
+                            ),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.red.withOpacity(_isNearClearZone ? 0.7 : 0.4),
+                              width: 2,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.red.withOpacity(_isNearClearZone ? 0.4 : 0.2),
+                                blurRadius: _isNearClearZone ? 25 : 15,
+                                spreadRadius: _isNearClearZone ? 3 : 1,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          child: Stack(
+                            children: [
+                              // Animated border pulse
+                              if (_isNearClearZone)
+                                Positioned.fill(
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: Colors.white.withOpacity(0.5),
+                                        width: 2,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+
+                              // X Icon
+                              Center(
+                                child: Transform.scale(
+                                  scale: _isNearClearZone ? 1.2 : 1.0,
+                                  child: Icon(
+                                    Icons.close,
+                                    color: Colors.white.withOpacity(_isNearClearZone ? 0.9 : 0.7),
+                                    size: 32,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                // ✅ ENHANCED: Improved drag hint with better positioning and text
+                if (_showDragHint)
+                  Positioned(
+                    left: _fabOffset.dx > screenSize.width / 2 ? _fabOffset.dx - 140 : _fabOffset.dx + 70,
+                    top: _fabOffset.dy - 10,
+                    child: FadeTransition(
+                      opacity: _dragHintOpacity,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.black.withOpacity(0.9),
+                              Colors.black.withOpacity(0.8),
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.3),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.swipe,
+                              color: Colors.white.withOpacity(0.9),
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Drag to clear cart',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Text(
+                                  'Drop on ❌ to delete all items',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.7),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w400,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                // ✅ SMOOTH: Draggable Cart Icon with multiple floating animations
+                Positioned(
+                  left: (_fabOffset.dx + _continuousFloatAnimation.value).clamp(0, screenSize.width - 60),
+                  top: (_fabOffset.dy + _smoothFloatAnimation.value).clamp(minTop, maxBottom), // ✅ Combined floating motions
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const CartScreen()),
+                      ).then((_) => _fetchCartData());
+                    },
+                    onPanStart: (details) {
+                      setState(() {
+                        _isDragging = true;
+                        _showClearZone = true;
+                        _showDragHint = false;
+                      });
+                      _clearZoneController.forward();
+                    },
+                    onPanUpdate: (details) {
+                      final newDx = details.globalPosition.dx - 30;
+                      final newDy = details.globalPosition.dy - 30;
+
+                      setState(() {
+                        _fabOffset = Offset(
+                          newDx.clamp(0, screenSize.width - 60),
+                          newDy.clamp(minTop, maxBottom), // Use the same maxBottom calculation
+                        );
+
+                        // Check if near clear zone
+                        _isNearClearZone = _isCartNearClearZone();
+                      });
+                    },
+                    onPanEnd: (details) {
+                      // Check if should clear cart
+                      if (_isNearClearZone) {
+                        _clearCart();
+                      }
+
+                      setState(() {
+                        _isDragging = false;
+                        _isNearClearZone = false;
+
+                        // Snap to nearest side with proper boundaries
+                        _fabOffset = Offset(
+                          _fabOffset.dx < screenSize.width / 2 ? 20 : screenSize.width - 80,
+                          _fabOffset.dy.clamp(minTop, maxBottom), // Use consistent boundary
+                        );
+                      });
+
+                      _clearZoneController.reverse();
+
+                      // Hide clear zone after delay
+                      Future.delayed(const Duration(milliseconds: 500), () {
+                        if (mounted) {
+                          setState(() => _showClearZone = false);
+                        }
+                      });
+                    },
+                    child: SlideTransition(
+                      position: _floatingCartSlide,
+                      child: ScaleTransition(
+                        scale: _floatingCartScale,
+                        child: Transform.scale(
+                          scale: _isDragging
+                              ? 1.2
+                              : (_bounceAnimation.value * _breathingAnimation.value * _continuousScaleAnimation.value), // ✅ Combined smooth scaling
+                          child: Container(
+                            height: 60,
+                            width: 60,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  _isNearClearZone
+                                      ? Colors.red.shade400
+                                      : (_colorAnimation.value ?? kPrimaryColor),
+                                  _isNearClearZone
+                                      ? Colors.red.shade600
+                                      : (_colorAnimation.value ?? kPrimaryColor).withOpacity(0.8),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: (_isNearClearZone
+                                      ? Colors.red.shade400
+                                      : (_colorAnimation.value ?? kPrimaryColor)).withOpacity(0.4),
+                                  blurRadius: _isDragging ? 20 : 15,
+                                  spreadRadius: _isDragging ? 4 : 2,
+                                  offset: Offset(0, _isDragging ? 8 : 6),
+                                ),
+                                BoxShadow(
+                                  color: Colors.white.withOpacity(0.2),
+                                  blurRadius: 8,
+                                  spreadRadius: -2,
+                                  offset: const Offset(-2, -2),
+                                ),
+                              ],
+                            ),
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                // ✅ SMOOTH: Cart Icon with subtle breathing animation
+                                Center(
+                                  child: Transform.scale(
+                                    scale: _breathingAnimation.value,
+                                    child: Icon(
+                                      _isNearClearZone ? Icons.delete : Icons.shopping_bag_rounded,
+                                      color: Colors.white,
+                                      size: 28,
+                                    ),
+                                  ),
+                                ),
+
+                                // Count badge
+                                if (!_isNearClearZone)
+                                  Positioned(
+                                    top: -8,
+                                    right: -8,
+                                    child: Transform.scale(
+                                      scale: _breathingAnimation.value,
+                                      child: Container(
+                                        height: 28,
+                                        width: 28,
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: [
+                                              Colors.white,
+                                              Colors.grey.shade100,
+                                            ],
+                                          ),
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: (_colorAnimation.value ?? kPrimaryColor).withOpacity(0.3),
+                                            width: 2,
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black.withOpacity(0.15),
+                                              blurRadius: 8,
+                                              offset: const Offset(0, 4),
+                                            ),
+                                          ],
+                                        ),
+                                        child: Center(
+                                          child: Text(
+                                            count > 99 ? '99+' : '$count',
+                                            style: TextStyle(
+                                              fontSize: count > 99 ? 9 : 12,
+                                              fontWeight: FontWeight.bold,
+                                              color: _colorAnimation.value ?? kPrimaryColor,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+
+                                // Ripple effect when dragging
+                                if (_isDragging)
+                                  Positioned.fill(
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: Colors.white.withOpacity(0.3),
+                                          width: 2,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     for (final c in _controllers.values) {
@@ -933,8 +1170,12 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
     _floatingCartController.dispose();
     _fadeController.dispose();
-    _pulseController.dispose();
+    _smoothFloatController.dispose();
+    _breathingController.dispose();
     _bounceController.dispose();
+    _clearZoneController.dispose();
+    _dragHintController.dispose();
+    _continuousFloatController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -972,7 +1213,7 @@ class _OrdersScreenState extends State<OrdersScreen>
               ],
             ),
 
-            // Premium Floating cart
+            // ✅ SMOOTH: Premium Floating cart with enhanced animations
             _buildFloatingCart(),
           ],
         ),

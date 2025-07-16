@@ -16,7 +16,7 @@ class ApplyCouponScreen extends StatefulWidget {
   State<ApplyCouponScreen> createState() => _ApplyCouponScreenState();
 }
 
-class _ApplyCouponScreenState extends State<ApplyCouponScreen> {
+class _ApplyCouponScreenState extends State<ApplyCouponScreen> with TickerProviderStateMixin {
   final supabase = Supabase.instance.client;
   final TextEditingController _couponController = TextEditingController();
 
@@ -25,10 +25,41 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen> {
   bool _isLoading = true;
   bool _isApplying = false;
 
+  // ✅ Animation controllers
+  late AnimationController _slideController;
+  late AnimationController _fadeController;
+  late Animation<Offset> _slideAnimation;
+  late Animation<double> _fadeAnimation;
+
   @override
   void initState() {
     super.initState();
     _loadCoupons();
+    _initializeAnimations();
+  }
+
+  void _initializeAnimations() {
+    _slideController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.3),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _slideController, curve: Curves.easeOutCubic));
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _fadeController, curve: Curves.easeIn),
+    );
+
+    _slideController.forward();
+    _fadeController.forward();
   }
 
   Future<void> _loadCoupons() async {
@@ -138,6 +169,28 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen> {
     return true;
   }
 
+  // ✅ Tag colors based on database tag value
+  List<Color> _getTagColorsFromDB(String tag) {
+    switch (tag.toUpperCase()) {
+      case 'NEW':
+        return [Colors.green.shade600, Colors.green.shade500];
+      case 'EXCLUSIVE':
+        return [Colors.purple.shade600, Colors.purple.shade500];
+      case 'LIMITED':
+        return [Colors.red.shade600, Colors.red.shade500];
+      case 'MEGA DEAL':
+        return [Colors.orange.shade600, Colors.orange.shade500];
+      case 'HOT':
+        return [Colors.pink.shade600, Colors.pink.shade500];
+      case 'POPULAR':
+        return [Colors.blue.shade600, Colors.blue.shade500];
+      case 'TRENDING':
+        return [Colors.teal.shade600, Colors.teal.shade500];
+      default:
+        return [Colors.grey.shade600, Colors.grey.shade500];
+    }
+  }
+
   double _calculateDiscount(Map<String, dynamic> coupon) {
     double discount = 0.0;
 
@@ -162,280 +215,303 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(message),
-          backgroundColor: Colors.red,
+          content: Row(
+            children: [
+              const Icon(Icons.error_outline, color: Colors.white, size: 20),
+              const SizedBox(width: 8),
+              Expanded(child: Text(message)),
+            ],
+          ),
+          backgroundColor: Colors.red.shade600,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
         ),
       );
     }
   }
 
   @override
+  void dispose() {
+    _couponController.dispose();
+    _slideController.dispose();
+    _fadeController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Colors.white,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                kPrimaryColor,
+                kPrimaryColor.withOpacity(0.8),
+              ],
+            ),
+          ),
+        ),
         automaticallyImplyLeading: true,
         title: const Text(
           "Apply Coupon",
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.w600),
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+            fontSize: 18,
+          ),
         ),
-        iconTheme: const IconThemeData(color: Colors.black),
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Coupon Code Input
-              Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade200),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _couponController,
-                        decoration: const InputDecoration(
-                          hintText: 'Enter coupon code',
-                          hintStyle: TextStyle(color: Colors.grey),
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          : FadeTransition(
+        opacity: _fadeAnimation,
+        child: SlideTransition(
+          position: _slideAnimation,
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ✅ COMPACT: Coupon Code Input
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: kPrimaryColor.withOpacity(0.2)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
                         ),
-                        textCapitalization: TextCapitalization.characters,
-                      ),
+                      ],
                     ),
-                    Padding(
-                      padding: const EdgeInsets.all(4),
-                      child: ElevatedButton(
-                        onPressed: _isApplying
-                            ? null
-                            : () => _applyCoupon(_couponController.text),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: kPrimaryColor,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _couponController,
+                            decoration: InputDecoration(
+                              hintText: 'Enter coupon code',
+                              hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+                              border: InputBorder.none,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              prefixIcon: Icon(Icons.local_offer_outlined, color: kPrimaryColor, size: 20),
+                            ),
+                            textCapitalization: TextCapitalization.characters,
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                           ),
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                         ),
-                        child: _isApplying
-                            ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: ElevatedButton(
+                            onPressed: _isApplying
+                                ? null
+                                : () => _applyCoupon(_couponController.text),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: kPrimaryColor,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              elevation: 2,
+                            ),
+                            child: _isApplying
+                                ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                                : const Text(
+                              'Apply',
+                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                            ),
                           ),
-                        )
-                            : const Text('Apply'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              // Gift Voucher Section
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade200),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.shade100,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        Icons.card_giftcard,
-                        color: Colors.orange.shade800,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Text(
-                        'Gift Voucher',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
                         ),
-                      ),
+                      ],
                     ),
-                    TextButton(
-                      onPressed: () {
-                        // Handle gift voucher redemption
-                      },
-                      child: Text(
-                        'Redeem',
-                        style: TextStyle(
-                          color: kPrimaryColor,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // ✅ COMPACT: Top Coupons Section
+                  if (_topCoupons.isNotEmpty) ...[
+                    _buildSectionHeader('⭐ Featured Coupons', Icons.star_rounded),
+                    const SizedBox(height: 12),
+
+                    ...(_topCoupons.map((coupon) => _buildCompactCouponCard(coupon, true))),
+
+                    const SizedBox(height: 20),
                   ],
-                ),
+
+                  // ✅ COMPACT: More Coupons Section
+                  if (_coupons.where((c) => c['is_featured'] != true).isNotEmpty) ...[
+                    _buildSectionHeader('🎟️ More Coupons', Icons.local_offer_rounded),
+                    const SizedBox(height: 12),
+
+                    ...(_coupons.where((c) => c['is_featured'] != true).map((coupon) => _buildCompactCouponCard(coupon, false))),
+                  ],
+
+                  const SizedBox(height: 20),
+                ],
               ),
-
-              const SizedBox(height: 24),
-
-              // Top Coupons Section
-              if (_topCoupons.isNotEmpty) ...[
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Top Coupons for You',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Icon(
-                      Icons.keyboard_arrow_up,
-                      color: Colors.grey.shade600,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                ...(_topCoupons.map((coupon) => _buildCouponCard(coupon, true))),
-
-                const SizedBox(height: 24),
-              ],
-
-              // More Coupons Section
-              if (_coupons.where((c) => c['is_featured'] != true).isNotEmpty) ...[
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'More Coupons',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Icon(
-                      Icons.keyboard_arrow_up,
-                      color: Colors.grey.shade600,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                ...(_coupons.where((c) => c['is_featured'] != true).map((coupon) => _buildCouponCard(coupon, false))),
-              ],
-            ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildCouponCard(Map<String, dynamic> coupon, bool isTop) {
+  // ✅ COMPACT: Section Header
+  Widget _buildSectionHeader(String title, IconData icon) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [kPrimaryColor.withOpacity(0.1), kPrimaryColor.withOpacity(0.05)],
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: kPrimaryColor, size: 18),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ✅ COMPACT: Much more compact coupon card
+  Widget _buildCompactCouponCard(Map<String, dynamic> coupon, bool isFeatured) {
     final isEligible = _isCouponEligible(coupon);
 
+    // Dynamic colors based on discount type
+    Color accentColor;
+    if (coupon['discount_type'] == 'percentage') {
+      accentColor = Colors.purple.shade600;
+    } else {
+      accentColor = Colors.green.shade600;
+    }
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isEligible ? kPrimaryColor.withOpacity(0.3) : Colors.grey.shade200,
-          width: 1.5,
+          color: isEligible ? accentColor.withOpacity(0.3) : Colors.grey.shade200,
+          width: 1,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.shade100,
-            blurRadius: 4,
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
             offset: const Offset(0, 2),
           ),
         ],
       ),
       child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.all(16),
+          Padding(
+            padding: const EdgeInsets.all(12),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Color indicator
+                // ✅ COMPACT: Color indicator + icon
                 Container(
-                  width: 4,
-                  height: 60,
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: isEligible ? kPrimaryColor : Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
+                    gradient: LinearGradient(
+                      colors: [
+                        accentColor.withOpacity(0.1),
+                        accentColor.withOpacity(0.05),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.local_offer_rounded,
+                    color: accentColor,
+                    size: 18,
                   ),
                 ),
                 const SizedBox(width: 12),
 
-                // Coupon details
+                // ✅ COMPACT: Coupon details
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
                             coupon['code'],
                             style: TextStyle(
-                              fontSize: 16,
+                              fontSize: 14,
                               fontWeight: FontWeight.bold,
-                              color: isEligible ? kPrimaryColor : Colors.grey.shade600,
+                              color: isEligible ? accentColor : Colors.grey.shade600,
                             ),
                           ),
-                          if (coupon['is_featured'] == true)
+                          const SizedBox(width: 6),
+                          if (coupon['tag'] != null && coupon['tag'].toString().isNotEmpty)
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
-                                color: Colors.orange,
+                                gradient: LinearGradient(
+                                  colors: _getTagColorsFromDB(coupon['tag']),
+                                ),
                                 borderRadius: BorderRadius.circular(4),
                               ),
-                              child: const Text(
-                                'EXCLUSIVE',
-                                style: TextStyle(
+                              child: Text(
+                                coupon['tag'].toString().toUpperCase(),
+                                style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 10,
+                                  fontSize: 8,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ),
                         ],
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 4),
                       Text(
                         coupon['description'] ?? '',
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 12,
                           color: Colors.grey.shade600,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                       if (coupon['minimum_order_value'] != null) ...[
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 2),
                         Text(
-                          'Minimum order: ₹${coupon['minimum_order_value'].toStringAsFixed(0)}',
+                          'Min order: ₹${coupon['minimum_order_value'].toStringAsFixed(0)}',
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 10,
                             color: Colors.grey.shade500,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ],
@@ -443,25 +519,29 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen> {
                   ),
                 ),
 
-                // Apply button
-                ElevatedButton(
-                  onPressed: isEligible && !_isApplying
-                      ? () => _applyCoupon(coupon['code'])
-                      : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: isEligible ? kPrimaryColor : Colors.grey.shade300,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+                // ✅ COMPACT: Apply button
+                Container(
+                  height: 32,
+                  child: ElevatedButton(
+                    onPressed: isEligible && !_isApplying
+                        ? () => _applyCoupon(coupon['code'])
+                        : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isEligible ? accentColor : Colors.grey.shade300,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      elevation: isEligible ? 2 : 0,
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  ),
-                  child: Text(
-                    'Apply',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: isEligible ? Colors.white : Colors.grey.shade600,
+                    child: Text(
+                      'Apply',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: isEligible ? Colors.white : Colors.grey.shade600,
+                      ),
                     ),
                   ),
                 ),
@@ -469,10 +549,11 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen> {
             ),
           ),
 
-          // Brand logo (if available)
+          // ✅ COMPACT: Brand logo (if available) - much smaller
           if (coupon['brand_logo'] != null)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              height: 20,
+              padding: const EdgeInsets.only(bottom: 8, right: 12),
               decoration: BoxDecoration(
                 color: Colors.grey.shade50,
                 borderRadius: const BorderRadius.only(
@@ -485,8 +566,8 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen> {
                 children: [
                   Image.network(
                     coupon['brand_logo'],
-                    height: 20,
-                    width: 60,
+                    height: 12,
+                    width: 40,
                     fit: BoxFit.contain,
                     errorBuilder: (_, __, ___) => const SizedBox(),
                   ),
@@ -523,11 +604,5 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen> {
     }
 
     return true;
-  }
-
-  @override
-  void dispose() {
-    _couponController.dispose();
-    super.dispose();
   }
 }

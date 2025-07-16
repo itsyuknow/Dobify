@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'colors.dart';
 import 'review_cart_screen.dart';
-import '../utils/globals.dart'; // ✅ Added for global cart count
+import '../utils/globals.dart';
 
 class CartScreen extends StatefulWidget {
   const CartScreen({super.key});
@@ -13,10 +13,14 @@ class CartScreen extends StatefulWidget {
 
 class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   final supabase = Supabase.instance.client;
-  List<Map<String, dynamic>> _groupedItems = [];
+  List<Map<String, dynamic>> _cartItems = [];
   bool _isLoading = true;
+  bool _isClearingCart = false;
 
-  // ✅ Animation controllers for premium UI
+  // Individual item loading states
+  Map<String, bool> _itemLoadingStates = {};
+
+  // Animation controllers
   late AnimationController _fadeController;
   late AnimationController _slideController;
   late Animation<double> _fadeAnimation;
@@ -56,14 +60,14 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     _slideController.forward();
   }
 
-  // ✅ FIXED: Updated to use user_id instead of id
+  // Simplified cart loading logic
   Future<void> _loadCart() async {
     print('🛒 Loading cart...');
     final user = supabase.auth.currentUser;
     if (user == null) {
       print('❌ No user found');
       setState(() {
-        _groupedItems = [];
+        _cartItems = [];
         _isLoading = false;
       });
       return;
@@ -77,50 +81,30 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       final response = await supabase
           .from('cart')
           .select()
-          .eq('user_id', user.id) // ✅ Fixed: Changed from 'id' to 'user_id'
-          .order('created_at');
+          .eq('user_id', user.id)
+          .order('created_at', ascending: true);
 
       print('📦 Cart response: $response');
-      final rawItems = List<Map<String, dynamic>>.from(response);
-
-      final Map<String, Map<String, dynamic>> groupedMap = {};
-      for (var item in rawItems) {
-        final key = "${item['product_name']}|${item['product_image']}|${item['service_type']}|${item['product_price']}|${item['service_price']}";
-        if (groupedMap.containsKey(key)) {
-          groupedMap[key]!['product_quantity'] += item['product_quantity'];
-          groupedMap[key]!['total_price'] += item['total_price'];
-          // Store multiple cart IDs for proper deletion
-          if (groupedMap[key]!['cart_ids'] == null) {
-            groupedMap[key]!['cart_ids'] = [groupedMap[key]!['id']];
-          }
-          groupedMap[key]!['cart_ids'].add(item['id']);
-        } else {
-          final newItem = Map<String, dynamic>.from(item);
-          newItem['cart_ids'] = [item['id']]; // Store cart ID for deletion
-          groupedMap[key] = newItem;
-        }
-      }
-
       setState(() {
-        _groupedItems = groupedMap.values.toList();
+        _cartItems = List<Map<String, dynamic>>.from(response);
         _isLoading = false;
       });
 
-      // ✅ Update global cart count
       await _updateGlobalCartCount();
-      print('✅ Cart loaded: ${_groupedItems.length} unique items');
+      print('✅ Cart loaded: ${_cartItems.length} items');
 
     } catch (e) {
       print('❌ Error loading cart: $e');
       setState(() {
-        _groupedItems = [];
+        _cartItems = [];
         _isLoading = false;
       });
+      _showSnackBar('Failed to load cart', Colors.red);
       _updateGlobalCartCount();
     }
   }
 
-  // ✅ Update global cart count for app-wide sync
+  // Update global cart count
   Future<void> _updateGlobalCartCount() async {
     final user = supabase.auth.currentUser;
     if (user == null) {
@@ -132,7 +116,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       final response = await supabase
           .from('cart')
           .select('product_quantity')
-          .eq('user_id', user.id); // ✅ Fixed: Changed from 'id' to 'user_id'
+          .eq('user_id', user.id);
 
       final items = List<Map<String, dynamic>>.from(response);
       final totalCount = items.fold<int>(
@@ -148,113 +132,182 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     }
   }
 
+  // Calculate total cart value
   double get totalCartValue {
-    return _groupedItems.fold(0.0, (sum, item) => sum + ((item['total_price'] ?? 0).toDouble()));
+    return _cartItems.fold(0.0, (sum, item) => sum + ((item['total_price'] ?? 0).toDouble()));
   }
 
+  // Clear entire cart
+  Future<void> _clearCart() async {
+    final confirmed = await _showClearCartDialog();
+    if (!confirmed) return;
+
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      setState(() {
+        _isClearingCart = true;
+      });
+
+      await supabase
+          .from('cart')
+          .delete()
+          .eq('user_id', user.id);
+
+      setState(() {
+        _cartItems.clear();
+        _isClearingCart = false;
+      });
+
+      await _updateGlobalCartCount();
+      _showSnackBar('Cart cleared successfully', Colors.green);
+
+    } catch (e) {
+      print('❌ Error clearing cart: $e');
+      setState(() {
+        _isClearingCart = false;
+      });
+      _showSnackBar('Failed to clear cart', Colors.red);
+    }
+  }
+
+  // Show clear cart confirmation dialog
+  Future<bool> _showClearCartDialog() async {
+    return await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+            SizedBox(width: 12),
+            Text('Clear Cart?'),
+          ],
+        ),
+        content: Text('Are you sure you want to remove all items from your cart?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Text('Clear', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    ) ?? false;
+  }
+
+  // Update quantity with simplified logic
+  Future<void> _updateQuantity(Map<String, dynamic> item, int delta) async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+
+    final itemId = item['id'].toString();
+    final currentQuantity = item['product_quantity'] as int;
+    final newQuantity = currentQuantity + delta;
+
+    print('🔄 Updating quantity for ${item['product_name']} by $delta');
+
+    if (newQuantity <= 0) {
+      await _removeItem(item);
+      return;
+    }
+
+    try {
+      setState(() {
+        _itemLoadingStates[itemId] = true;
+      });
+
+      final unitPrice = (item['product_price'] ?? 0).toDouble() +
+          (item['service_price'] ?? 0).toDouble();
+      final newTotalPrice = newQuantity * unitPrice;
+
+      await supabase
+          .from('cart')
+          .update({
+        'product_quantity': newQuantity,
+        'total_price': newTotalPrice,
+        'updated_at': DateTime.now().toIso8601String(),
+      })
+          .eq('id', item['id']);
+
+      // Update local state immediately
+      setState(() {
+        final itemIndex = _cartItems.indexWhere((cartItem) => cartItem['id'] == item['id']);
+        if (itemIndex != -1) {
+          _cartItems[itemIndex]['product_quantity'] = newQuantity;
+          _cartItems[itemIndex]['total_price'] = newTotalPrice;
+        }
+        _itemLoadingStates.remove(itemId);
+      });
+
+      await _updateGlobalCartCount();
+      _showSnackBar('Quantity updated', Colors.green);
+
+    } catch (e) {
+      print('❌ Error updating quantity: $e');
+      setState(() {
+        _itemLoadingStates.remove(itemId);
+      });
+      _showSnackBar('Failed to update quantity', Colors.red);
+    }
+  }
+
+  // Remove single item
+  Future<void> _removeItem(Map<String, dynamic> item) async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      await supabase
+          .from('cart')
+          .delete()
+          .eq('id', item['id']);
+
+      setState(() {
+        _cartItems.removeWhere((cartItem) => cartItem['id'] == item['id']);
+      });
+
+      await _updateGlobalCartCount();
+      _showSnackBar('Item removed from cart', Colors.orange);
+
+    } catch (e) {
+      print('❌ Error removing item: $e');
+      _showSnackBar('Failed to remove item', Colors.red);
+    }
+  }
+
+  // Proceed to checkout
   void _onProceedPressed() {
     if (_isLoading) {
       _showSnackBar("Cart is still loading...", Colors.orange);
       return;
     }
 
-    if (_groupedItems.isEmpty) {
+    if (_cartItems.isEmpty) {
       _showSnackBar("Your cart is empty!", Colors.red);
       return;
     }
 
-    print('🚀 Proceeding to checkout with ${_groupedItems.length} items');
+    print('🚀 Proceeding to checkout with ${_cartItems.length} items');
     print('💰 Total value: ₹${totalCartValue.toStringAsFixed(2)}');
 
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => ReviewCartScreen(
-          cartItems: List<Map<String, dynamic>>.from(_groupedItems),
+          cartItems: List<Map<String, dynamic>>.from(_cartItems),
           subtotal: totalCartValue,
         ),
       ),
     );
-  }
-
-  // ✅ COMPLETELY REWRITTEN: Fixed quantity update logic
-  Future<void> _updateQuantity(Map<String, dynamic> item, int delta) async {
-    final user = supabase.auth.currentUser;
-    if (user == null) return;
-
-    print('🔄 Updating quantity for ${item['product_name']} by $delta');
-
-    try {
-      // Show loading state
-      setState(() {
-        _isLoading = true;
-      });
-
-      // Get current quantity
-      final currentQuantity = item['product_quantity'] as int;
-      final newQuantity = currentQuantity + delta;
-
-      print('📊 Current: $currentQuantity, New: $newQuantity');
-
-      // Get all cart items that match this product
-      final response = await supabase
-          .from('cart')
-          .select()
-          .eq('user_id', user.id) // ✅ Fixed: Changed from 'id' to 'user_id'
-          .eq('product_name', item['product_name'])
-          .eq('service_type', item['service_type'])
-          .eq('product_price', item['product_price'])
-          .eq('service_price', item['service_price']);
-
-      final matchingItems = List<Map<String, dynamic>>.from(response);
-      print('🔍 Found ${matchingItems.length} matching cart items');
-
-      // Delete all existing items of this type
-      for (var cartItem in matchingItems) {
-        await supabase
-            .from('cart')
-            .delete()
-            .eq('id', cartItem['id']);
-      }
-      print('🗑️ Deleted existing items');
-
-      // If new quantity is positive, insert new item
-      if (newQuantity > 0) {
-        final unitPrice = (item['product_price'] ?? 0).toDouble() + (item['service_price'] ?? 0).toDouble();
-        final newTotalPrice = newQuantity * unitPrice;
-
-        await supabase.from('cart').insert({
-          'user_id': user.id, // ✅ Fixed: Changed from 'id' to 'user_id'
-          'product_name': item['product_name'],
-          'product_image': item['product_image'],
-          'product_price': item['product_price'],
-          'service_type': item['service_type'],
-          'service_price': item['service_price'],
-          'product_quantity': newQuantity,
-          'total_price': newTotalPrice,
-          'created_at': DateTime.now().toIso8601String(),
-        });
-        print('✅ Inserted new item with quantity: $newQuantity');
-      }
-
-      // Reload cart and update global count
-      await _loadCart();
-
-      // Show success feedback
-      _showSnackBar(
-        newQuantity <= 0
-            ? 'Item removed from cart'
-            : 'Quantity updated to $newQuantity',
-        newQuantity <= 0 ? Colors.red : Colors.green,
-      );
-
-    } catch (e) {
-      print('❌ Error updating quantity: $e');
-      setState(() {
-        _isLoading = false;
-      });
-      _showSnackBar('Failed to update quantity', Colors.red);
-    }
   }
 
   void _showSnackBar(String message, Color color) {
@@ -264,7 +317,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
           children: [
             Icon(
               color == Colors.green ? Icons.check_circle :
-              color == Colors.red ? Icons.error : Icons.info,
+              color == Colors.red ? Icons.error :
+              color == Colors.orange ? Icons.warning : Icons.info,
               color: Colors.white,
               size: 20,
             ),
@@ -292,19 +346,21 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
           position: _slideAnimation,
           child: _isLoading
               ? _buildLoadingState()
-              : _groupedItems.isEmpty
+              : _cartItems.isEmpty
               ? _buildEmptyState()
               : Column(
             children: [
+              // Swipe hint
+              if (_cartItems.isNotEmpty) _buildSwipeHint(),
               Expanded(
                 child: ListView.builder(
                   padding: const EdgeInsets.all(16),
-                  itemCount: _groupedItems.length,
+                  itemCount: _cartItems.length,
                   itemBuilder: (context, index) {
                     return AnimatedContainer(
                       duration: Duration(milliseconds: 300 + (index * 100)),
                       curve: Curves.easeOutCubic,
-                      child: _buildCartItem(_groupedItems[index]),
+                      child: _buildDismissibleCartItem(_cartItems[index]),
                     );
                   },
                 ),
@@ -314,6 +370,99 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSwipeHint() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.orange.withOpacity(0.1), Colors.red.withOpacity(0.1)],
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.swipe, color: Colors.orange, size: 20),
+          SizedBox(width: 8),
+          Text(
+            "Swipe left on any item to remove it",
+            style: TextStyle(
+              color: Colors.orange.shade700,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          Spacer(),
+          Icon(Icons.delete_sweep, color: Colors.red.withOpacity(0.7), size: 18),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDismissibleCartItem(Map<String, dynamic> item) {
+    return Dismissible(
+      key: Key(item['id'].toString()),
+      direction: DismissDirection.endToStart,
+      onDismissed: (direction) {
+        _removeItem(item);
+      },
+      confirmDismiss: (direction) async {
+        return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Text('Remove Item?'),
+            content: Text('Remove "${item['product_name']}" from your cart?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                child: Text('Remove', style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+        ) ?? false;
+      },
+      background: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.red.withOpacity(0.8), Colors.red],
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+          ),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.delete, color: Colors.white, size: 28),
+            SizedBox(height: 4),
+            Text(
+              'Remove',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+      child: _buildCartItem(item),
     );
   }
 
@@ -399,7 +548,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
             ),
             child: const Text(
               "Continue Shopping",
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
             ),
           ),
         ],
@@ -449,6 +598,22 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         ],
       ),
       actions: [
+        // Clear cart button
+        if (_cartItems.isNotEmpty)
+          IconButton(
+            onPressed: _isClearingCart ? null : _clearCart,
+            icon: _isClearingCart
+                ? SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 2,
+              ),
+            )
+                : const Icon(Icons.delete_sweep, color: Colors.white),
+            tooltip: 'Clear Cart',
+          ),
         IconButton(
           onPressed: _loadCart,
           icon: const Icon(Icons.refresh_rounded, color: Colors.white),
@@ -532,6 +697,9 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildCartItem(Map<String, dynamic> item) {
+    final itemId = item['id'].toString();
+    final isItemLoading = _itemLoadingStates[itemId] ?? false;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
@@ -621,18 +789,22 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
             const SizedBox(width: 12),
 
-            // Quantity Controls
+            // Compact Quantity Controls
             Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+                  colors: isItemLoading
+                      ? [Colors.grey.shade400, Colors.grey.shade300]
+                      : [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
                 ),
-                borderRadius: BorderRadius.circular(25),
+                borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: kPrimaryColor.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
+                    color: isItemLoading
+                        ? Colors.grey.withOpacity(0.3)
+                        : kPrimaryColor.withOpacity(0.3),
+                    blurRadius: 6,
+                    offset: const Offset(0, 3),
                   ),
                 ],
               ),
@@ -642,13 +814,23 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                   _buildQuantityButton(
                     icon: Icons.remove,
                     onTap: () => _updateQuantity(item, -1),
+                    isLoading: isItemLoading,
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: Text(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    child: isItemLoading
+                        ? SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                        : Text(
                       '${item['product_quantity']}',
                       style: const TextStyle(
-                        fontSize: 16,
+                        fontSize: 14,
                         color: Colors.white,
                         fontWeight: FontWeight.w700,
                       ),
@@ -657,6 +839,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                   _buildQuantityButton(
                     icon: Icons.add,
                     onTap: () => _updateQuantity(item, 1),
+                    isLoading: isItemLoading,
                   ),
                 ],
               ),
@@ -670,19 +853,20 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
   Widget _buildQuantityButton({
     required IconData icon,
     required VoidCallback onTap,
+    required bool isLoading,
   }) {
     return GestureDetector(
-      onTap: _isLoading ? null : onTap,
+      onTap: isLoading ? null : onTap,
       child: Container(
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
           color: Colors.white.withOpacity(0.2),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(16),
         ),
         child: Icon(
           icon,
           color: Colors.white,
-          size: 20,
+          size: 16,
         ),
       ),
     );

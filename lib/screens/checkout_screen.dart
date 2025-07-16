@@ -345,7 +345,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> with TickerProviderStat
   void _openRazorpay() {
     final values = _calculateValues();
     var options = {
-      'key': 'rzp_test_rlTCKVx6XrfqtS',
+        'key': 'rzp_test_rlTCKVx6XrfqtS',
       'amount': (values['total']! * 100).toInt(),
       'name': 'IronXpress',
       'description': 'Ironing Service Payment',

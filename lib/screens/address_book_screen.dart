@@ -252,12 +252,7 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
           : addresses.isEmpty
           ? _buildEmptyState()
           : _buildAddressList(),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openAddAddressScreen(),
-        backgroundColor: kPrimaryColor,
-        icon: const Icon(Icons.add),
-        label: const Text('Add Address'),
-      ),
+      // ✅ REMOVED: Floating Action Button completely removed
     );
   }
 
@@ -1276,29 +1271,37 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
               border: Border(top: BorderSide(color: Colors.grey.shade200)),
               color: Colors.white,
             ),
-            child: ElevatedButton(
-              onPressed: isLoading ? null : _saveAddress,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: kPrimaryColor,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+            child: SizedBox(
+              width: double.infinity,
+              height: 60, // ✅ MADE BIGGER: Increased height
+              child: ElevatedButton(
+                onPressed: isLoading ? null : _saveAddress,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: kPrimaryColor,
+                  padding: const EdgeInsets.symmetric(vertical: 18), // ✅ MADE BIGGER: Increased padding
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(30), // ✅ MORE ROUNDED: Changed from 8 to 30
+                  ),
+                  elevation: 8, // ✅ ENHANCED: Added elevation for better appearance
+                  shadowColor: kPrimaryColor.withOpacity(0.3),
                 ),
-              ),
-              child: isLoading
-                  ? const SizedBox(
-                height: 20,
-                width: 20,
-                child: CircularProgressIndicator(
-                  color: Colors.white,
-                  strokeWidth: 2,
-                ),
-              )
-                  : Text(
-                widget.existingAddress != null ? 'Update Address' : 'Save Address',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
+                child: isLoading
+                    ? const SizedBox(
+                  height: 24, // ✅ MADE BIGGER: Increased loading indicator size
+                  width: 24,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 3,
+                  ),
+                )
+                    : Text(
+                  widget.existingAddress != null ? 'Update Address' : 'Save Address',
+                  style: const TextStyle(
+                    fontSize: 18, // ✅ MADE BIGGER: Increased font size
+                    fontWeight: FontWeight.w700, // ✅ ENHANCED: Made font bolder
+                    color: Colors.white,
+                    letterSpacing: 0.5, // ✅ ENHANCED: Added letter spacing
+                  ),
                 ),
               ),
             ),

@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 import 'colors.dart';
 import 'address_book_screen.dart';
+import 'order_success_screen.dart';
 
 class SlotSelectorScreen extends StatefulWidget {
   final double totalAmount;
@@ -22,7 +23,7 @@ class SlotSelectorScreen extends StatefulWidget {
   State<SlotSelectorScreen> createState() => _SlotSelectorScreenState();
 }
 
-class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
+class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProviderStateMixin {
   final supabase = Supabase.instance.client;
 
   bool isExpressDelivery = false;
@@ -37,9 +38,18 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
   List<Map<String, dynamic>> deliverySlots = [];
   bool isLoadingSlots = true;
 
+  // Billing settings
+  double minimumCartFee = 100.0;
+  double platformFee = 0.0;
+  double serviceTaxPercent = 0.0;
   double expressDeliveryFee = 0.0;
   double standardDeliveryFee = 0.0;
   bool isLoadingBillingSettings = true;
+  bool _isBillingSummaryExpanded = false;
+
+  // Animation controllers
+  late AnimationController _billingAnimationController;
+  late Animation<double> _billingExpandAnimation;
 
   int currentStep = 0; // 0: pickup date/slot, 1: delivery date/slot
 
@@ -50,7 +60,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
   late List<DateTime> pickupDates;
   late List<DateTime> deliveryDates;
 
-  // ✅ NEW: Payment related variables
+  // Payment related variables
   String _selectedPaymentMethod = 'online'; // Default to online
   bool _isProcessingPayment = false;
   late Razorpay _razorpay;
@@ -63,17 +73,30 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
     _loadSlots();
     _loadDefaultAddress();
     _initializeRazorpay();
+    _initializeAnimations();
+  }
+
+  void _initializeAnimations() {
+    _billingAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _billingExpandAnimation = CurvedAnimation(
+      parent: _billingAnimationController,
+      curve: Curves.easeInOut,
+    );
   }
 
   @override
   void dispose() {
     _pickupDateScrollController.dispose();
     _deliveryDateScrollController.dispose();
+    _billingAnimationController.dispose();
     _razorpay.clear();
     super.dispose();
   }
 
-  // ✅ NEW: Initialize Razorpay
+  // Initialize Razorpay
   void _initializeRazorpay() {
     _razorpay = Razorpay();
     _razorpay.on(Razorpay.EVENT_PAYMENT_SUCCESS, _handlePaymentSuccess);
@@ -81,7 +104,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
     _razorpay.on(Razorpay.EVENT_EXTERNAL_WALLET, _handleExternalWallet);
   }
 
-  // ✅ NEW: Razorpay Event Handlers
+  // Razorpay Event Handlers
   void _handlePaymentSuccess(PaymentSuccessResponse response) {
     print('✅ Payment Success: ${response.paymentId}');
     _processOrderCompletion(paymentId: response.paymentId);
@@ -127,6 +150,9 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
     try {
       final response = await supabase.from('billing_settings').select().single();
       setState(() {
+        minimumCartFee = response['minimum_cart_fee']?.toDouble() ?? 100.0;
+        platformFee = response['platform_fee']?.toDouble() ?? 0.0;
+        serviceTaxPercent = response['service_tax_percent']?.toDouble() ?? 0.0;
         expressDeliveryFee = response['express_delivery_fee']?.toDouble() ?? 0.0;
         standardDeliveryFee = response['standard_delivery_fee']?.toDouble() ?? 0.0;
         isLoadingBillingSettings = false;
@@ -200,10 +226,71 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
     }
   }
 
+  // Calculate billing breakdown
+  Map<String, double> _calculateBilling() {
+    double subtotal = widget.cartItems.fold(0.0, (sum, item) {
+      return sum + (item['total_price']?.toDouble() ?? 0.0);
+    });
+
+    // Minimum cart fee logic
+    double minCartFeeApplied = subtotal < minimumCartFee ? (minimumCartFee - subtotal) : 0.0;
+
+    // Adjusted subtotal after minimum cart fee
+    double adjustedSubtotal = subtotal + minCartFeeApplied;
+
+    // Service tax calculation (on subtotal only)
+    double serviceTax = (subtotal * serviceTaxPercent) / 100;
+
+    // Delivery fee based on selection
+    double deliveryFee = isExpressDelivery ? expressDeliveryFee : standardDeliveryFee;
+
+    // Total amount
+    double totalAmount = adjustedSubtotal + platformFee + serviceTax + deliveryFee - widget.discount;
+
+    return {
+      'subtotal': subtotal,
+      'minimumCartFee': minCartFeeApplied,
+      'platformFee': platformFee,
+      'serviceTax': serviceTax,
+      'deliveryFee': deliveryFee,
+      'discount': widget.discount,
+      'totalAmount': totalAmount,
+    };
+  }
+
   double _calculateTotalAmount() {
-    double baseAmount = widget.totalAmount;
-    double deliveryFee = isExpressDelivery ? (expressDeliveryFee - standardDeliveryFee) : 0.0;
-    return baseAmount + deliveryFee - widget.discount;
+    final billing = _calculateBilling();
+    return billing['totalAmount']!;
+  }
+
+  // Save billing details to Supabase
+  Future<void> _saveBillingDetails(String orderId) async {
+    try {
+      final user = supabase.auth.currentUser;
+      if (user == null) return;
+
+      final billing = _calculateBilling();
+
+      await supabase.from('order_billing_details').insert({
+        'order_id': orderId,
+        'user_id': user.id,
+        'subtotal': billing['subtotal'],
+        'minimum_cart_fee': billing['minimumCartFee'],
+        'platform_fee': billing['platformFee'],
+        'service_tax': billing['serviceTax'],
+        'delivery_fee': billing['deliveryFee'],
+        'express_delivery_fee': expressDeliveryFee,
+        'standard_delivery_fee': standardDeliveryFee,
+        'discount_amount': billing['discount'],
+        'total_amount': billing['totalAmount'],
+        'delivery_type': isExpressDelivery ? 'express' : 'standard',
+        'applied_coupon_code': widget.appliedCouponCode,
+        'created_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+    } catch (e) {
+      print('Error saving billing details: $e');
+    }
   }
 
   void _onAddressSelected(Map<String, dynamic> address) {
@@ -255,14 +342,6 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
         ),
       ),
     );
-  }
-
-  int _parseTimeToHour(String timeString) {
-    try {
-      return int.parse(timeString.split(':')[0]);
-    } catch (e) {
-      return 0;
-    }
   }
 
   TimeOfDay _parseTimeString(String timeString) {
@@ -648,7 +727,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
     });
   }
 
-  // ✅ MODIFIED: Enhanced handleProceed with payment logic
+  // Enhanced handleProceed with payment logic
   void _handleProceed() {
     if (selectedAddress == null ||
         selectedPickupSlot == null ||
@@ -671,7 +750,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
     }
   }
 
-  // ✅ NEW: Initiate Razorpay payment
+  // Initiate Razorpay payment
   Future<void> _initiateOnlinePayment() async {
     setState(() {
       _isProcessingPayment = true;
@@ -684,10 +763,10 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
       final totalAmount = _calculateTotalAmount();
 
       final options = {
-        'key': 'rzp_test_your_key_here', // Replace with your Razorpay key
+        'key': 'rzp_test_rlTCKVx6XrfqtS', // Replace with your Razorpay key
         'amount': (totalAmount * 100).toInt(), // Amount in paise
         'name': 'ironXpress',
-        'description': 'Laundry Service Payment',
+        'description': 'Ironing Service Payment',
         'prefill': {
           'contact': user.phone ?? '',
           'email': user.email ?? '',
@@ -712,7 +791,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
     }
   }
 
-  // ✅ NEW: Process order completion (both online and COD)
+  // Process order completion (both online and COD)
   Future<void> _processOrderCompletion({String? paymentId}) async {
     setState(() {
       _isProcessingPayment = true;
@@ -761,14 +840,17 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
         });
       }
 
+      // Save billing details
+      await _saveBillingDetails(orderId);
+
       // Clear cart
       await supabase
           .from('cart')
           .delete()
           .eq('user_id', user.id);
 
-      // Show success animation and navigate
-      await _showOrderSuccessAnimation(orderId);
+      // Navigate to success screen
+      _navigateToSuccessScreen(orderId, paymentId);
 
     } catch (e) {
       setState(() {
@@ -784,16 +866,28 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
     }
   }
 
-  // ✅ NEW: Show order success animation
-  Future<void> _showOrderSuccessAnimation(String orderId) async {
-    await showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => OrderSuccessDialog(orderId: orderId),
+  // Navigate to success screen
+  void _navigateToSuccessScreen(String orderId, String? paymentId) {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => OrderSuccessScreen(
+          orderId: orderId,
+          totalAmount: _calculateTotalAmount(),
+          cartItems: widget.cartItems,
+          paymentMethod: _selectedPaymentMethod,
+          paymentId: paymentId,
+          appliedCouponCode: widget.appliedCouponCode,
+          discount: widget.discount,
+          selectedAddress: selectedAddress!,
+          pickupDate: selectedPickupDate,
+          pickupSlot: selectedPickupSlot!,
+          deliveryDate: selectedDeliveryDate,
+          deliverySlot: selectedDeliverySlot!,
+          isExpressDelivery: isExpressDelivery,
+        ),
+      ),
     );
-
-    // Navigate to home screen
-    Navigator.popUntil(context, (route) => route.isFirst);
   }
 
   @override
@@ -848,7 +942,11 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
                       if (selectedPickupSlot != null || selectedDeliverySlot != null)
                         _buildSelectionSummary(),
 
-                      // ✅ NEW: Payment Method Selection
+                      // Billing Summary Section
+                      if (selectedPickupSlot != null && selectedDeliverySlot != null)
+                        _buildBillingSummary(),
+
+                      // Payment Method Selection
                       if (selectedPickupSlot != null && selectedDeliverySlot != null)
                         _buildPaymentMethodSelection(),
 
@@ -899,7 +997,165 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
     );
   }
 
-  // ✅ NEW: Payment method selection widget
+  // Billing Summary Widget
+  Widget _buildBillingSummary() {
+    if (isLoadingBillingSettings) {
+      return Container(
+        margin: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(32),
+        child: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final billing = _calculateBilling();
+
+    return Container(
+      margin: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: kPrimaryColor.withOpacity(0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: kPrimaryColor.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Header
+          GestureDetector(
+            onTap: () {
+              setState(() {
+                _isBillingSummaryExpanded = !_isBillingSummaryExpanded;
+              });
+              if (_isBillingSummaryExpanded) {
+                _billingAnimationController.forward();
+              } else {
+                _billingAnimationController.reverse();
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: kPrimaryColor.withOpacity(0.05),
+                borderRadius: _isBillingSummaryExpanded
+                    ? const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
+                )
+                    : BorderRadius.circular(16),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: kPrimaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(Icons.receipt_long, color: kPrimaryColor, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Bill Summary',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                        ),
+                        Text(
+                          'Total: ₹${billing['totalAmount']!.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: kPrimaryColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: _isBillingSummaryExpanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 300),
+                    child: Icon(
+                      Icons.keyboard_arrow_down,
+                      color: kPrimaryColor,
+                      size: 24,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Expandable Content
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            height: _isBillingSummaryExpanded ? null : 0,
+            child: _isBillingSummaryExpanded
+                ? Container(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  _buildBillingRow('Subtotal', billing['subtotal']!),
+                  if (billing['minimumCartFee']! > 0)
+                    _buildBillingRow('Minimum Cart Fee', billing['minimumCartFee']!),
+                  _buildBillingRow('Platform Fee', billing['platformFee']!),
+                  _buildBillingRow('Service Tax', billing['serviceTax']!),
+                  _buildBillingRow(
+                      'Delivery Fee (${isExpressDelivery ? 'Express' : 'Standard'})',
+                      billing['deliveryFee']!
+                  ),
+                  if (billing['discount']! > 0)
+                    _buildBillingRow('Discount', -billing['discount']!, color: Colors.green),
+                  if (widget.appliedCouponCode != null)
+                    _buildBillingRow('Coupon Applied', 0.0,
+                        customValue: widget.appliedCouponCode!, color: Colors.green),
+                  const Divider(height: 20),
+                  _buildBillingRow('Total Amount', billing['totalAmount']!,
+                      isTotal: true, color: kPrimaryColor),
+                ],
+              ),
+            )
+                : const SizedBox.shrink(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBillingRow(String label, double amount, {bool isTotal = false, Color? color, String? customValue}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: isTotal ? 16 : 14,
+              fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+              color: color ?? Colors.black87,
+            ),
+          ),
+          Text(
+            customValue ?? '₹${amount.toStringAsFixed(2)}',
+            style: TextStyle(
+              fontSize: isTotal ? 16 : 14,
+              fontWeight: isTotal ? FontWeight.bold : FontWeight.w600,
+              color: color ?? Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Payment method selection widget
   Widget _buildPaymentMethodSelection() {
     return Container(
       margin: const EdgeInsets.all(16),
@@ -1147,6 +1403,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
       ),
     );
   }
+
   String _formatDate(DateTime date) {
     final now = DateTime.now();
     if (date.day == now.day && date.month == now.month && date.year == now.year) {
@@ -1492,11 +1749,35 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
             ],
           ),
           const SizedBox(height: 4),
-          Text(
-            isExpressDelivery
-                ? 'Faster Pick Up & Delivery Options'
-                : 'Standard delivery with regular timings',
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  isExpressDelivery
+                      ? 'Faster Pick Up & Delivery Options'
+                      : 'Choose Express Delivery for Quicker service',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+              ),
+              // Show express delivery fee when express is selected
+              if (isExpressDelivery && !isLoadingBillingSettings)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: kPrimaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: kPrimaryColor.withOpacity(0.3)),
+                  ),
+                  child: Text(
+                    '+₹${(expressDeliveryFee - standardDeliveryFee).toStringAsFixed(0)} extra',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: kPrimaryColor,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ],
       ),
@@ -1662,7 +1943,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
     );
   }
 
-  // ✅ MODIFIED: Enhanced bottom bar with payment button text
+  // Enhanced bottom bar with payment button text
   Widget _buildBottomBar() {
     double totalAmount = _calculateTotalAmount();
     bool canProceed = selectedAddress != null &&
@@ -1705,7 +1986,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
             ),
           ),
 
-          // ✅ Enhanced rounded button with payment functionality
+          // Enhanced rounded button with payment functionality
           Container(
             height: 50,
             child: ElevatedButton(
@@ -1714,7 +1995,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
                 backgroundColor: kPrimaryColor,
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(25), // ✅ Rounded button
+                  borderRadius: BorderRadius.circular(25), // Rounded button
                 ),
                 elevation: canProceed ? 8 : 0,
                 shadowColor: kPrimaryColor.withOpacity(0.3),
@@ -1764,772 +2045,6 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ✅ NEW: Premium Full-Screen Order Success Animation
-class OrderSuccessDialog extends StatefulWidget {
-  final String orderId;
-
-  const OrderSuccessDialog({super.key, required this.orderId});
-
-  @override
-  State<OrderSuccessDialog> createState() => _OrderSuccessDialogState();
-}
-
-class _OrderSuccessDialogState extends State<OrderSuccessDialog>
-    with TickerProviderStateMixin {
-  late AnimationController _mainController;
-  late AnimationController _checkController;
-  late AnimationController _textController;
-  late AnimationController _confettiController;
-  late AnimationController _pulseController;
-  late AnimationController _backgroundController;
-
-  // Background animations
-  late Animation<double> _backgroundFadeAnimation;
-  late Animation<double> _gradientAnimation;
-
-  // Main animations
-  late Animation<double> _cardScaleAnimation;
-  late Animation<Offset> _cardSlideAnimation;
-
-  // Check mark animations
-  late Animation<double> _checkScaleAnimation;
-  late Animation<double> _checkFadeAnimation;
-  late Animation<double> _checkRotationAnimation;
-
-  // Text animations
-  late Animation<Offset> _titleSlideAnimation;
-  late Animation<double> _titleFadeAnimation;
-  late Animation<Offset> _subtitleSlideAnimation;
-  late Animation<double> _subtitleFadeAnimation;
-  late Animation<Offset> _detailsSlideAnimation;
-  late Animation<double> _detailsFadeAnimation;
-
-  // Confetti and effects
-  late Animation<double> _confettiAnimation;
-  late Animation<double> _pulseAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _initializeAnimations();
-    _startAnimationSequence();
-  }
-
-  void _initializeAnimations() {
-    // Background controller for gradient effects
-    _backgroundController = AnimationController(
-      duration: const Duration(milliseconds: 3000),
-      vsync: this,
-    );
-
-    // Main controller for overall flow
-    _mainController = AnimationController(
-      duration: const Duration(milliseconds: 2500),
-      vsync: this,
-    );
-
-    // Check mark controller
-    _checkController = AnimationController(
-      duration: const Duration(milliseconds: 1500),
-      vsync: this,
-    );
-
-    // Text animations controller
-    _textController = AnimationController(
-      duration: const Duration(milliseconds: 2000),
-      vsync: this,
-    );
-
-    // Confetti controller
-    _confettiController = AnimationController(
-      duration: const Duration(milliseconds: 4000),
-      vsync: this,
-    );
-
-    // Pulse controller
-    _pulseController = AnimationController(
-      duration: const Duration(milliseconds: 1200),
-      vsync: this,
-    );
-
-    // Background animations
-    _backgroundFadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _mainController,
-      curve: const Interval(0.0, 0.4, curve: Curves.easeOut),
-    ));
-
-    _gradientAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _backgroundController,
-      curve: Curves.easeInOut,
-    ));
-
-    // Card animations
-    _cardScaleAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _mainController,
-      curve: const Interval(0.2, 0.8, curve: Curves.elasticOut),
-    ));
-
-    _cardSlideAnimation = Tween<Offset>(
-      begin: const Offset(0, 1.0),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _mainController,
-      curve: const Interval(0.2, 0.8, curve: Curves.easeOutCubic),
-    ));
-
-    // Check mark animations
-    _checkScaleAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _checkController,
-      curve: const Interval(0.0, 0.7, curve: Curves.elasticOut),
-    ));
-
-    _checkFadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _checkController,
-      curve: const Interval(0.0, 0.5, curve: Curves.easeIn),
-    ));
-
-    _checkRotationAnimation = Tween<double>(
-      begin: -0.8,
-      end: 0.0,
-    ).animate(CurvedAnimation(
-      parent: _checkController,
-      curve: const Interval(0.0, 0.7, curve: Curves.elasticOut),
-    ));
-
-    // Text animations
-    _titleSlideAnimation = Tween<Offset>(
-      begin: const Offset(0, 1.5),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _textController,
-      curve: const Interval(0.0, 0.5, curve: Curves.easeOutCubic),
-    ));
-
-    _titleFadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _textController,
-      curve: const Interval(0.0, 0.5, curve: Curves.easeIn),
-    ));
-
-    _subtitleSlideAnimation = Tween<Offset>(
-      begin: const Offset(0, 1.5),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _textController,
-      curve: const Interval(0.3, 0.7, curve: Curves.easeOutCubic),
-    ));
-
-    _subtitleFadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _textController,
-      curve: const Interval(0.3, 0.7, curve: Curves.easeIn),
-    ));
-
-    _detailsSlideAnimation = Tween<Offset>(
-      begin: const Offset(0, 1.5),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _textController,
-      curve: const Interval(0.5, 0.9, curve: Curves.easeOutCubic),
-    ));
-
-    _detailsFadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _textController,
-      curve: const Interval(0.5, 0.9, curve: Curves.easeIn),
-    ));
-
-    // Confetti animation
-    _confettiAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _confettiController,
-      curve: Curves.easeOut,
-    ));
-
-    // Pulse animation
-    _pulseAnimation = Tween<double>(
-      begin: 1.0,
-      end: 1.4,
-    ).animate(CurvedAnimation(
-      parent: _pulseController,
-      curve: Curves.easeInOut,
-    ));
-  }
-
-  void _startAnimationSequence() async {
-    // Start background animation
-    _backgroundController.repeat(reverse: true);
-
-    // Start main animation
-    _mainController.forward();
-
-    // Start check animation after delay
-    await Future.delayed(const Duration(milliseconds: 1000));
-    if (mounted) {
-      _checkController.forward();
-
-      // Start pulse animation
-      _pulseController.repeat(reverse: true);
-    }
-
-    // Start text animations
-    await Future.delayed(const Duration(milliseconds: 600));
-    if (mounted) {
-      _textController.forward();
-    }
-
-    // Start confetti
-    await Future.delayed(const Duration(milliseconds: 400));
-    if (mounted) {
-      _confettiController.forward();
-    }
-
-    // Auto close after 5 seconds
-    await Future.delayed(const Duration(seconds: 5));
-    if (mounted) {
-      Navigator.of(context).pop();
-    }
-  }
-
-  @override
-  void dispose() {
-    _backgroundController.dispose();
-    _mainController.dispose();
-    _checkController.dispose();
-    _textController.dispose();
-    _confettiController.dispose();
-    _pulseController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: Listenable.merge([
-        _backgroundController,
-        _mainController,
-        _checkController,
-        _textController,
-        _confettiController,
-        _pulseController,
-      ]),
-      builder: (context, child) {
-        return Scaffold(
-          body: Container(
-            width: double.infinity,
-            height: double.infinity,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  kPrimaryColor.withOpacity(0.1 + (_gradientAnimation.value * 0.15)),
-                  kPrimaryColor.withOpacity(0.05 + (_gradientAnimation.value * 0.1)),
-                  Colors.white,
-                  kPrimaryColor.withOpacity(0.05 + (_gradientAnimation.value * 0.1)),
-                ],
-                stops: const [0.0, 0.3, 0.7, 1.0],
-              ),
-            ),
-            child: Stack(
-              children: [
-                // Animated Background Circles
-                ...List.generate(6, (index) => _buildBackgroundCircle(index)),
-
-                // Confetti Effect
-                if (_confettiAnimation.value > 0)
-                  ...List.generate(40, (index) => _buildConfettiParticle(index)),
-
-                // Main Content
-                SafeArea(
-                  child: Center(
-                    child: SingleChildScrollView(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        child: SlideTransition(
-                          position: _cardSlideAnimation,
-                          child: ScaleTransition(
-                            scale: _cardScaleAnimation,
-                            child: FadeTransition(
-                              opacity: _backgroundFadeAnimation,
-                              child: Container(
-                                margin: const EdgeInsets.symmetric(horizontal: 24),
-                                padding: const EdgeInsets.all(32),
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: [
-                                      Colors.white,
-                                      Colors.white.withOpacity(0.95),
-                                      Colors.white.withOpacity(0.9),
-                                    ],
-                                  ),
-                                  borderRadius: BorderRadius.circular(32),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: kPrimaryColor.withOpacity(0.15),
-                                      blurRadius: 40,
-                                      offset: const Offset(0, 20),
-                                      spreadRadius: 0,
-                                    ),
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.1),
-                                      blurRadius: 20,
-                                      offset: const Offset(0, 10),
-                                      spreadRadius: 0,
-                                    ),
-                                  ],
-                                  border: Border.all(
-                                    color: kPrimaryColor.withOpacity(0.1),
-                                    width: 1,
-                                  ),
-                                ),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    // Success Icon with Enhanced Pulse Effect
-                                    ScaleTransition(
-                                      scale: _pulseAnimation,
-                                      child: RotationTransition(
-                                        turns: _checkRotationAnimation,
-                                        child: FadeTransition(
-                                          opacity: _checkFadeAnimation,
-                                          child: ScaleTransition(
-                                            scale: _checkScaleAnimation,
-                                            child: Stack(
-                                              alignment: Alignment.center,
-                                              children: [
-                                                // Outer ring
-                                                Container(
-                                                  width: 140,
-                                                  height: 140,
-                                                  decoration: BoxDecoration(
-                                                    shape: BoxShape.circle,
-                                                    border: Border.all(
-                                                      color: kPrimaryColor.withOpacity(0.2),
-                                                      width: 3,
-                                                    ),
-                                                  ),
-                                                ),
-                                                // Main success circle
-                                                Container(
-                                                  width: 120,
-                                                  height: 120,
-                                                  decoration: BoxDecoration(
-                                                    gradient: LinearGradient(
-                                                      begin: Alignment.topLeft,
-                                                      end: Alignment.bottomRight,
-                                                      colors: [
-                                                        kPrimaryColor,
-                                                        kPrimaryColor.withOpacity(0.8),
-                                                      ],
-                                                    ),
-                                                    shape: BoxShape.circle,
-                                                    boxShadow: [
-                                                      BoxShadow(
-                                                        color: kPrimaryColor.withOpacity(0.4),
-                                                        blurRadius: 25,
-                                                        offset: const Offset(0, 12),
-                                                      ),
-                                                      BoxShadow(
-                                                        color: kPrimaryColor.withOpacity(0.2),
-                                                        blurRadius: 40,
-                                                        offset: const Offset(0, 20),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                  child: const Icon(
-                                                    Icons.check_rounded,
-                                                    color: Colors.white,
-                                                    size: 60,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-
-                                    const SizedBox(height: 30),
-
-                                    // Success Title
-                                    SlideTransition(
-                                      position: _titleSlideAnimation,
-                                      child: FadeTransition(
-                                        opacity: _titleFadeAnimation,
-                                        child: ShaderMask(
-                                          shaderCallback: (bounds) => LinearGradient(
-                                            colors: [
-                                              kPrimaryColor,
-                                              kPrimaryColor.withOpacity(0.8),
-                                            ],
-                                          ).createShader(bounds),
-                                          child: const Text(
-                                            '🎉 Order Placed Successfully!',
-                                            style: TextStyle(
-                                              fontSize: 24,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.white,
-                                              height: 1.2,
-                                            ),
-                                            textAlign: TextAlign.center,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-
-                                    const SizedBox(height: 20),
-
-                                    // Order ID with Enhanced Design
-                                    SlideTransition(
-                                      position: _subtitleSlideAnimation,
-                                      child: FadeTransition(
-                                        opacity: _subtitleFadeAnimation,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 24,
-                                            vertical: 16,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            gradient: LinearGradient(
-                                              colors: [
-                                                kPrimaryColor.withOpacity(0.1),
-                                                kPrimaryColor.withOpacity(0.05),
-                                              ],
-                                            ),
-                                            borderRadius: BorderRadius.circular(20),
-                                            border: Border.all(
-                                              color: kPrimaryColor.withOpacity(0.3),
-                                              width: 1.5,
-                                            ),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: kPrimaryColor.withOpacity(0.1),
-                                                blurRadius: 10,
-                                                offset: const Offset(0, 4),
-                                              ),
-                                            ],
-                                          ),
-                                          child: Column(
-                                            children: [
-                                              Text(
-                                                'Order ID',
-                                                style: TextStyle(
-                                                  fontSize: 14,
-                                                  color: kPrimaryColor.withOpacity(0.8),
-                                                  fontWeight: FontWeight.w600,
-                                                  letterSpacing: 0.5,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 6),
-                                              Text(
-                                                widget.orderId,
-                                                style: TextStyle(
-                                                  fontSize: 18,
-                                                  color: kPrimaryColor,
-                                                  fontWeight: FontWeight.bold,
-                                                  letterSpacing: 1.2,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-
-                                    const SizedBox(height: 24),
-
-                                    // Enhanced Details Section
-                                    SlideTransition(
-                                      position: _detailsSlideAnimation,
-                                      child: FadeTransition(
-                                        opacity: _detailsFadeAnimation,
-                                        child: Container(
-                                          padding: const EdgeInsets.all(20),
-                                          decoration: BoxDecoration(
-                                            gradient: LinearGradient(
-                                              begin: Alignment.topLeft,
-                                              end: Alignment.bottomRight,
-                                              colors: [
-                                                kPrimaryColor.withOpacity(0.05),
-                                                kPrimaryColor.withOpacity(0.02),
-                                              ],
-                                            ),
-                                            borderRadius: BorderRadius.circular(20),
-                                            border: Border.all(
-                                              color: kPrimaryColor.withOpacity(0.15),
-                                            ),
-                                          ),
-                                          child: Column(
-                                            children: [
-                                              _buildDetailRow(
-                                                Icons.schedule_rounded,
-                                                'Your laundry will be picked up as scheduled',
-                                                kPrimaryColor,
-                                              ),
-                                              const SizedBox(height: 12),
-                                              _buildDetailRow(
-                                                Icons.notifications_active_rounded,
-                                                'You\'ll receive updates via SMS and notifications',
-                                                kPrimaryColor.withOpacity(0.8),
-                                              ),
-                                              const SizedBox(height: 12),
-                                              _buildDetailRow(
-                                                Icons.support_agent_rounded,
-                                                '24/7 customer support available',
-                                                kPrimaryColor.withOpacity(0.7),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-
-                                    const SizedBox(height: 30),
-
-                                    // Enhanced Action Buttons
-                                    SlideTransition(
-                                      position: _detailsSlideAnimation,
-                                      child: FadeTransition(
-                                        opacity: _detailsFadeAnimation,
-                                        child: Row(
-                                          children: [
-                                            Expanded(
-                                              child: Container(
-                                                decoration: BoxDecoration(
-                                                  borderRadius: BorderRadius.circular(20),
-                                                  boxShadow: [
-                                                    BoxShadow(
-                                                      color: kPrimaryColor.withOpacity(0.2),
-                                                      blurRadius: 10,
-                                                      offset: const Offset(0, 4),
-                                                    ),
-                                                  ],
-                                                ),
-                                                child: OutlinedButton(
-                                                  onPressed: () => Navigator.of(context).pop(),
-                                                  style: OutlinedButton.styleFrom(
-                                                    side: BorderSide(
-                                                      color: kPrimaryColor,
-                                                      width: 2,
-                                                    ),
-                                                    shape: RoundedRectangleBorder(
-                                                      borderRadius: BorderRadius.circular(20),
-                                                    ),
-                                                    padding: const EdgeInsets.symmetric(vertical: 18),
-                                                    backgroundColor: Colors.white,
-                                                  ),
-                                                  child: Text(
-                                                    'Track Order',
-                                                    style: TextStyle(
-                                                      fontSize: 16,
-                                                      fontWeight: FontWeight.bold,
-                                                      color: kPrimaryColor,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 16),
-                                            Expanded(
-                                              flex: 2,
-                                              child: Container(
-                                                decoration: BoxDecoration(
-                                                  borderRadius: BorderRadius.circular(20),
-                                                  gradient: LinearGradient(
-                                                    colors: [
-                                                      kPrimaryColor,
-                                                      kPrimaryColor.withOpacity(0.8),
-                                                    ],
-                                                  ),
-                                                  boxShadow: [
-                                                    BoxShadow(
-                                                      color: kPrimaryColor.withOpacity(0.4),
-                                                      blurRadius: 15,
-                                                      offset: const Offset(0, 6),
-                                                    ),
-                                                  ],
-                                                ),
-                                                child: ElevatedButton(
-                                                  onPressed: () => Navigator.of(context).pop(),
-                                                  style: ElevatedButton.styleFrom(
-                                                    backgroundColor: Colors.transparent,
-                                                    shadowColor: Colors.transparent,
-                                                    shape: RoundedRectangleBorder(
-                                                      borderRadius: BorderRadius.circular(20),
-                                                    ),
-                                                    padding: const EdgeInsets.symmetric(vertical: 18),
-                                                  ),
-                                                  child: const Text(
-                                                    'Continue Shopping',
-                                                    style: TextStyle(
-                                                      fontSize: 16,
-                                                      fontWeight: FontWeight.bold,
-                                                      color: Colors.white,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildDetailRow(IconData icon, String text, Color color) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.15),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(
-            icon,
-            color: color,
-            size: 20,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            text,
-            style: TextStyle(
-              fontSize: 14,
-              color: color,
-              fontWeight: FontWeight.w600,
-              height: 1.3,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildBackgroundCircle(int index) {
-    final random = (index * 234) % 1000;
-    final size = 80.0 + (random % 120);
-    final left = (random % 100) / 100.0;
-    final top = ((random * 3) % 100) / 100.0;
-    final opacity = 0.03 + (random % 5) / 100.0;
-
-    return Positioned(
-      left: MediaQuery.of(context).size.width * left - size / 2,
-      top: MediaQuery.of(context).size.height * top - size / 2,
-      child: AnimatedBuilder(
-        animation: _backgroundController,
-        builder: (context, child) {
-          return Transform.scale(
-            scale: 1.0 + (_gradientAnimation.value * 0.3),
-            child: Container(
-              width: size,
-              height: size,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    kPrimaryColor.withOpacity(opacity),
-                    kPrimaryColor.withOpacity(opacity * 0.3),
-                    Colors.transparent,
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildConfettiParticle(int index) {
-    final random = (index * 456) % 1000;
-    final startX = (random % 100) / 100.0;
-    final duration = 3000 + (random % 1500);
-    final size = 6.0 + (random % 8);
-    final colors = [
-      kPrimaryColor,
-      kPrimaryColor.withOpacity(0.8),
-      kPrimaryColor.withOpacity(0.6),
-      Colors.white,
-      Colors.yellow.shade400,
-      Colors.orange.shade400,
-    ];
-    final color = colors[random % colors.length];
-
-    return Positioned(
-      left: MediaQuery.of(context).size.width * startX,
-      top: -30 + (_confettiAnimation.value * (MediaQuery.of(context).size.height + 60)),
-      child: Transform.rotate(
-        angle: _confettiAnimation.value * 6.28 * 4, // 4 full rotations
-        child: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              colors: [
-                color,
-                color.withOpacity(0.7),
-              ],
-            ),
-            shape: random % 3 == 0 ? BoxShape.circle : BoxShape.rectangle,
-            borderRadius: random % 3 != 0 ? BorderRadius.circular(3) : null,
-            boxShadow: [
-              BoxShadow(
-                color: color.withOpacity(0.3),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
