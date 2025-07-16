@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:razorpay_flutter/razorpay_flutter.dart';
 import 'colors.dart';
 import 'address_book_screen.dart';
 
@@ -49,6 +50,11 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
   late List<DateTime> pickupDates;
   late List<DateTime> deliveryDates;
 
+  // ✅ NEW: Payment related variables
+  String _selectedPaymentMethod = 'online'; // Default to online
+  bool _isProcessingPayment = false;
+  late Razorpay _razorpay;
+
   @override
   void initState() {
     super.initState();
@@ -56,13 +62,47 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
     _loadBillingSettings();
     _loadSlots();
     _loadDefaultAddress();
+    _initializeRazorpay();
   }
 
   @override
   void dispose() {
     _pickupDateScrollController.dispose();
     _deliveryDateScrollController.dispose();
+    _razorpay.clear();
     super.dispose();
+  }
+
+  // ✅ NEW: Initialize Razorpay
+  void _initializeRazorpay() {
+    _razorpay = Razorpay();
+    _razorpay.on(Razorpay.EVENT_PAYMENT_SUCCESS, _handlePaymentSuccess);
+    _razorpay.on(Razorpay.EVENT_PAYMENT_ERROR, _handlePaymentError);
+    _razorpay.on(Razorpay.EVENT_EXTERNAL_WALLET, _handleExternalWallet);
+  }
+
+  // ✅ NEW: Razorpay Event Handlers
+  void _handlePaymentSuccess(PaymentSuccessResponse response) {
+    print('✅ Payment Success: ${response.paymentId}');
+    _processOrderCompletion(paymentId: response.paymentId);
+  }
+
+  void _handlePaymentError(PaymentFailureResponse response) {
+    print('❌ Payment Error: ${response.code} - ${response.message}');
+    setState(() {
+      _isProcessingPayment = false;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Payment failed: ${response.message}'),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+
+  void _handleExternalWallet(ExternalWalletResponse response) {
+    print('🔄 External Wallet: ${response.walletName}');
   }
 
   void _initializeDates() {
@@ -608,6 +648,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
     });
   }
 
+  // ✅ MODIFIED: Enhanced handleProceed with payment logic
   void _handleProceed() {
     if (selectedAddress == null ||
         selectedPickupSlot == null ||
@@ -621,7 +662,138 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
       );
       return;
     }
-    // Proceed to next step (e.g., payment)
+
+    // Process order based on payment method
+    if (_selectedPaymentMethod == 'online') {
+      _initiateOnlinePayment();
+    } else {
+      _processOrderCompletion(); // Cash on delivery
+    }
+  }
+
+  // ✅ NEW: Initiate Razorpay payment
+  Future<void> _initiateOnlinePayment() async {
+    setState(() {
+      _isProcessingPayment = true;
+    });
+
+    try {
+      final user = supabase.auth.currentUser;
+      if (user == null) throw Exception('User not found');
+
+      final totalAmount = _calculateTotalAmount();
+
+      final options = {
+        'key': 'rzp_test_your_key_here', // Replace with your Razorpay key
+        'amount': (totalAmount * 100).toInt(), // Amount in paise
+        'name': 'ironXpress',
+        'description': 'Laundry Service Payment',
+        'prefill': {
+          'contact': user.phone ?? '',
+          'email': user.email ?? '',
+        },
+        'theme': {
+          'color': '#${kPrimaryColor.value.toRadixString(16).substring(2)}',
+        }
+      };
+
+      _razorpay.open(options);
+    } catch (e) {
+      setState(() {
+        _isProcessingPayment = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to initiate payment: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // ✅ NEW: Process order completion (both online and COD)
+  Future<void> _processOrderCompletion({String? paymentId}) async {
+    setState(() {
+      _isProcessingPayment = true;
+    });
+
+    try {
+      final user = supabase.auth.currentUser;
+      if (user == null) throw Exception('User not found');
+
+      final totalAmount = _calculateTotalAmount();
+
+      // Generate unique order ID
+      final orderId = 'ORD${DateTime.now().millisecondsSinceEpoch}';
+
+      // Create order in database
+      await supabase.from('orders').insert({
+        'id': orderId,
+        'user_id': user.id,
+        'total_amount': totalAmount,
+        'payment_method': _selectedPaymentMethod,
+        'payment_status': _selectedPaymentMethod == 'online' ? 'paid' : 'pending',
+        'payment_id': paymentId,
+        'order_status': 'confirmed',
+        'pickup_date': selectedPickupDate.toIso8601String().split('T')[0],
+        'pickup_slot_id': selectedPickupSlot!['id'],
+        'delivery_date': selectedDeliveryDate.toIso8601String().split('T')[0],
+        'delivery_slot_id': selectedDeliverySlot!['id'],
+        'delivery_type': isExpressDelivery ? 'express' : 'standard',
+        'delivery_address': selectedAddress!['address_line_1'],
+        'address_details': selectedAddress,
+        'applied_coupon_code': widget.appliedCouponCode,
+        'discount_amount': widget.discount,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+
+      // Create order items
+      for (final item in widget.cartItems) {
+        await supabase.from('order_items').insert({
+          'order_id': orderId,
+          'product_name': item['product_name'],
+          'product_price': item['product_price'],
+          'service_type': item['service_type'],
+          'service_price': item['service_price'],
+          'quantity': item['product_quantity'],
+          'total_price': item['total_price'],
+        });
+      }
+
+      // Clear cart
+      await supabase
+          .from('cart')
+          .delete()
+          .eq('user_id', user.id);
+
+      // Show success animation and navigate
+      await _showOrderSuccessAnimation(orderId);
+
+    } catch (e) {
+      setState(() {
+        _isProcessingPayment = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to process order: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // ✅ NEW: Show order success animation
+  Future<void> _showOrderSuccessAnimation(String orderId) async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => OrderSuccessDialog(orderId: orderId),
+    );
+
+    // Navigate to home screen
+    Navigator.popUntil(context, (route) => route.isFirst);
   }
 
   @override
@@ -675,6 +847,11 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
                       ],
                       if (selectedPickupSlot != null || selectedDeliverySlot != null)
                         _buildSelectionSummary(),
+
+                      // ✅ NEW: Payment Method Selection
+                      if (selectedPickupSlot != null && selectedDeliverySlot != null)
+                        _buildPaymentMethodSelection(),
+
                       const SizedBox(height: 100),
                     ],
                   ),
@@ -719,6 +896,176 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
         ],
       ),
       bottomNavigationBar: _buildBottomBar(),
+    );
+  }
+
+  // ✅ NEW: Payment method selection widget
+  Widget _buildPaymentMethodSelection() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.payment, color: kPrimaryColor, size: 20),
+              const SizedBox(width: 8),
+              const Text(
+                'Payment Method',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Online Payment Option
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _selectedPaymentMethod == 'online' ? kPrimaryColor : Colors.grey.shade300,
+                width: 2,
+              ),
+              color: _selectedPaymentMethod == 'online'
+                  ? kPrimaryColor.withOpacity(0.05)
+                  : Colors.white,
+            ),
+            child: RadioListTile<String>(
+              value: 'online',
+              groupValue: _selectedPaymentMethod,
+              onChanged: (value) {
+                setState(() {
+                  _selectedPaymentMethod = value!;
+                });
+              },
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: kPrimaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Icon(
+                      Icons.payment,
+                      color: kPrimaryColor,
+                      size: 16,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Pay Online',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        Text(
+                          'UPI, Card, Net Banking, Wallet',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_selectedPaymentMethod == 'online')
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        'RECOMMENDED',
+                        style: TextStyle(
+                          color: Colors.green,
+                          fontSize: 8,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              activeColor: kPrimaryColor,
+            ),
+          ),
+
+          // Cash on Delivery Option
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _selectedPaymentMethod == 'cod' ? kPrimaryColor : Colors.grey.shade300,
+                width: 2,
+              ),
+              color: _selectedPaymentMethod == 'cod'
+                  ? kPrimaryColor.withOpacity(0.05)
+                  : Colors.white,
+            ),
+            child: RadioListTile<String>(
+              value: 'cod',
+              groupValue: _selectedPaymentMethod,
+              onChanged: (value) {
+                setState(() {
+                  _selectedPaymentMethod = value!;
+                });
+              },
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Icon(
+                      Icons.money,
+                      color: Colors.orange,
+                      size: 16,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Pay on Delivery',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        Text(
+                          'Cash payment when order is delivered',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              activeColor: kPrimaryColor,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -800,7 +1147,6 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
       ),
     );
   }
-
   String _formatDate(DateTime date) {
     final now = DateTime.now();
     if (date.day == now.day && date.month == now.month && date.year == now.year) {
@@ -1316,6 +1662,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
     );
   }
 
+  // ✅ MODIFIED: Enhanced bottom bar with payment button text
   Widget _buildBottomBar() {
     double totalAmount = _calculateTotalAmount();
     bool canProceed = selectedAddress != null &&
@@ -1323,11 +1670,23 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
         selectedDeliverySlot != null &&
         isServiceAvailable &&
         !isLoadingBillingSettings;
+
+    // Dynamic button text and icon based on payment method
+    final buttonText = _selectedPaymentMethod == 'online' ? 'Pay Now' : 'Place Order';
+    final buttonIcon = _selectedPaymentMethod == 'online' ? Icons.payment : Icons.shopping_bag;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: Colors.grey.shade300)),
         color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -1345,17 +1704,832 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> {
               ],
             ),
           ),
-          ElevatedButton(
-            onPressed: canProceed ? _handleProceed : null,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: kPrimaryColor,
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              elevation: canProceed ? 6 : 0,
+
+          // ✅ Enhanced rounded button with payment functionality
+          Container(
+            height: 50,
+            child: ElevatedButton(
+              onPressed: (canProceed && !_isProcessingPayment) ? _handleProceed : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: kPrimaryColor,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(25), // ✅ Rounded button
+                ),
+                elevation: canProceed ? 8 : 0,
+                shadowColor: kPrimaryColor.withOpacity(0.3),
+              ),
+              child: _isProcessingPayment
+                  ? const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  ),
+                  SizedBox(width: 8),
+                  Text(
+                    'Processing...',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              )
+                  : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    buttonIcon,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    isLoadingBillingSettings ? "Loading..." : buttonText,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            child: Text(isLoadingBillingSettings ? "Loading..." : "Proceed", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ✅ NEW: Premium Full-Screen Order Success Animation
+class OrderSuccessDialog extends StatefulWidget {
+  final String orderId;
+
+  const OrderSuccessDialog({super.key, required this.orderId});
+
+  @override
+  State<OrderSuccessDialog> createState() => _OrderSuccessDialogState();
+}
+
+class _OrderSuccessDialogState extends State<OrderSuccessDialog>
+    with TickerProviderStateMixin {
+  late AnimationController _mainController;
+  late AnimationController _checkController;
+  late AnimationController _textController;
+  late AnimationController _confettiController;
+  late AnimationController _pulseController;
+  late AnimationController _backgroundController;
+
+  // Background animations
+  late Animation<double> _backgroundFadeAnimation;
+  late Animation<double> _gradientAnimation;
+
+  // Main animations
+  late Animation<double> _cardScaleAnimation;
+  late Animation<Offset> _cardSlideAnimation;
+
+  // Check mark animations
+  late Animation<double> _checkScaleAnimation;
+  late Animation<double> _checkFadeAnimation;
+  late Animation<double> _checkRotationAnimation;
+
+  // Text animations
+  late Animation<Offset> _titleSlideAnimation;
+  late Animation<double> _titleFadeAnimation;
+  late Animation<Offset> _subtitleSlideAnimation;
+  late Animation<double> _subtitleFadeAnimation;
+  late Animation<Offset> _detailsSlideAnimation;
+  late Animation<double> _detailsFadeAnimation;
+
+  // Confetti and effects
+  late Animation<double> _confettiAnimation;
+  late Animation<double> _pulseAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeAnimations();
+    _startAnimationSequence();
+  }
+
+  void _initializeAnimations() {
+    // Background controller for gradient effects
+    _backgroundController = AnimationController(
+      duration: const Duration(milliseconds: 3000),
+      vsync: this,
+    );
+
+    // Main controller for overall flow
+    _mainController = AnimationController(
+      duration: const Duration(milliseconds: 2500),
+      vsync: this,
+    );
+
+    // Check mark controller
+    _checkController = AnimationController(
+      duration: const Duration(milliseconds: 1500),
+      vsync: this,
+    );
+
+    // Text animations controller
+    _textController = AnimationController(
+      duration: const Duration(milliseconds: 2000),
+      vsync: this,
+    );
+
+    // Confetti controller
+    _confettiController = AnimationController(
+      duration: const Duration(milliseconds: 4000),
+      vsync: this,
+    );
+
+    // Pulse controller
+    _pulseController = AnimationController(
+      duration: const Duration(milliseconds: 1200),
+      vsync: this,
+    );
+
+    // Background animations
+    _backgroundFadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _mainController,
+      curve: const Interval(0.0, 0.4, curve: Curves.easeOut),
+    ));
+
+    _gradientAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _backgroundController,
+      curve: Curves.easeInOut,
+    ));
+
+    // Card animations
+    _cardScaleAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _mainController,
+      curve: const Interval(0.2, 0.8, curve: Curves.elasticOut),
+    ));
+
+    _cardSlideAnimation = Tween<Offset>(
+      begin: const Offset(0, 1.0),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _mainController,
+      curve: const Interval(0.2, 0.8, curve: Curves.easeOutCubic),
+    ));
+
+    // Check mark animations
+    _checkScaleAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _checkController,
+      curve: const Interval(0.0, 0.7, curve: Curves.elasticOut),
+    ));
+
+    _checkFadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _checkController,
+      curve: const Interval(0.0, 0.5, curve: Curves.easeIn),
+    ));
+
+    _checkRotationAnimation = Tween<double>(
+      begin: -0.8,
+      end: 0.0,
+    ).animate(CurvedAnimation(
+      parent: _checkController,
+      curve: const Interval(0.0, 0.7, curve: Curves.elasticOut),
+    ));
+
+    // Text animations
+    _titleSlideAnimation = Tween<Offset>(
+      begin: const Offset(0, 1.5),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _textController,
+      curve: const Interval(0.0, 0.5, curve: Curves.easeOutCubic),
+    ));
+
+    _titleFadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _textController,
+      curve: const Interval(0.0, 0.5, curve: Curves.easeIn),
+    ));
+
+    _subtitleSlideAnimation = Tween<Offset>(
+      begin: const Offset(0, 1.5),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _textController,
+      curve: const Interval(0.3, 0.7, curve: Curves.easeOutCubic),
+    ));
+
+    _subtitleFadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _textController,
+      curve: const Interval(0.3, 0.7, curve: Curves.easeIn),
+    ));
+
+    _detailsSlideAnimation = Tween<Offset>(
+      begin: const Offset(0, 1.5),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _textController,
+      curve: const Interval(0.5, 0.9, curve: Curves.easeOutCubic),
+    ));
+
+    _detailsFadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _textController,
+      curve: const Interval(0.5, 0.9, curve: Curves.easeIn),
+    ));
+
+    // Confetti animation
+    _confettiAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _confettiController,
+      curve: Curves.easeOut,
+    ));
+
+    // Pulse animation
+    _pulseAnimation = Tween<double>(
+      begin: 1.0,
+      end: 1.4,
+    ).animate(CurvedAnimation(
+      parent: _pulseController,
+      curve: Curves.easeInOut,
+    ));
+  }
+
+  void _startAnimationSequence() async {
+    // Start background animation
+    _backgroundController.repeat(reverse: true);
+
+    // Start main animation
+    _mainController.forward();
+
+    // Start check animation after delay
+    await Future.delayed(const Duration(milliseconds: 1000));
+    if (mounted) {
+      _checkController.forward();
+
+      // Start pulse animation
+      _pulseController.repeat(reverse: true);
+    }
+
+    // Start text animations
+    await Future.delayed(const Duration(milliseconds: 600));
+    if (mounted) {
+      _textController.forward();
+    }
+
+    // Start confetti
+    await Future.delayed(const Duration(milliseconds: 400));
+    if (mounted) {
+      _confettiController.forward();
+    }
+
+    // Auto close after 5 seconds
+    await Future.delayed(const Duration(seconds: 5));
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _backgroundController.dispose();
+    _mainController.dispose();
+    _checkController.dispose();
+    _textController.dispose();
+    _confettiController.dispose();
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        _backgroundController,
+        _mainController,
+        _checkController,
+        _textController,
+        _confettiController,
+        _pulseController,
+      ]),
+      builder: (context, child) {
+        return Scaffold(
+          body: Container(
+            width: double.infinity,
+            height: double.infinity,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  kPrimaryColor.withOpacity(0.1 + (_gradientAnimation.value * 0.15)),
+                  kPrimaryColor.withOpacity(0.05 + (_gradientAnimation.value * 0.1)),
+                  Colors.white,
+                  kPrimaryColor.withOpacity(0.05 + (_gradientAnimation.value * 0.1)),
+                ],
+                stops: const [0.0, 0.3, 0.7, 1.0],
+              ),
+            ),
+            child: Stack(
+              children: [
+                // Animated Background Circles
+                ...List.generate(6, (index) => _buildBackgroundCircle(index)),
+
+                // Confetti Effect
+                if (_confettiAnimation.value > 0)
+                  ...List.generate(40, (index) => _buildConfettiParticle(index)),
+
+                // Main Content
+                SafeArea(
+                  child: Center(
+                    child: SingleChildScrollView(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        child: SlideTransition(
+                          position: _cardSlideAnimation,
+                          child: ScaleTransition(
+                            scale: _cardScaleAnimation,
+                            child: FadeTransition(
+                              opacity: _backgroundFadeAnimation,
+                              child: Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 24),
+                                padding: const EdgeInsets.all(32),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      Colors.white,
+                                      Colors.white.withOpacity(0.95),
+                                      Colors.white.withOpacity(0.9),
+                                    ],
+                                  ),
+                                  borderRadius: BorderRadius.circular(32),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: kPrimaryColor.withOpacity(0.15),
+                                      blurRadius: 40,
+                                      offset: const Offset(0, 20),
+                                      spreadRadius: 0,
+                                    ),
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.1),
+                                      blurRadius: 20,
+                                      offset: const Offset(0, 10),
+                                      spreadRadius: 0,
+                                    ),
+                                  ],
+                                  border: Border.all(
+                                    color: kPrimaryColor.withOpacity(0.1),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    // Success Icon with Enhanced Pulse Effect
+                                    ScaleTransition(
+                                      scale: _pulseAnimation,
+                                      child: RotationTransition(
+                                        turns: _checkRotationAnimation,
+                                        child: FadeTransition(
+                                          opacity: _checkFadeAnimation,
+                                          child: ScaleTransition(
+                                            scale: _checkScaleAnimation,
+                                            child: Stack(
+                                              alignment: Alignment.center,
+                                              children: [
+                                                // Outer ring
+                                                Container(
+                                                  width: 140,
+                                                  height: 140,
+                                                  decoration: BoxDecoration(
+                                                    shape: BoxShape.circle,
+                                                    border: Border.all(
+                                                      color: kPrimaryColor.withOpacity(0.2),
+                                                      width: 3,
+                                                    ),
+                                                  ),
+                                                ),
+                                                // Main success circle
+                                                Container(
+                                                  width: 120,
+                                                  height: 120,
+                                                  decoration: BoxDecoration(
+                                                    gradient: LinearGradient(
+                                                      begin: Alignment.topLeft,
+                                                      end: Alignment.bottomRight,
+                                                      colors: [
+                                                        kPrimaryColor,
+                                                        kPrimaryColor.withOpacity(0.8),
+                                                      ],
+                                                    ),
+                                                    shape: BoxShape.circle,
+                                                    boxShadow: [
+                                                      BoxShadow(
+                                                        color: kPrimaryColor.withOpacity(0.4),
+                                                        blurRadius: 25,
+                                                        offset: const Offset(0, 12),
+                                                      ),
+                                                      BoxShadow(
+                                                        color: kPrimaryColor.withOpacity(0.2),
+                                                        blurRadius: 40,
+                                                        offset: const Offset(0, 20),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  child: const Icon(
+                                                    Icons.check_rounded,
+                                                    color: Colors.white,
+                                                    size: 60,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+
+                                    const SizedBox(height: 30),
+
+                                    // Success Title
+                                    SlideTransition(
+                                      position: _titleSlideAnimation,
+                                      child: FadeTransition(
+                                        opacity: _titleFadeAnimation,
+                                        child: ShaderMask(
+                                          shaderCallback: (bounds) => LinearGradient(
+                                            colors: [
+                                              kPrimaryColor,
+                                              kPrimaryColor.withOpacity(0.8),
+                                            ],
+                                          ).createShader(bounds),
+                                          child: const Text(
+                                            '🎉 Order Placed Successfully!',
+                                            style: TextStyle(
+                                              fontSize: 24,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.white,
+                                              height: 1.2,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+
+                                    const SizedBox(height: 20),
+
+                                    // Order ID with Enhanced Design
+                                    SlideTransition(
+                                      position: _subtitleSlideAnimation,
+                                      child: FadeTransition(
+                                        opacity: _subtitleFadeAnimation,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 24,
+                                            vertical: 16,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              colors: [
+                                                kPrimaryColor.withOpacity(0.1),
+                                                kPrimaryColor.withOpacity(0.05),
+                                              ],
+                                            ),
+                                            borderRadius: BorderRadius.circular(20),
+                                            border: Border.all(
+                                              color: kPrimaryColor.withOpacity(0.3),
+                                              width: 1.5,
+                                            ),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: kPrimaryColor.withOpacity(0.1),
+                                                blurRadius: 10,
+                                                offset: const Offset(0, 4),
+                                              ),
+                                            ],
+                                          ),
+                                          child: Column(
+                                            children: [
+                                              Text(
+                                                'Order ID',
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  color: kPrimaryColor.withOpacity(0.8),
+                                                  fontWeight: FontWeight.w600,
+                                                  letterSpacing: 0.5,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              Text(
+                                                widget.orderId,
+                                                style: TextStyle(
+                                                  fontSize: 18,
+                                                  color: kPrimaryColor,
+                                                  fontWeight: FontWeight.bold,
+                                                  letterSpacing: 1.2,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+
+                                    const SizedBox(height: 24),
+
+                                    // Enhanced Details Section
+                                    SlideTransition(
+                                      position: _detailsSlideAnimation,
+                                      child: FadeTransition(
+                                        opacity: _detailsFadeAnimation,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(20),
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                              colors: [
+                                                kPrimaryColor.withOpacity(0.05),
+                                                kPrimaryColor.withOpacity(0.02),
+                                              ],
+                                            ),
+                                            borderRadius: BorderRadius.circular(20),
+                                            border: Border.all(
+                                              color: kPrimaryColor.withOpacity(0.15),
+                                            ),
+                                          ),
+                                          child: Column(
+                                            children: [
+                                              _buildDetailRow(
+                                                Icons.schedule_rounded,
+                                                'Your laundry will be picked up as scheduled',
+                                                kPrimaryColor,
+                                              ),
+                                              const SizedBox(height: 12),
+                                              _buildDetailRow(
+                                                Icons.notifications_active_rounded,
+                                                'You\'ll receive updates via SMS and notifications',
+                                                kPrimaryColor.withOpacity(0.8),
+                                              ),
+                                              const SizedBox(height: 12),
+                                              _buildDetailRow(
+                                                Icons.support_agent_rounded,
+                                                '24/7 customer support available',
+                                                kPrimaryColor.withOpacity(0.7),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+
+                                    const SizedBox(height: 30),
+
+                                    // Enhanced Action Buttons
+                                    SlideTransition(
+                                      position: _detailsSlideAnimation,
+                                      child: FadeTransition(
+                                        opacity: _detailsFadeAnimation,
+                                        child: Row(
+                                          children: [
+                                            Expanded(
+                                              child: Container(
+                                                decoration: BoxDecoration(
+                                                  borderRadius: BorderRadius.circular(20),
+                                                  boxShadow: [
+                                                    BoxShadow(
+                                                      color: kPrimaryColor.withOpacity(0.2),
+                                                      blurRadius: 10,
+                                                      offset: const Offset(0, 4),
+                                                    ),
+                                                  ],
+                                                ),
+                                                child: OutlinedButton(
+                                                  onPressed: () => Navigator.of(context).pop(),
+                                                  style: OutlinedButton.styleFrom(
+                                                    side: BorderSide(
+                                                      color: kPrimaryColor,
+                                                      width: 2,
+                                                    ),
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius: BorderRadius.circular(20),
+                                                    ),
+                                                    padding: const EdgeInsets.symmetric(vertical: 18),
+                                                    backgroundColor: Colors.white,
+                                                  ),
+                                                  child: Text(
+                                                    'Track Order',
+                                                    style: TextStyle(
+                                                      fontSize: 16,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: kPrimaryColor,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 16),
+                                            Expanded(
+                                              flex: 2,
+                                              child: Container(
+                                                decoration: BoxDecoration(
+                                                  borderRadius: BorderRadius.circular(20),
+                                                  gradient: LinearGradient(
+                                                    colors: [
+                                                      kPrimaryColor,
+                                                      kPrimaryColor.withOpacity(0.8),
+                                                    ],
+                                                  ),
+                                                  boxShadow: [
+                                                    BoxShadow(
+                                                      color: kPrimaryColor.withOpacity(0.4),
+                                                      blurRadius: 15,
+                                                      offset: const Offset(0, 6),
+                                                    ),
+                                                  ],
+                                                ),
+                                                child: ElevatedButton(
+                                                  onPressed: () => Navigator.of(context).pop(),
+                                                  style: ElevatedButton.styleFrom(
+                                                    backgroundColor: Colors.transparent,
+                                                    shadowColor: Colors.transparent,
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius: BorderRadius.circular(20),
+                                                    ),
+                                                    padding: const EdgeInsets.symmetric(vertical: 18),
+                                                  ),
+                                                  child: const Text(
+                                                    'Continue Shopping',
+                                                    style: TextStyle(
+                                                      fontSize: 16,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: Colors.white,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDetailRow(IconData icon, String text, Color color) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(
+            icon,
+            color: color,
+            size: 20,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              fontSize: 14,
+              color: color,
+              fontWeight: FontWeight.w600,
+              height: 1.3,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBackgroundCircle(int index) {
+    final random = (index * 234) % 1000;
+    final size = 80.0 + (random % 120);
+    final left = (random % 100) / 100.0;
+    final top = ((random * 3) % 100) / 100.0;
+    final opacity = 0.03 + (random % 5) / 100.0;
+
+    return Positioned(
+      left: MediaQuery.of(context).size.width * left - size / 2,
+      top: MediaQuery.of(context).size.height * top - size / 2,
+      child: AnimatedBuilder(
+        animation: _backgroundController,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: 1.0 + (_gradientAnimation.value * 0.3),
+            child: Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    kPrimaryColor.withOpacity(opacity),
+                    kPrimaryColor.withOpacity(opacity * 0.3),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildConfettiParticle(int index) {
+    final random = (index * 456) % 1000;
+    final startX = (random % 100) / 100.0;
+    final duration = 3000 + (random % 1500);
+    final size = 6.0 + (random % 8);
+    final colors = [
+      kPrimaryColor,
+      kPrimaryColor.withOpacity(0.8),
+      kPrimaryColor.withOpacity(0.6),
+      Colors.white,
+      Colors.yellow.shade400,
+      Colors.orange.shade400,
+    ];
+    final color = colors[random % colors.length];
+
+    return Positioned(
+      left: MediaQuery.of(context).size.width * startX,
+      top: -30 + (_confettiAnimation.value * (MediaQuery.of(context).size.height + 60)),
+      child: Transform.rotate(
+        angle: _confettiAnimation.value * 6.28 * 4, // 4 full rotations
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              colors: [
+                color,
+                color.withOpacity(0.7),
+              ],
+            ),
+            shape: random % 3 == 0 ? BoxShape.circle : BoxShape.rectangle,
+            borderRadius: random % 3 != 0 ? BorderRadius.circular(3) : null,
+            boxShadow: [
+              BoxShadow(
+                color: color.withOpacity(0.3),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -37,14 +37,25 @@ class _OrdersScreenState extends State<OrdersScreen>
   // ✅ Premium animation controllers
   late AnimationController _floatingCartController;
   late AnimationController _fadeController;
+  late AnimationController _pulseController;
+  late AnimationController _bounceController;
+
   late Animation<double> _floatingCartScale;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _floatingCartSlide;
+  late Animation<double> _pulseAnimation;
+  late Animation<double> _bounceAnimation;
+  late Animation<Color?> _colorAnimation;
 
   // ✅ NEW: In-memory cache flags
   bool _hasFetchedProducts = false;
   List<Map<String, dynamic>> _cachedProducts = [];
   List<String> _cachedCategories = ['All'];
+  bool _showClearCart = false;
+
+  // ✅ FIXED: Initialize with default values
+  Offset _fabOffset = const Offset(300, 400); // Default position
+  bool _isDragging = false;
 
   @override
   void initState() {
@@ -60,15 +71,34 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
   }
 
+  // ✅ FIXED: Initialize FAB position after first build
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Now we can safely access MediaQuery
+    final screenSize = MediaQuery.of(context).size;
+    _fabOffset = Offset(screenSize.width - 72, screenSize.height * 0.7);
+  }
+
   // ✅ Premium animations initialization
   void _initializePremiumAnimations() {
     _floatingCartController = AnimationController(
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 800),
       vsync: this,
     );
 
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _pulseController = AnimationController(
+      duration: const Duration(milliseconds: 1500),
+      vsync: this,
+    );
+
+    _bounceController = AnimationController(
+      duration: const Duration(milliseconds: 600),
       vsync: this,
     );
 
@@ -88,7 +118,24 @@ class _OrdersScreenState extends State<OrdersScreen>
       CurvedAnimation(parent: _fadeController, curve: Curves.easeInOut),
     );
 
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.3).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+
+    _bounceAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
+      CurvedAnimation(parent: _bounceController, curve: Curves.elasticOut),
+    );
+
+    _colorAnimation = ColorTween(
+      begin: kPrimaryColor,
+      end: Colors.deepPurple,
+    ).animate(CurvedAnimation(
+      parent: _pulseController,
+      curve: Curves.easeInOut,
+    ));
+
     _fadeController.forward();
+    _pulseController.repeat(reverse: true);
   }
 
   Future<void> _fetchBackgroundImage() async {
@@ -181,7 +228,7 @@ class _OrdersScreenState extends State<OrdersScreen>
     try {
       final data = await supabase
           .from('cart')
-          .select('*')
+          .select()
           .eq('user_id', user.id);
 
       print('📦 Cart data fetched: ${data.length} items');
@@ -204,6 +251,7 @@ class _OrdersScreenState extends State<OrdersScreen>
       // Animate floating cart
       if (totalCount > 0) {
         _floatingCartController.forward();
+        _bounceController.forward(from: 0.0); // Bounce when items added
       } else {
         _floatingCartController.reverse();
       }
@@ -228,7 +276,7 @@ class _OrdersScreenState extends State<OrdersScreen>
       // Get existing cart items for this product
       final existingItems = await supabase
           .from('cart')
-          .select('*')
+          .select()
           .eq('user_id', user.id)
           .eq('product_name', name);
 
@@ -587,106 +635,292 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
   }
 
-  // ✅ Floating cart widget
+  // ✅ PREMIUM FLOATING CART - Enhanced with multiple animations
   Widget _buildFloatingCart() {
     return ValueListenableBuilder<int>(
       valueListenable: cartCountNotifier,
       builder: (context, count, child) {
-        if (count == 0) return const SizedBox.shrink();
+        if (count == 0) {
+          _showClearCart = false;
+          return const SizedBox.shrink();
+        }
 
-        return Positioned(
-          bottom: 90,
-          left: 20,
-          right: 20,
-          child: SlideTransition(
-            position: _floatingCartSlide,
-            child: ScaleTransition(
-              scale: _floatingCartScale,
-              child: GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const CartScreen()),
-                  ).then((_) => _fetchCartData());
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+        final screenSize = MediaQuery.of(context).size;
+        final appBarHeight = Scaffold.of(context).appBarMaxHeight ?? kToolbarHeight;
+        final maxBottom = screenSize.height - kBottomNavigationBarHeight - 80;
+
+        return AnimatedBuilder(
+          animation: Listenable.merge([
+            _floatingCartController,
+            _pulseController,
+            _bounceController,
+          ]),
+          builder: (context, child) {
+            return Stack(
+              children: [
+                // ✅ PREMIUM Clear Cart Zone (appears when dragging)
+                if (_showClearCart)
+                  Positioned(
+                    bottom: kBottomNavigationBarHeight + 16,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: TweenAnimationBuilder<double>(
+                        duration: const Duration(milliseconds: 300),
+                        tween: Tween(begin: 0.0, end: 1.0),
+                        builder: (context, value, child) {
+                          return Transform.scale(
+                            scale: value,
+                            child: GestureDetector(
+                              onTap: () {
+                                _clearCart();
+                                setState(() => _showClearCart = false);
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      Colors.red.shade400,
+                                      Colors.red.shade600,
+                                    ],
+                                  ),
+                                  borderRadius: BorderRadius.circular(30),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.red.withOpacity(0.4),
+                                      blurRadius: 20,
+                                      spreadRadius: 2,
+                                      offset: const Offset(0, 8),
+                                    ),
+                                  ],
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.delete_sweep_rounded, color: Colors.white, size: 24),
+                                    SizedBox(width: 12),
+                                    Text(
+                                      'Clear Cart',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                    borderRadius: BorderRadius.circular(25),
-                    boxShadow: [
-                      BoxShadow(
-                        color: kPrimaryColor.withOpacity(0.4),
-                        blurRadius: 20,
-                        offset: const Offset(0, 8),
-                        spreadRadius: 2,
-                      ),
-                    ],
                   ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.shopping_cart_rounded,
-                          color: Colors.white,
-                          size: 20,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              '$count item${count > 1 ? 's' : ''} in cart',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
+
+                // ✅ PREMIUM Draggable Cart Icon with enhanced animations
+                Positioned(
+                  left: _fabOffset.dx,
+                  top: _fabOffset.dy.clamp(appBarHeight + 20, maxBottom),
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const CartScreen()),
+                      ).then((_) => _fetchCartData());
+                    },
+                    onPanStart: (details) {
+                      setState(() {
+                        _isDragging = true;
+                        _showClearCart = true;
+                      });
+                    },
+                    onPanUpdate: (details) {
+                      final newDx = details.globalPosition.dx - 30;
+                      final newDy = details.globalPosition.dy - 30;
+
+                      setState(() {
+                        _fabOffset = Offset(
+                          newDx.clamp(0, screenSize.width - 60),
+                          newDy.clamp(appBarHeight + 20, maxBottom),
+                        );
+                      });
+                    },
+                    onPanEnd: (details) {
+                      setState(() {
+                        _isDragging = false;
+                        // Snap to nearest side with smooth animation
+                        _fabOffset = Offset(
+                          _fabOffset.dx < screenSize.width / 2 ? 20 : screenSize.width - 80,
+                          _fabOffset.dy,
+                        );
+
+                        Future.delayed(const Duration(seconds: 3), () {
+                          if (mounted) setState(() => _showClearCart = false);
+                        });
+                      });
+                    },
+                    child: SlideTransition(
+                      position: _floatingCartSlide,
+                      child: ScaleTransition(
+                        scale: _floatingCartScale,
+                        child: Transform.scale(
+                          scale: _isDragging ? 1.2 : _bounceAnimation.value,
+                          child: Container(
+                            height: 60,
+                            width: 60,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  _colorAnimation.value ?? kPrimaryColor,
+                                  (_colorAnimation.value ?? kPrimaryColor).withOpacity(0.8),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
                               ),
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: (_colorAnimation.value ?? kPrimaryColor).withOpacity(0.4),
+                                  blurRadius: _isDragging ? 20 : 15,
+                                  spreadRadius: _isDragging ? 4 : 2,
+                                  offset: Offset(0, _isDragging ? 8 : 6),
+                                ),
+                                // Additional inner glow
+                                BoxShadow(
+                                  color: Colors.white.withOpacity(0.2),
+                                  blurRadius: 8,
+                                  spreadRadius: -2,
+                                  offset: const Offset(-2, -2),
+                                ),
+                              ],
                             ),
-                            const Text(
-                              'Tap to view cart',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 12,
-                              ),
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                // Cart Icon with pulse effect
+                                Center(
+                                  child: Transform.scale(
+                                    scale: _pulseAnimation.value,
+                                    child: Icon(
+                                      Icons.shopping_bag_rounded,
+                                      color: Colors.white,
+                                      size: 28,
+                                    ),
+                                  ),
+                                ),
+
+                                // Premium count badge with enhanced styling
+                                Positioned(
+                                  top: -8,
+                                  right: -8,
+                                  child: Container(
+                                    height: 28,
+                                    width: 28,
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          Colors.white,
+                                          Colors.grey.shade100,
+                                        ],
+                                      ),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: (_colorAnimation.value ?? kPrimaryColor).withOpacity(0.3),
+                                        width: 2,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withOpacity(0.15),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        count > 99 ? '99+' : '$count',
+                                        style: TextStyle(
+                                          fontSize: count > 99 ? 9 : 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: _colorAnimation.value ?? kPrimaryColor,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+
+                                // ✅ Premium ripple effect when dragging
+                                if (_isDragging)
+                                  Positioned.fill(
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: Colors.white.withOpacity(0.3),
+                                          width: 2,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                        child: Text(
-                          '$count',
-                          style: TextStyle(
-                            color: kPrimaryColor,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
                           ),
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            ),
-          ),
+              ],
+            );
+          },
         );
       },
     );
+  }
+
+  Future<void> _clearCart() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      await supabase
+          .from('cart')
+          .delete()
+          .eq('user_id', user.id);
+
+      // Reset all cart-related states
+      _productQuantities.clear();
+      cartCountNotifier.value = 0;
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 8),
+                Text('Cart cleared successfully'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error clearing cart: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -699,6 +933,8 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
     _floatingCartController.dispose();
     _fadeController.dispose();
+    _pulseController.dispose();
+    _bounceController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -736,7 +972,7 @@ class _OrdersScreenState extends State<OrdersScreen>
               ],
             ),
 
-            // Floating cart
+            // Premium Floating cart
             _buildFloatingCart(),
           ],
         ),
@@ -778,7 +1014,7 @@ class _OrdersScreenState extends State<OrdersScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'ironXpress Menu',
+                  'ironXpress',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,

@@ -188,7 +188,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                             colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
                           ).createShader(bounds),
                           child: const Text(
-                            'Welcome Back!',
+                            'Welcome!',
                             style: TextStyle(
                               fontSize: 32,
                               fontWeight: FontWeight.bold,
