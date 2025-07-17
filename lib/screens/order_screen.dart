@@ -799,16 +799,19 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
   }
 
-  // ✅ FIXED: Check if cart icon is near clear zone - updated for proper footer positioning
+  // ✅ FIXED: Check if cart icon is near clear zone - proper center-to-center calculation
   bool _isCartNearClearZone() {
     final screenSize = MediaQuery.of(context).size;
     final bottomNavHeight = kBottomNavigationBarHeight;
     final safeAreaBottom = MediaQuery.of(context).padding.bottom;
-    final clearZoneY = screenSize.height - bottomNavHeight - safeAreaBottom - 30 - 40; // Match clear zone position
-    final clearZoneCenter = Offset(screenSize.width * 0.4 + 40, clearZoneY);
-    final cartCenter = Offset(_fabOffset.dx + 30, _fabOffset.dy + 30);
+    final clearZoneY = screenSize.height - bottomNavHeight - safeAreaBottom - 30 - 40;
+
+    // ✅ FIXED: Calculate centers properly
+    final clearZoneCenter = Offset(screenSize.width * 0.4 + 40, clearZoneY); // Clear zone center
+    final cartCenter = Offset(_fabOffset.dx + 30, _fabOffset.dy + 30); // Cart center (30 = half of 60px cart size)
+
     final distance = (clearZoneCenter - cartCenter).distance;
-    return distance < 70; // Within 70 pixels for better detection
+    return distance < 80; // Slightly larger detection area
   }
 
   // ✅ SMOOTH FLOATING CART - Enhanced with multiple smooth animations
@@ -971,10 +974,14 @@ class _OrdersScreenState extends State<OrdersScreen>
                     ),
                   ),
 
-                // ✅ SMOOTH: Draggable Cart Icon with multiple floating animations
+                // ✅ SMOOTH: Draggable Cart Icon with proper finger positioning
                 Positioned(
-                  left: (_fabOffset.dx + _continuousFloatAnimation.value).clamp(0, screenSize.width - 60),
-                  top: (_fabOffset.dy + _smoothFloatAnimation.value).clamp(minTop, maxBottom), // ✅ Combined floating motions
+                  left: _isDragging
+                      ? _fabOffset.dx.clamp(0, screenSize.width - 60)
+                      : (_fabOffset.dx + _continuousFloatAnimation.value).clamp(0, screenSize.width - 60),
+                  top: _isDragging
+                      ? _fabOffset.dy.clamp(minTop, maxBottom)
+                      : (_fabOffset.dy + _smoothFloatAnimation.value).clamp(minTop, maxBottom),
                   child: GestureDetector(
                     onTap: () {
                       Navigator.push(
@@ -991,21 +998,22 @@ class _OrdersScreenState extends State<OrdersScreen>
                       _clearZoneController.forward();
                     },
                     onPanUpdate: (details) {
-                      final newDx = details.globalPosition.dx - 30;
-                      final newDy = details.globalPosition.dy - 30;
+                      // ✅ FIXED: Proper finger positioning - center the cart icon under finger
+                      final newDx = details.globalPosition.dx - 30; // 30 = half of cart width (60px)
+                      final newDy = details.globalPosition.dy - 30; // 30 = half of cart height (60px)
 
                       setState(() {
                         _fabOffset = Offset(
                           newDx.clamp(0, screenSize.width - 60),
-                          newDy.clamp(minTop, maxBottom), // Use the same maxBottom calculation
+                          newDy.clamp(minTop, maxBottom),
                         );
 
-                        // Check if near clear zone
+                        // ✅ FIXED: Smooth clear zone detection
                         _isNearClearZone = _isCartNearClearZone();
                       });
                     },
                     onPanEnd: (details) {
-                      // Check if should clear cart
+                      // ✅ FIXED: Better clear cart logic
                       if (_isNearClearZone) {
                         _clearCart();
                       }
@@ -1014,17 +1022,17 @@ class _OrdersScreenState extends State<OrdersScreen>
                         _isDragging = false;
                         _isNearClearZone = false;
 
-                        // Snap to nearest side with proper boundaries
+                        // ✅ FIXED: Smooth snap to nearest side
                         _fabOffset = Offset(
                           _fabOffset.dx < screenSize.width / 2 ? 20 : screenSize.width - 80,
-                          _fabOffset.dy.clamp(minTop, maxBottom), // Use consistent boundary
+                          _fabOffset.dy.clamp(minTop, maxBottom),
                         );
                       });
 
                       _clearZoneController.reverse();
 
-                      // Hide clear zone after delay
-                      Future.delayed(const Duration(milliseconds: 500), () {
+                      // Hide clear zone after animation
+                      Future.delayed(const Duration(milliseconds: 600), () {
                         if (mounted) {
                           setState(() => _showClearZone = false);
                         }
@@ -1036,8 +1044,8 @@ class _OrdersScreenState extends State<OrdersScreen>
                         scale: _floatingCartScale,
                         child: Transform.scale(
                           scale: _isDragging
-                              ? 1.2
-                              : (_bounceAnimation.value * _breathingAnimation.value * _continuousScaleAnimation.value), // ✅ Combined smooth scaling
+                              ? 1.1 // Slightly smaller when dragging for better visibility
+                              : (_bounceAnimation.value * _breathingAnimation.value * _continuousScaleAnimation.value),
                           child: Container(
                             height: 60,
                             width: 60,
@@ -1059,26 +1067,27 @@ class _OrdersScreenState extends State<OrdersScreen>
                                 BoxShadow(
                                   color: (_isNearClearZone
                                       ? Colors.red.shade400
-                                      : (_colorAnimation.value ?? kPrimaryColor)).withOpacity(0.4),
-                                  blurRadius: _isDragging ? 20 : 15,
-                                  spreadRadius: _isDragging ? 4 : 2,
-                                  offset: Offset(0, _isDragging ? 8 : 6),
+                                      : (_colorAnimation.value ?? kPrimaryColor)).withOpacity(0.5),
+                                  blurRadius: _isDragging ? 25 : 15,
+                                  spreadRadius: _isDragging ? 5 : 2,
+                                  offset: Offset(0, _isDragging ? 10 : 6),
                                 ),
-                                BoxShadow(
-                                  color: Colors.white.withOpacity(0.2),
-                                  blurRadius: 8,
-                                  spreadRadius: -2,
-                                  offset: const Offset(-2, -2),
-                                ),
+                                if (_isDragging)
+                                  BoxShadow(
+                                    color: Colors.white.withOpacity(0.3),
+                                    blurRadius: 10,
+                                    spreadRadius: -2,
+                                    offset: const Offset(-2, -2),
+                                  ),
                               ],
                             ),
                             child: Stack(
                               clipBehavior: Clip.none,
                               children: [
-                                // ✅ SMOOTH: Cart Icon with subtle breathing animation
+                                // Cart Icon
                                 Center(
                                   child: Transform.scale(
-                                    scale: _breathingAnimation.value,
+                                    scale: _isDragging ? 1.0 : _breathingAnimation.value,
                                     child: Icon(
                                       _isNearClearZone ? Icons.delete : Icons.shopping_bag_rounded,
                                       color: Colors.white,
@@ -1093,7 +1102,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                                     top: -8,
                                     right: -8,
                                     child: Transform.scale(
-                                      scale: _breathingAnimation.value,
+                                      scale: _isDragging ? 0.9 : _breathingAnimation.value,
                                       child: Container(
                                         height: 28,
                                         width: 28,
@@ -1111,7 +1120,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                                           ),
                                           boxShadow: [
                                             BoxShadow(
-                                              color: Colors.black.withOpacity(0.15),
+                                              color: Colors.black.withOpacity(0.2),
                                               blurRadius: 8,
                                               offset: const Offset(0, 4),
                                             ),
@@ -1131,14 +1140,15 @@ class _OrdersScreenState extends State<OrdersScreen>
                                     ),
                                   ),
 
-                                // Ripple effect when dragging
+                                // Drag indicator ring
                                 if (_isDragging)
                                   Positioned.fill(
                                     child: Container(
+                                      margin: const EdgeInsets.all(4),
                                       decoration: BoxDecoration(
                                         shape: BoxShape.circle,
                                         border: Border.all(
-                                          color: Colors.white.withOpacity(0.3),
+                                          color: Colors.white.withOpacity(0.5),
                                           width: 2,
                                         ),
                                       ),

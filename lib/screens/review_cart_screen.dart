@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'colors.dart';
@@ -46,7 +47,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
   late AnimationController _popupController;
   late AnimationController _successController;
   late AnimationController _floatingController;
-  late AnimationController _slideController; // ✅ New controller for sliding animation
+  late AnimationController _slideController;
 
   late Animation<double> _bannerSlideAnimation;
   late Animation<double> _bannerFadeAnimation;
@@ -54,9 +55,9 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
   late Animation<double> _popupScaleAnimation;
   late Animation<double> _popupFadeAnimation;
   late Animation<double> _successScaleAnimation;
-  late Animation<double> _successRotationAnimation;
+  late Animation<double> _successOpacityAnimation;
   late Animation<double> _floatingAnimation;
-  late Animation<Offset> _bannerCarouselAnimation; // ✅ New animation for carousel sliding
+  late Animation<Offset> _bannerCarouselAnimation;
 
   // ✅ Popup overlay state
   OverlayEntry? _overlayEntry;
@@ -82,12 +83,12 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     );
 
     _popupController = AnimationController(
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 600),
       vsync: this,
     );
 
     _successController = AnimationController(
-      duration: const Duration(milliseconds: 1500), // ✅ Longer for premium effect
+      duration: const Duration(milliseconds: 1000),
       vsync: this,
     );
 
@@ -96,7 +97,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
       vsync: this,
     );
 
-    // ✅ New slide controller for smooth carousel transitions
     _slideController = AnimationController(
       duration: const Duration(milliseconds: 600),
       vsync: this,
@@ -123,26 +123,19 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
       CurvedAnimation(parent: _popupController, curve: Curves.easeIn),
     );
 
-    // ✅ Premium success animations with multiple stages
-    _successScaleAnimation = Tween<double>(begin: 0.0, end: 1.2).animate(
-      CurvedAnimation(
-          parent: _successController,
-          curve: const Interval(0.0, 0.6, curve: Curves.elasticOut)
-      ),
+    // ✅ Simplified premium success animations
+    _successScaleAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _successController, curve: Curves.elasticOut),
     );
 
-    _successRotationAnimation = Tween<double>(begin: -0.5, end: 0.0).animate(
-      CurvedAnimation(
-          parent: _successController,
-          curve: const Interval(0.3, 1.0, curve: Curves.elasticOut)
-      ),
+    _successOpacityAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _successController, curve: Curves.easeIn),
     );
 
     _floatingAnimation = Tween<double>(begin: 0.0, end: 10.0).animate(
       CurvedAnimation(parent: _floatingController, curve: Curves.easeInOut),
     );
 
-    // ✅ Smooth carousel sliding animation
     _bannerCarouselAnimation = Tween<Offset>(
       begin: const Offset(1.0, 0.0),
       end: Offset.zero,
@@ -162,14 +155,13 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
           .eq('is_active', true)
           .eq('is_featured', true)
           .order('discount_value', ascending: false)
-          .limit(5); // Get top 5 featured coupons
+          .limit(5);
 
       setState(() {
         _bannerCoupons = List<Map<String, dynamic>>.from(response);
         _bannerLoading = false;
       });
 
-      // Start auto-slide timer if we have multiple coupons
       if (_bannerCoupons.length > 1) {
         _startBannerAutoSlide();
       }
@@ -181,11 +173,9 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     }
   }
 
-  // ✅ Start auto-slide timer for banner with smooth sliding
   void _startBannerAutoSlide() {
     _bannerTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
       if (mounted && _bannerCoupons.isNotEmpty) {
-        // ✅ Trigger slide animation before changing index
         _slideController.forward().then((_) {
           setState(() {
             _currentBannerIndex = (_currentBannerIndex + 1) % _bannerCoupons.length;
@@ -228,7 +218,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     }
   }
 
-  // ✅ PREMIUM SWIGGY-STYLE: Enhanced success popup animation
+  // ✅ ULTRA PREMIUM: Advanced micro-animations and effects
   void _showSuccessPopup(String couponCode, double discountAmount) {
     _overlayEntry = OverlayEntry(
       builder: (context) => AnimatedBuilder(
@@ -238,217 +228,301 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
             opacity: _popupFadeAnimation,
             child: Container(
               color: Colors.black.withOpacity(0.7),
-              child: Stack(
-                children: [
-                  // ✅ Premium particle effects background
-                  ...List.generate(20, (index) => _buildParticle(index)),
-
-                  Center(
-                    child: ScaleTransition(
-                      scale: _popupScaleAnimation,
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 32),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              Colors.white,
-                              kPrimaryColor.withOpacity(0.05),
-                              Colors.white,
-                            ],
-                            stops: const [0.0, 0.5, 1.0],
-                          ),
-                          borderRadius: BorderRadius.circular(32),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.2),
-                              blurRadius: 50,
-                              offset: const Offset(0, 25),
-                            ),
-                            BoxShadow(
-                              color: kPrimaryColor.withOpacity(0.3),
-                              blurRadius: 30,
-                              offset: const Offset(0, 15),
-                            ),
-                          ],
+              child: Center(
+                child: ScaleTransition(
+                  scale: _popupScaleAnimation,
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 50),
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.3),
+                          blurRadius: 40,
+                          offset: const Offset(0, 20),
                         ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // ✅ Top decorative element
-                            Container(
-                              height: 6,
-                              margin: const EdgeInsets.only(top: 20, left: 80, right: 80),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.5)],
-                                ),
-                                borderRadius: BorderRadius.circular(3),
-                              ),
-                            ),
-
-                            const SizedBox(height: 24),
-
-                            // ✅ Premium animated icon with multiple layers
-                            AnimatedBuilder(
-                              animation: _successController,
-                              builder: (context, child) {
-                                return Stack(
-                                  alignment: Alignment.center,
-                                  children: [
-                                    // Outer ring animation
-                                    Transform.scale(
-                                      scale: _successScaleAnimation.value * 1.5,
-                                      child: Container(
-                                        width: 120,
-                                        height: 120,
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                            color: kPrimaryColor.withOpacity(0.3),
-                                            width: 2,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-
-                                    // Middle ring
-                                    Transform.scale(
-                                      scale: _successScaleAnimation.value * 1.2,
-                                      child: Container(
-                                        width: 100,
-                                        height: 100,
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          color: kPrimaryColor.withOpacity(0.1),
-                                        ),
-                                      ),
-                                    ),
-
-                                    // Main icon
-                                    Transform.scale(
-                                      scale: _successScaleAnimation.value,
-                                      child: Transform.rotate(
-                                        angle: _successRotationAnimation.value,
-                                        child: Container(
-                                          width: 80,
-                                          height: 80,
-                                          decoration: BoxDecoration(
-                                            gradient: RadialGradient(
-                                              colors: [
-                                                kPrimaryColor,
-                                                kPrimaryColor.withOpacity(0.8),
-                                                kPrimaryColor,
-                                              ],
-                                            ),
-                                            shape: BoxShape.circle,
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: kPrimaryColor.withOpacity(0.4),
-                                                blurRadius: 20,
-                                                offset: const Offset(0, 8),
-                                              ),
-                                            ],
-                                          ),
-                                          child: const Icon(
-                                            Icons.check_rounded,
-                                            color: Colors.white,
-                                            size: 40,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              },
-                            ),
-
-                            const SizedBox(height: 28),
-
-                            // ✅ Premium text with gradient
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 24),
-                              child: Column(
-                                children: [
-                                  ShaderMask(
-                                    shaderCallback: (bounds) => LinearGradient(
-                                      colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.7)],
-                                    ).createShader(bounds),
-                                    child: const Text(
-                                      '🎉 Coupon Applied!',
-                                      style: TextStyle(
-                                        fontSize: 26,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                        letterSpacing: 0.5,
-                                      ),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ),
-
-                                  const SizedBox(height: 12),
-
-                                  Text(
-                                    'Code: $couponCode',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w700,
-                                      color: kPrimaryColor,
-                                      letterSpacing: 1.5,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-
-                                  const SizedBox(height: 20),
-
-                                  // ✅ Premium savings display
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                        BoxShadow(
+                          color: kPrimaryColor.withOpacity(0.4),
+                          blurRadius: 30,
+                          offset: const Offset(0, 15),
+                        ),
+                        BoxShadow(
+                          color: Colors.white,
+                          blurRadius: 5,
+                          offset: const Offset(0, -2),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // ✅ Ultra Premium Success Icon with multiple animation layers
+                        AnimatedBuilder(
+                          animation: _successController,
+                          builder: (context, child) {
+                            return Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                // Outer pulse ring
+                                Transform.scale(
+                                  scale: 1.0 + (_successScaleAnimation.value * 0.3),
+                                  child: Container(
+                                    width: 80,
+                                    height: 80,
                                     decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: [
-                                          kPrimaryColor.withOpacity(0.1),
-                                          kPrimaryColor.withOpacity(0.05),
-                                        ],
-                                      ),
-                                      borderRadius: BorderRadius.circular(20),
+                                      shape: BoxShape.circle,
                                       border: Border.all(
-                                        color: kPrimaryColor.withOpacity(0.2),
-                                        width: 1,
+                                        color: kPrimaryColor.withOpacity(0.3 * _successOpacityAnimation.value),
+                                        width: 2,
                                       ),
                                     ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.savings_rounded,
-                                          color: kPrimaryColor,
-                                          size: 24,
+                                  ),
+                                ),
+
+                                // Middle glow ring
+                                Transform.scale(
+                                  scale: 1.0 + (_successScaleAnimation.value * 0.15),
+                                  child: Container(
+                                    width: 70,
+                                    height: 70,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: kPrimaryColor.withOpacity(0.1 * _successOpacityAnimation.value),
+                                    ),
+                                  ),
+                                ),
+
+                                // Main success icon
+                                Transform.scale(
+                                  scale: _successScaleAnimation.value,
+                                  child: Container(
+                                    width: 60,
+                                    height: 60,
+                                    decoration: BoxDecoration(
+                                      color: kPrimaryColor,
+                                      shape: BoxShape.circle,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: kPrimaryColor.withOpacity(0.5),
+                                          blurRadius: 25,
+                                          offset: const Offset(0, 10),
                                         ),
-                                        const SizedBox(width: 12),
-                                        Text(
-                                          'You saved ₹${discountAmount.toStringAsFixed(2)}',
-                                          style: TextStyle(
-                                            fontSize: 20,
-                                            fontWeight: FontWeight.bold,
-                                            color: kPrimaryColor,
-                                          ),
+                                        BoxShadow(
+                                          color: kPrimaryColor.withOpacity(0.3),
+                                          blurRadius: 15,
+                                          offset: const Offset(0, 5),
                                         ),
                                       ],
                                     ),
+                                    child: const Icon(
+                                      Icons.check_rounded,
+                                      color: Colors.white,
+                                      size: 28,
+                                    ),
                                   ),
-                                ],
-                              ),
-                            ),
+                                ),
 
-                            const SizedBox(height: 32),
-                          ],
+                                // Subtle sparkle effects
+                                ...List.generate(6, (index) {
+                                  final angle = (index * 60) * pi / 180;
+                                  final distance = 45.0;
+                                  return Transform.translate(
+                                    offset: Offset(
+                                      distance * cos(angle) * _successScaleAnimation.value,
+                                      distance * sin(angle) * _successScaleAnimation.value,
+                                    ),
+                                    child: Transform.scale(
+                                      scale: _successOpacityAnimation.value,
+                                      child: Container(
+                                        width: 4,
+                                        height: 4,
+                                        decoration: BoxDecoration(
+                                          color: kPrimaryColor.withOpacity(0.6),
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }),
+                              ],
+                            );
+                          },
                         ),
-                      ),
+
+                        const SizedBox(height: 16),
+
+                        // ✅ Premium gradient text with micro-animation
+                        AnimatedBuilder(
+                          animation: _successController,
+                          builder: (context, child) {
+                            return Transform.translate(
+                              offset: Offset(0, 20 * (1 - _successOpacityAnimation.value)),
+                              child: FadeTransition(
+                                opacity: _successOpacityAnimation,
+                                child: ShaderMask(
+                                  shaderCallback: (bounds) => LinearGradient(
+                                    colors: [
+                                      kPrimaryColor,
+                                      kPrimaryColor.withOpacity(0.8),
+                                      kPrimaryColor,
+                                    ],
+                                    stops: const [0.0, 0.5, 1.0],
+                                  ).createShader(bounds),
+                                  child: const Text(
+                                    'Coupon Applied!',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                      letterSpacing: 0.5,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+
+                        const SizedBox(height: 6),
+
+                        // ✅ Coupon code with premium styling
+                        AnimatedBuilder(
+                          animation: _successController,
+                          builder: (context, child) {
+                            return Transform.translate(
+                              offset: Offset(0, 15 * (1 - _successOpacityAnimation.value)),
+                              child: FadeTransition(
+                                opacity: _successOpacityAnimation,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: kPrimaryColor.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    couponCode,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                      color: kPrimaryColor,
+                                      letterSpacing: 1.2,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        // ✅ Ultra Premium savings display with animated counter
+                        AnimatedBuilder(
+                          animation: _successController,
+                          builder: (context, child) {
+                            return Transform.translate(
+                              offset: Offset(0, 10 * (1 - _successOpacityAnimation.value)),
+                              child: FadeTransition(
+                                opacity: _successOpacityAnimation,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        Colors.green.withOpacity(0.1),
+                                        Colors.green.withOpacity(0.05),
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: Colors.green.withOpacity(0.3),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.savings_rounded,
+                                          color: Colors.white,
+                                          size: 16,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'You Saved',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w600,
+                                              color: Colors.green.shade700,
+                                            ),
+                                          ),
+                                          // Animated counter effect
+                                          AnimatedBuilder(
+                                            animation: _successController,
+                                            builder: (context, child) {
+                                              final animatedAmount = discountAmount * _successOpacityAnimation.value;
+                                              return Text(
+                                                '₹${animatedAmount.toStringAsFixed(2)}',
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: Colors.green.shade800,
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+
+                        const SizedBox(height: 4),
+
+                        // ✅ Subtle success indicator
+                        AnimatedBuilder(
+                          animation: _successController,
+                          builder: (context, child) {
+                            return Transform.scale(
+                              scale: _successOpacityAnimation.value,
+                              child: Container(
+                                width: 40,
+                                height: 3,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      kPrimaryColor.withOpacity(0.3),
+                                      kPrimaryColor,
+                                      kPrimaryColor.withOpacity(0.3),
+                                    ],
+                                  ),
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
                     ),
                   ),
-                ],
+                ),
               ),
             ),
           );
@@ -460,49 +534,10 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     _popupController.forward();
     _successController.forward();
 
-    // Auto hide after 3.5 seconds
-    Future.delayed(const Duration(milliseconds: 3500), () {
+    // Auto hide after 2.2 seconds for snappier UX
+    Future.delayed(const Duration(milliseconds: 2200), () {
       _hideSuccessPopup();
     });
-  }
-
-  // ✅ Premium particle effect for success animation
-  Widget _buildParticle(int index) {
-    final random = index * 0.1;
-    final animationDelay = (index % 5) * 0.2;
-
-    return AnimatedBuilder(
-      animation: _successController,
-      builder: (context, child) {
-        final progress = (_successController.value - animationDelay).clamp(0.0, 1.0);
-
-        return Positioned(
-          left: MediaQuery.of(context).size.width * (0.1 + random),
-          top: MediaQuery.of(context).size.height * (0.2 + random * 0.6),
-          child: Transform.scale(
-            scale: progress,
-            child: Opacity(
-              opacity: (1.0 - progress).clamp(0.0, 1.0),
-              child: Container(
-                width: 8 + (index % 3) * 4,
-                height: 8 + (index % 3) * 4,
-                decoration: BoxDecoration(
-                  color: index % 2 == 0 ? kPrimaryColor : Colors.orange,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: (index % 2 == 0 ? kPrimaryColor : Colors.orange).withOpacity(0.5),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
   }
 
   void _hideSuccessPopup() {
@@ -676,8 +711,8 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     _popupController.dispose();
     _successController.dispose();
     _floatingController.dispose();
-    _slideController.dispose(); // ✅ Dispose slide controller
-    _bannerTimer?.cancel(); // ✅ Cancel auto-slide timer if exists
+    _slideController.dispose();
+    _bannerTimer?.cancel();
     _hideSuccessPopup();
     super.dispose();
   }
@@ -809,15 +844,18 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
           offset: Offset(0, _floatingAnimation.value),
           child: GestureDetector(
             onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => ApplyCouponScreen(
-                    subtotal: _calculateSubtotal(),
-                    onCouponApplied: _onCouponApplied,
+              // ✅ Only allow navigation if no coupon is applied
+              if (_appliedCouponCode == null) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ApplyCouponScreen(
+                      subtotal: _calculateSubtotal(),
+                      onCouponApplied: _onCouponApplied,
+                    ),
                   ),
-                ),
-              );
+                );
+              }
             },
             child: Container(
               width: double.infinity,
@@ -916,7 +954,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     );
   }
 
-  // ✅ COMPACT: More compact offers and discounts section
+  // ✅ UPDATED: Removed "Change Coupon" option
   Widget _buildCompactOffersAndDiscounts() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -968,12 +1006,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                 margin: const EdgeInsets.only(bottom: 12),
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.green.shade50,
-                      Colors.green.shade100.withOpacity(0.3),
-                    ],
-                  ),
+                  color: Colors.green.shade50,
                   border: Border.all(color: Colors.green.shade300, width: 1),
                   borderRadius: BorderRadius.circular(14),
                 ),
@@ -982,9 +1015,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                     Container(
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Colors.green.shade600, Colors.green.shade500],
-                        ),
+                        color: Colors.green.shade600,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Icon(
@@ -1029,82 +1060,76 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
             ),
           ],
 
-          // Apply Coupon Button - More compact
-          SlideTransition(
-            position: _couponSlideAnimation,
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: _appliedCouponCode != null
-                    ? LinearGradient(colors: [Colors.grey.shade100, Colors.grey.shade50])
-                    : LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Colors.white, kPrimaryColor.withOpacity(0.05)],
-                ),
-                border: Border.all(
-                  color: _appliedCouponCode != null
-                      ? Colors.grey.shade300
-                      : kPrimaryColor.withOpacity(0.2),
-                  width: 1,
-                ),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: ListTile(
-                dense: true,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                leading: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    gradient: _appliedCouponCode != null
-                        ? LinearGradient(colors: [Colors.grey.shade200, Colors.grey.shade100])
-                        : LinearGradient(
-                      colors: [kPrimaryColor.withOpacity(0.1), kPrimaryColor.withOpacity(0.05)],
-                    ),
-                    borderRadius: BorderRadius.circular(8),
+          // ✅ Apply Coupon Button - Only show if no coupon is applied
+          if (_appliedCouponCode == null) ...[
+            SlideTransition(
+              position: _couponSlideAnimation,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Colors.white, kPrimaryColor.withOpacity(0.05)],
                   ),
-                  child: Icon(
-                    Icons.local_offer_rounded,
-                    color: _appliedCouponCode != null ? Colors.grey.shade500 : kPrimaryColor,
-                    size: 18,
+                  border: Border.all(
+                    color: kPrimaryColor.withOpacity(0.2),
+                    width: 1,
                   ),
+                  borderRadius: BorderRadius.circular(14),
                 ),
-                title: Text(
-                  _appliedCouponCode != null ? "Change Coupon" : "Apply Coupon",
-                  style: TextStyle(
-                    color: _appliedCouponCode != null ? Colors.grey.shade600 : Colors.black87,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-                subtitle: Text(
-                  _appliedCouponCode != null ? "Tap to apply different coupon" : "Save more with exclusive offers",
-                  style: TextStyle(
-                    color: _appliedCouponCode != null
-                        ? Colors.grey.shade500
-                        : kPrimaryColor.withOpacity(0.8),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                trailing: Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  size: 14,
-                  color: _appliedCouponCode != null ? Colors.grey.shade400 : kPrimaryColor,
-                ),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => ApplyCouponScreen(
-                        subtotal: _calculateSubtotal(),
-                        onCouponApplied: _onCouponApplied,
+                child: ListTile(
+                  dense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                  leading: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [kPrimaryColor.withOpacity(0.1), kPrimaryColor.withOpacity(0.05)],
                       ),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                  );
-                },
+                    child: Icon(
+                      Icons.local_offer_rounded,
+                      color: kPrimaryColor,
+                      size: 18,
+                    ),
+                  ),
+                  title: const Text(
+                    "Apply Coupon",
+                    style: TextStyle(
+                      color: Colors.black87,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  subtitle: Text(
+                    "Save more with exclusive offers",
+                    style: TextStyle(
+                      color: kPrimaryColor.withOpacity(0.8),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  trailing: Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    size: 14,
+                    color: kPrimaryColor,
+                  ),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ApplyCouponScreen(
+                          subtotal: _calculateSubtotal(),
+                          onCouponApplied: _onCouponApplied,
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -1463,9 +1488,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [Colors.green.shade100, Colors.green.shade50],
-                            ),
+                            color: Colors.green.shade100,
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(

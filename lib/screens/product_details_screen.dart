@@ -5,251 +5,824 @@ import 'colors.dart';
 import 'order_screen.dart';
 
 class ProductDetailsScreen extends StatefulWidget {
-  final String productId; // ✅ Changed from int to String
+  final String productId;
   const ProductDetailsScreen({Key? key, required this.productId}) : super(key: key);
 
   @override
   State<ProductDetailsScreen> createState() => _ProductDetailsScreenState();
 }
 
-class _ProductDetailsScreenState extends State<ProductDetailsScreen> with SingleTickerProviderStateMixin {
+class _ProductDetailsScreenState extends State<ProductDetailsScreen>
+    with TickerProviderStateMixin {
   final supabase = Supabase.instance.client;
 
   Map<String, dynamic>? _product;
   List<Map<String, dynamic>> _services = [];
   int _quantity = 1;
+  int _currentCartQuantity = 0; // ✅ NEW: Track current cart quantity
   String _selectedService = '';
   int _selectedServicePrice = 0;
   bool _addedToCart = false;
-  late AnimationController _animationController;
+  bool _isLoading = false;
+  bool _isAddingToCart = false;
+
+  // ✅ REFINED: Compact animation controllers
+  late AnimationController _fadeController;
+  late AnimationController _buttonController;
+  late AnimationController _successController;
+  late AnimationController _floatController;
+
+  late Animation<double> _fadeAnimation;
+  late Animation<double> _buttonScale;
+  late Animation<double> _successScale;
+  late Animation<double> _floatAnimation;
 
   @override
   void initState() {
     super.initState();
+    _initializeAnimations();
     _fetchProductDetails();
     _fetchServices();
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      lowerBound: 0.9,
-      upperBound: 1.1,
+    // ✅ FIXED: Don't call _fetchCurrentCartQuantity here, call it after product is loaded
+
+    // ✅ NEW: Listen to cart changes
+    cartCountNotifier.addListener(_onCartCountChanged);
+  }
+
+  void _initializeAnimations() {
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 600),
       vsync: this,
-    )..addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        _animationController.reverse();
-      }
-    });
+    );
+
+    _buttonController = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+
+    _successController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _floatController = AnimationController(
+      duration: const Duration(milliseconds: 2000),
+      vsync: this,
+    );
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _fadeController, curve: Curves.easeOut),
+    );
+
+    _buttonScale = Tween<double>(begin: 1.0, end: 0.95).animate(
+      CurvedAnimation(parent: _buttonController, curve: Curves.easeInOut),
+    );
+
+    _successScale = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _successController, curve: Curves.elasticOut),
+    );
+
+    _floatAnimation = Tween<double>(begin: -3.0, end: 3.0).animate(
+      CurvedAnimation(parent: _floatController, curve: Curves.easeInOutSine),
+    );
+
+    _fadeController.forward();
+    _floatController.repeat(reverse: true);
   }
 
   Future<void> _fetchProductDetails() async {
-    final response = await supabase
-        .from('products')
-        .select('*, categories (name)')
-        .eq('id', widget.productId)
-        .maybeSingle();
+    setState(() => _isLoading = true);
 
-    if (response != null) {
-      setState(() {
-        _product = response;
-      });
+    try {
+      final response = await supabase
+          .from('products')
+          .select('*, categories (name)')
+          .eq('id', widget.productId)
+          .maybeSingle();
+
+      if (response != null) {
+        setState(() {
+          _product = response;
+          _isLoading = false;
+        });
+
+        // ✅ FIXED: Fetch cart quantity after product is loaded
+        await _fetchCurrentCartQuantity();
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading product: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        );
+      }
     }
   }
 
   Future<void> _fetchServices() async {
-    final response = await supabase
-        .from('services')
-        .select()
-        .eq('is_active', true)
-        .order('sort_order');
+    try {
+      final response = await supabase
+          .from('services')
+          .select()
+          .eq('is_active', true)
+          .order('sort_order');
 
-    final serviceList = List<Map<String, dynamic>>.from(response);
-    setState(() {
-      _services = serviceList;
-      if (_services.isNotEmpty) {
-        _selectedService = _services[0]['name'];
-        _selectedServicePrice = _services[0]['price'];
+      final serviceList = List<Map<String, dynamic>>.from(response);
+      setState(() {
+        _services = serviceList;
+        if (_services.isNotEmpty) {
+          _selectedService = _services[0]['name'];
+          _selectedServicePrice = _services[0]['price'];
+        }
+      });
+    } catch (e) {
+      print('Error fetching services: $e');
+    }
+  }
+
+  // ✅ NEW: Fetch current cart quantity for this product
+  Future<void> _fetchCurrentCartQuantity() async {
+    final user = supabase.auth.currentUser;
+    if (user == null || _product == null) return;
+
+    try {
+      final response = await supabase
+          .from('cart')
+          .select('product_quantity, service_type, service_price')
+          .eq('user_id', user.id)
+          .eq('product_name', _product!['product_name']);
+
+      if (response.isNotEmpty) {
+        // Get total quantity across all services for this product
+        final totalQuantity = response.fold<int>(0, (sum, item) => sum + (item['product_quantity'] as int? ?? 0));
+
+        // Set the first service found as selected (or keep default if none match)
+        final firstCartItem = response.first;
+        final serviceInCart = firstCartItem['service_type'] as String?;
+        final servicePriceInCart = firstCartItem['service_price'] as int?;
+
+        if (serviceInCart != null && _services.any((s) => s['name'] == serviceInCart)) {
+          setState(() {
+            _currentCartQuantity = totalQuantity;
+            _quantity = totalQuantity > 0 ? totalQuantity : 1;
+            _selectedService = serviceInCart;
+            _selectedServicePrice = servicePriceInCart ?? _selectedServicePrice;
+          });
+        } else {
+          setState(() {
+            _currentCartQuantity = totalQuantity;
+            _quantity = totalQuantity > 0 ? totalQuantity : 1;
+          });
+        }
       }
-    });
+    } catch (e) {
+      print('Error fetching current cart quantity: $e');
+    }
+  }
+
+  // ✅ NEW: Handle cart count changes from other screens
+  void _onCartCountChanged() {
+    _fetchCurrentCartQuantity();
   }
 
   Future<void> _addToCart() async {
     final user = supabase.auth.currentUser;
-    if (user == null || _product == null) return;
-
-    final basePrice = _product!['product_price'] ?? 0;
-    final total = (basePrice + _selectedServicePrice) * _quantity;
-
-    await supabase.from('cart').insert({
-      'id': user.id,
-      'product_name': _product!['product_name'],
-      'product_price': basePrice,
-      'product_image': _product!['image_url'],
-      'product_quantity': _quantity,
-      'category': _product!['categories']?['name'] ?? 'General',
-      'service_type': _selectedService,
-      'service_price': _selectedServicePrice,
-      'total_price': total,
-    });
-
-    cartCountNotifier.value++;
-    setState(() => _addedToCart = true);
-    _animationController.forward(from: 0.0);
-    await Future.delayed(const Duration(seconds: 1));
-    if (mounted) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const OrdersScreen()),
+    if (user == null || _product == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please login to add items to cart')),
       );
+      return;
+    }
+
+    setState(() => _isAddingToCart = true);
+    _buttonController.forward();
+
+    try {
+      final name = _product!['product_name'];
+      final basePrice = (_product!['product_price'] as num?)?.toDouble() ?? 0.0;
+      final image = _product!['image_url'] ?? '';
+      final category = _product!['categories']?['name'] ?? 'General';
+      final totalPrice = (basePrice + _selectedServicePrice) * _quantity;
+
+      // ✅ FIXED: Check for existing item with same service
+      final existing = await supabase
+          .from('cart')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('product_name', name)
+          .eq('service_type', _selectedService)
+          .maybeSingle();
+
+      if (existing != null) {
+        // ✅ FIXED: Update to new quantity instead of adding
+        await supabase.from('cart').update({
+          'product_quantity': _quantity,
+          'total_price': totalPrice,
+        }).eq('id', existing['id']);
+
+        print('✅ Updated existing cart item to quantity: $_quantity');
+      } else {
+        // ✅ FIXED: Remove any existing items with different services for this product
+        await supabase
+            .from('cart')
+            .delete()
+            .eq('user_id', user.id)
+            .eq('product_name', name);
+
+        // Add new item
+        await supabase.from('cart').insert({
+          'user_id': user.id,
+          'product_name': name,
+          'product_price': basePrice,
+          'product_image': image,
+          'product_quantity': _quantity,
+          'category': category,
+          'service_type': _selectedService,
+          'service_price': _selectedServicePrice.toDouble(),
+          'total_price': totalPrice,
+        });
+
+        print('✅ Added new cart item with quantity: $_quantity');
+      }
+
+      // ✅ FIXED: Update current cart quantity
+      setState(() {
+        _currentCartQuantity = _quantity;
+      });
+
+      await _updateCartCount();
+
+      setState(() => _addedToCart = true);
+      _successController.forward();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.check_circle, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Text('Cart updated!', style: TextStyle(fontSize: 14)),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            margin: const EdgeInsets.all(16),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+
+      await Future.delayed(const Duration(milliseconds: 1200));
+      if (mounted) {
+        Navigator.pop(context, true);
+      }
+
+    } catch (e) {
+      print('❌ Error updating cart: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating cart: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isAddingToCart = false);
+      _buttonController.reverse();
+    }
+  }
+
+  Future<void> _updateCartCount() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final data = await supabase
+          .from('cart')
+          .select('product_quantity')
+          .eq('user_id', user.id);
+
+      final totalCount = data.fold<int>(0, (sum, item) => sum + (item['product_quantity'] as int? ?? 0));
+      cartCountNotifier.value = totalCount;
+    } catch (e) {
+      print('Error updating cart count: $e');
+    }
+  }
+
+  IconData _getServiceIcon(String serviceName) {
+    switch (serviceName.toLowerCase().trim()) {
+      case 'wash & iron':
+      case 'wash and iron':
+      case 'wash+iron':
+        return Icons.local_laundry_service_rounded;
+      case 'dry clean':
+      case 'dry cleaning':
+        return Icons.dry_cleaning_rounded;
+      case 'steam iron':
+      case 'ironing':
+      case 'iron':
+      case 'only iron':
+        return Icons.iron_rounded;
+      case 'pressing':
+        return Icons.compress_rounded;
+      default:
+        return Icons.cleaning_services_rounded;
     }
   }
 
   @override
   void dispose() {
-    _animationController.dispose();
+    // ✅ FIXED: Remove cart listener
+    cartCountNotifier.removeListener(_onCartCountChanged);
+
+    _fadeController.dispose();
+    _buttonController.dispose();
+    _successController.dispose();
+    _floatController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_product == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF8F9FA),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
 
-    final double tileWidth = MediaQuery.of(context).size.width / 3 - 24;
+    if (_product == null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF8F9FA),
+        appBar: AppBar(
+          backgroundColor: kPrimaryColor,
+          title: const Text('Product Not Found'),
+          foregroundColor: Colors.white,
+        ),
+        body: const Center(child: Text('Product not found')),
+      );
+    }
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
+        elevation: 0,
         backgroundColor: kPrimaryColor,
-        title: Text(_product!['product_name'] ?? 'Product'),
+        foregroundColor: Colors.white,
+        title: Text(
+          _product!['product_name'] ?? 'Product',
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+        ),
+        centerTitle: true,
       ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AspectRatio(
-                aspectRatio: 1,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.network(
-                    _product!['image_url'] ?? '',
-                    fit: BoxFit.contain,
-                  ),
+      body: AnimatedBuilder(
+        animation: _fadeAnimation,
+        builder: (context, child) {
+          return FadeTransition(
+            opacity: _fadeAnimation,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildCompactProductImage(),
+                  const SizedBox(height: 16),
+                  _buildProductInfo(),
+                  const SizedBox(height: 20),
+                  _buildServiceSelection(),
+                  const SizedBox(height: 20),
+                  _buildQuantityAndPrice(),
+                  const SizedBox(height: 24),
+                  _buildCompactAddButton(),
+                  const SizedBox(height: 20),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ✅ COMPACT: Smaller, elegant product image
+  Widget _buildCompactProductImage() {
+    return AnimatedBuilder(
+      animation: _floatAnimation,
+      builder: (context, child) {
+        return Transform.translate(
+          offset: Offset(0, _floatAnimation.value),
+          child: Container(
+            height: 220,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 15,
+                  offset: const Offset(0, 5),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.network(
+                _product!['image_url'] ?? '',
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  color: Colors.grey.shade50,
+                  child: Icon(Icons.image_not_supported, color: Colors.grey.shade400, size: 40),
                 ),
               ),
-              const SizedBox(height: 16),
-              const Text('Description', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              const SizedBox(height: 4),
-              Text(
-                _product!['description'] ??
-                    'This item is made of premium fabric. Select your desired service and quantity to proceed.',
-                style: const TextStyle(fontSize: 14, color: Colors.black87),
-              ),
-              const SizedBox(height: 20),
-              const Text('Select Service', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: _services.map((service) {
-                  final name = service['name'];
-                  final price = service['price'];
-                  final selected = _selectedService == name;
-                  return GestureDetector(
-                    onTap: () => setState(() {
-                      _selectedService = name;
-                      _selectedServicePrice = price;
-                    }),
-                    child: Container(
-                      width: tileWidth,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      decoration: BoxDecoration(
-                        color: selected ? kPrimaryColor : Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: selected ? kPrimaryColor : Colors.grey.shade300,
-                        ),
-                        boxShadow: selected
-                            ? [
-                          BoxShadow(
-                            color: kPrimaryColor.withOpacity(0.15),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          )
-                        ]
-                            : [],
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            name,
-                            style: TextStyle(
-                              color: selected ? Colors.white : Colors.black87,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '+ ₹$price',
-                            style: TextStyle(
-                              color: selected ? Colors.white70 : Colors.black54,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // ✅ REFINED: Clean product info
+  Widget _buildProductInfo() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: kPrimaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.currency_rupee, color: kPrimaryColor, size: 14),
+                    Text(
+                      '${_product!['product_price'] ?? 0}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: kPrimaryColor,
                       ),
                     ),
-                  );
-                }).toList(),
+                  ],
+                ),
               ),
-              const SizedBox(height: 20),
-              const Text('Select Quantity', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.remove_circle, color: kPrimaryColor),
-                    onPressed: () => setState(() {
-                      if (_quantity > 1) _quantity--;
-                    }),
+              const SizedBox(width: 8),
+              Text(
+                'base price',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _product!['description'] ??
+                'Premium quality item crafted with finest materials. Select service and quantity to proceed.',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey.shade700,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ✅ ELEGANT: Compact service selection
+  Widget _buildServiceSelection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Select Service',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey.shade800,
+          ),
+        ),
+        const SizedBox(height: 12),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: _services.map((service) {
+              final name = service['name'];
+              final price = service['price'];
+              final selected = _selectedService == name;
+
+              return Container(
+                margin: const EdgeInsets.only(right: 12),
+                child: GestureDetector(
+                  onTap: () => setState(() {
+                    _selectedService = name;
+                    _selectedServicePrice = price;
+                  }),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: selected ? kPrimaryColor : Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: selected ? kPrimaryColor : Colors.grey.shade300,
+                        width: 1,
+                      ),
+                      boxShadow: selected ? [
+                        BoxShadow(
+                          color: kPrimaryColor.withOpacity(0.2),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ] : [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.04),
+                          blurRadius: 5,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _getServiceIcon(name),
+                          size: 16,
+                          color: selected ? Colors.white : kPrimaryColor,
+                        ),
+                        const SizedBox(width: 8),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              name,
+                              style: TextStyle(
+                                color: selected ? Colors.white : Colors.black87,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                            Text(
+                              '+₹$price',
+                              style: TextStyle(
+                                color: selected ? Colors.white70 : Colors.grey.shade600,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                  Text('$_quantity', style: const TextStyle(fontSize: 16)),
-                  IconButton(
-                    icon: const Icon(Icons.add_circle, color: kPrimaryColor),
-                    onPressed: () => setState(() => _quantity++),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ✅ COMPACT: Quantity and price in one row
+  Widget _buildQuantityAndPrice() {
+    final totalPrice = ((_product!['product_price'] ?? 0) + _selectedServicePrice) * _quantity;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Quantity controls
+              Row(
+                children: [
+                  Text(
+                    'Quantity',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Row(
+                    children: [
+                      GestureDetector(
+                        onTap: () => setState(() {
+                          if (_quantity > 1) _quantity--;
+                        }),
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: _quantity > 1 ? kPrimaryColor : Colors.grey.shade300,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.remove,
+                            color: _quantity > 1 ? Colors.white : Colors.grey.shade600,
+                            size: 16,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 16),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: kPrimaryColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '$_quantity',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: kPrimaryColor,
+                          ),
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () => setState(() => _quantity++),
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: kPrimaryColor,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.add,
+                            color: Colors.white,
+                            size: 16,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
-              Center(
-                child: ScaleTransition(
-                  scale: _animationController,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: kPrimaryColor,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                    ),
-                    onPressed: _addToCart,
-                    child: Text(
-                      _addedToCart ? 'Added' : 'Add to Cart',
-                      style: const TextStyle(fontSize: 16),
+
+              // Total price
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    'Total',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
                     ),
                   ),
-                ),
+                  Text(
+                    '₹$totalPrice',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: kPrimaryColor,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 32),
             ],
           ),
-        ),
+
+          // ✅ NEW: Show current cart status
+          if (_currentCartQuantity > 0) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.blue.shade600, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Currently in cart: $_currentCartQuantity item${_currentCartQuantity > 1 ? 's' : ''} with $_selectedService',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.blue.shade700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
       ),
+    );
+  }
+
+  // ✅ SLEEK: Compact add to cart button
+  Widget _buildCompactAddButton() {
+    final bool hasChanged = _currentCartQuantity != _quantity;
+    final bool isInCart = _currentCartQuantity > 0;
+
+    return AnimatedBuilder(
+      animation: Listenable.merge([_buttonController, _successController]),
+      builder: (context, child) {
+        return Transform.scale(
+          scale: _addedToCart ? _successScale.value : _buttonScale.value,
+          child: Container(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton(
+              onPressed: (_isAddingToCart || !hasChanged) ? null : _addToCart,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _addedToCart
+                    ? Colors.green
+                    : (hasChanged ? kPrimaryColor : Colors.grey.shade400),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: _addedToCart ? 6 : (hasChanged ? 3 : 1),
+                shadowColor: _addedToCart
+                    ? Colors.green.withOpacity(0.3)
+                    : kPrimaryColor.withOpacity(0.3),
+              ),
+              child: _isAddingToCart
+                  ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2,
+                ),
+              )
+                  : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    _addedToCart
+                        ? Icons.check_circle_rounded
+                        : (isInCart ? Icons.refresh_rounded : Icons.shopping_cart_rounded),
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _addedToCart
+                        ? 'Updated!'
+                        : (hasChanged
+                        ? (isInCart ? 'Update Cart' : 'Add to Cart')
+                        : 'No Changes'),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

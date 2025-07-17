@@ -300,6 +300,41 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
     }
   }
 
+  // ✅ Handle back button press - prevent going back to previous screens
+  Future<bool> _onWillPop() async {
+    // Show a dialog to confirm if user wants to exit
+    final shouldExit = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Order Confirmed'),
+        content: const Text('Your order has been placed successfully. Do you want to continue shopping?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Stay Here'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Continue Shopping'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldExit == true) {
+      // Navigate to home screen and clear the stack
+      Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+      return false;
+    }
+
+    return false; // Prevent back navigation
+  }
+
+  // ✅ Navigate to home screen and clear entire navigation stack
+  void _navigateToHome() {
+    Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+  }
+
   @override
   void dispose() {
     _backgroundController.dispose();
@@ -336,259 +371,264 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
         _pulseController,
       ]),
       builder: (context, child) {
-        return Scaffold(
-          backgroundColor: Colors.white,
-          body: Container(
-            width: double.infinity,
-            height: double.infinity,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  kPrimaryColor.withOpacity(0.05 + (_gradientAnimation.value * 0.1)),
-                  Colors.white,
-                  Colors.white,
-                  kPrimaryColor.withOpacity(0.03 + (_gradientAnimation.value * 0.07)),
-                ],
+        return PopScope(
+          // ✅ Prevent back navigation - use PopScope for newer Flutter versions
+          canPop: false,
+          onPopInvoked: (didPop) async {
+            if (!didPop) {
+              await _onWillPop();
+            }
+          },
+          child: Scaffold(
+            backgroundColor: Colors.white,
+            body: Container(
+              width: double.infinity,
+              height: double.infinity,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    kPrimaryColor.withOpacity(0.05 + (_gradientAnimation.value * 0.1)),
+                    Colors.white,
+                    Colors.white,
+                    kPrimaryColor.withOpacity(0.03 + (_gradientAnimation.value * 0.07)),
+                  ],
+                ),
               ),
-            ),
-            child: Stack(
-              children: [
-                // Animated Background Circles
-                ...List.generate(5, (index) => _buildBackgroundCircle(index)),
+              child: Stack(
+                children: [
+                  // Animated Background Circles
+                  ...List.generate(5, (index) => _buildBackgroundCircle(index)),
 
-                // Confetti Effect
-                if (_confettiAnimation.value > 0)
-                  ...List.generate(30, (index) => _buildConfettiParticle(index)),
+                  // Confetti Effect
+                  if (_confettiAnimation.value > 0)
+                    ...List.generate(30, (index) => _buildConfettiParticle(index)),
 
-                // Main Content
-                SafeArea(
-                  child: SingleChildScrollView(
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: SlideTransition(
-                        position: _cardSlideAnimation,
-                        child: ScaleTransition(
-                          scale: _cardScaleAnimation,
-                          child: FadeTransition(
-                            opacity: _backgroundFadeAnimation,
-                            child: Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(24),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(24),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: kPrimaryColor.withOpacity(0.1),
-                                    blurRadius: 20,
-                                    offset: const Offset(0, 10),
-                                  ),
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.05),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 5),
-                                  ),
-                                ],
-                              ),
-                              child: Column(
-                                children: [
-                                  // Success Icon
-                                  ScaleTransition(
-                                    scale: _pulseAnimation,
-                                    child: RotationTransition(
-                                      turns: _checkRotationAnimation,
-                                      child: FadeTransition(
-                                        opacity: _checkFadeAnimation,
-                                        child: ScaleTransition(
-                                          scale: _checkScaleAnimation,
-                                          child: Container(
-                                            width: 100,
-                                            height: 100,
-                                            decoration: BoxDecoration(
-                                              gradient: LinearGradient(
-                                                colors: [
-                                                  kPrimaryColor,
-                                                  kPrimaryColor.withOpacity(0.8),
+                  // Main Content
+                  SafeArea(
+                    child: SingleChildScrollView(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: SlideTransition(
+                          position: _cardSlideAnimation,
+                          child: ScaleTransition(
+                            scale: _cardScaleAnimation,
+                            child: FadeTransition(
+                              opacity: _backgroundFadeAnimation,
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(24),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(24),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: kPrimaryColor.withOpacity(0.1),
+                                      blurRadius: 20,
+                                      offset: const Offset(0, 10),
+                                    ),
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.05),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 5),
+                                    ),
+                                  ],
+                                ),
+                                child: Column(
+                                  children: [
+                                    // Success Icon
+                                    ScaleTransition(
+                                      scale: _pulseAnimation,
+                                      child: RotationTransition(
+                                        turns: _checkRotationAnimation,
+                                        child: FadeTransition(
+                                          opacity: _checkFadeAnimation,
+                                          child: ScaleTransition(
+                                            scale: _checkScaleAnimation,
+                                            child: Container(
+                                              width: 100,
+                                              height: 100,
+                                              decoration: BoxDecoration(
+                                                gradient: LinearGradient(
+                                                  colors: [
+                                                    kPrimaryColor,
+                                                    kPrimaryColor.withOpacity(0.8),
+                                                  ],
+                                                ),
+                                                shape: BoxShape.circle,
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: kPrimaryColor.withOpacity(0.3),
+                                                    blurRadius: 15,
+                                                    offset: const Offset(0, 8),
+                                                  ),
                                                 ],
                                               ),
-                                              shape: BoxShape.circle,
-                                              boxShadow: [
-                                                BoxShadow(
-                                                  color: kPrimaryColor.withOpacity(0.3),
-                                                  blurRadius: 15,
-                                                  offset: const Offset(0, 8),
-                                                ),
-                                              ],
-                                            ),
-                                            child: const Icon(
-                                              Icons.check_rounded,
-                                              color: Colors.white,
-                                              size: 50,
+                                              child: const Icon(
+                                                Icons.check_rounded,
+                                                color: Colors.white,
+                                                size: 50,
+                                              ),
                                             ),
                                           ),
                                         ),
                                       ),
                                     ),
-                                  ),
 
-                                  const SizedBox(height: 24),
+                                    const SizedBox(height: 24),
 
-                                  // Success Title
-                                  SlideTransition(
-                                    position: _titleSlideAnimation,
-                                    child: FadeTransition(
-                                      opacity: _titleFadeAnimation,
-                                      child: Column(
-                                        children: [
-                                          Text(
-                                            '🎉 Order Placed',
-                                            style: TextStyle(
-                                              fontSize: 22,
-                                              fontWeight: FontWeight.bold,
-                                              color: kPrimaryColor,
-                                            ),
-                                          ),
-                                          Text(
-                                            'Successfully!',
-                                            style: TextStyle(
-                                              fontSize: 22,
-                                              fontWeight: FontWeight.bold,
-                                              color: kPrimaryColor,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-
-                                  const SizedBox(height: 20),
-
-                                  // Order ID
-                                  SlideTransition(
-                                    position: _subtitleSlideAnimation,
-                                    child: FadeTransition(
-                                      opacity: _subtitleFadeAnimation,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 20,
-                                          vertical: 12,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: kPrimaryColor.withOpacity(0.1),
-                                          borderRadius: BorderRadius.circular(16),
-                                        ),
+                                    // Success Title
+                                    SlideTransition(
+                                      position: _titleSlideAnimation,
+                                      child: FadeTransition(
+                                        opacity: _titleFadeAnimation,
                                         child: Column(
                                           children: [
                                             Text(
-                                              'Order ID',
+                                              '🎉 Order Placed',
                                               style: TextStyle(
-                                                fontSize: 12,
-                                                color: kPrimaryColor.withOpacity(0.8),
-                                                fontWeight: FontWeight.w600,
+                                                fontSize: 22,
+                                                fontWeight: FontWeight.bold,
+                                                color: kPrimaryColor,
                                               ),
                                             ),
-                                            const SizedBox(height: 4),
                                             Text(
-                                              widget.orderId,
+                                              'Successfully!',
                                               style: TextStyle(
-                                                fontSize: 16,
-                                                color: kPrimaryColor,
+                                                fontSize: 22,
                                                 fontWeight: FontWeight.bold,
-                                                letterSpacing: 0.5,
+                                                color: kPrimaryColor,
                                               ),
                                             ),
                                           ],
                                         ),
                                       ),
                                     ),
-                                  ),
 
-                                  const SizedBox(height: 24),
+                                    const SizedBox(height: 20),
 
-                                  // Order Details
-                                  SlideTransition(
-                                    position: _detailsSlideAnimation,
-                                    child: FadeTransition(
-                                      opacity: _detailsFadeAnimation,
-                                      child: Column(
-                                        children: [
-                                          _buildOrderDetailsCard(),
-                                          const SizedBox(height: 16),
-                                          _buildScheduleCard(),
-                                          const SizedBox(height: 16),
-                                          _buildBillCard(),
-                                          const SizedBox(height: 16),
-                                          _buildInfoCard(),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-
-                                  const SizedBox(height: 24),
-
-                                  // Action Buttons
-                                  SlideTransition(
-                                    position: _detailsSlideAnimation,
-                                    child: FadeTransition(
-                                      opacity: _detailsFadeAnimation,
-                                      child: Row(
-                                        children: [
-                                          Expanded(
-                                            child: OutlinedButton(
-                                              onPressed: () {
-                                                Navigator.popUntil(context, (route) => route.isFirst);
-                                              },
-                                              style: OutlinedButton.styleFrom(
-                                                side: BorderSide(color: kPrimaryColor),
-                                                shape: RoundedRectangleBorder(
-                                                  borderRadius: BorderRadius.circular(25),
-                                                ),
-                                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                              ),
-                                              child: Text(
-                                                'Track Order',
+                                    // Order ID
+                                    SlideTransition(
+                                      position: _subtitleSlideAnimation,
+                                      child: FadeTransition(
+                                        opacity: _subtitleFadeAnimation,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 20,
+                                            vertical: 12,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: kPrimaryColor.withOpacity(0.1),
+                                            borderRadius: BorderRadius.circular(16),
+                                          ),
+                                          child: Column(
+                                            children: [
+                                              Text(
+                                                'Order ID',
                                                 style: TextStyle(
-                                                  fontSize: 14,
+                                                  fontSize: 12,
+                                                  color: kPrimaryColor.withOpacity(0.8),
                                                   fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                widget.orderId,
+                                                style: TextStyle(
+                                                  fontSize: 16,
                                                   color: kPrimaryColor,
+                                                  fontWeight: FontWeight.bold,
+                                                  letterSpacing: 0.5,
                                                 ),
                                               ),
-                                            ),
+                                            ],
                                           ),
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            flex: 2,
-                                            child: ElevatedButton(
-                                              onPressed: () {
-                                                Navigator.popUntil(context, (route) => route.isFirst);
-                                              },
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor: kPrimaryColor,
-                                                shape: RoundedRectangleBorder(
-                                                  borderRadius: BorderRadius.circular(25),
-                                                ),
-                                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                                elevation: 2,
-                                              ),
-                                              child: const Text(
-                                                'Continue Shopping',
-                                                style: TextStyle(
-                                                  fontSize: 14,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
+                                        ),
                                       ),
                                     ),
-                                  ),
 
-                                  const SizedBox(height: 10),
-                                ],
+                                    const SizedBox(height: 24),
+
+                                    // Order Details
+                                    SlideTransition(
+                                      position: _detailsSlideAnimation,
+                                      child: FadeTransition(
+                                        opacity: _detailsFadeAnimation,
+                                        child: Column(
+                                          children: [
+                                            _buildOrderDetailsCard(),
+                                            const SizedBox(height: 16),
+                                            _buildScheduleCard(),
+                                            const SizedBox(height: 16),
+                                            _buildBillCard(),
+                                            const SizedBox(height: 16),
+                                            _buildInfoCard(),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+
+                                    const SizedBox(height: 24),
+
+                                    // Action Buttons
+                                    SlideTransition(
+                                      position: _detailsSlideAnimation,
+                                      child: FadeTransition(
+                                        opacity: _detailsFadeAnimation,
+                                        child: Row(
+                                          children: [
+                                            Expanded(
+                                              child: OutlinedButton(
+                                                onPressed: _navigateToHome,
+                                                style: OutlinedButton.styleFrom(
+                                                  side: BorderSide(color: kPrimaryColor),
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius: BorderRadius.circular(25),
+                                                  ),
+                                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                                ),
+                                                child: Text(
+                                                  'Track Order',
+                                                  style: TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: kPrimaryColor,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              flex: 2,
+                                              child: ElevatedButton(
+                                                onPressed: _navigateToHome,
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: kPrimaryColor,
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius: BorderRadius.circular(25),
+                                                  ),
+                                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                                  elevation: 2,
+                                                ),
+                                                child: const Text(
+                                                  'Continue Shopping',
+                                                  style: TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+
+                                    const SizedBox(height: 10),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
@@ -596,8 +636,8 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );
