@@ -2,10 +2,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
-import 'package:intl/intl.dart';
+
 import 'colors.dart';
 import 'login_screen.dart';
+import 'support_screen.dart';
+import 'address_book_screen.dart';
 import '../widgets/custom_bottom_nav.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -15,359 +18,328 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateMixin {
+class _ProfileScreenState extends State<ProfileScreen> {
   final SupabaseClient supabase = Supabase.instance.client;
   final ImagePicker picker = ImagePicker();
 
-  // Controllers
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _supportSubjectController = TextEditingController();
-  final TextEditingController _supportMessageController = TextEditingController();
-
-  // Data
-  Map<String, dynamic>? _userProfile;
-  List<Map<String, dynamic>> _addresses = [];
-  List<Map<String, dynamic>> _orders = [];
-  List<Map<String, dynamic>> _supportTickets = [];
-  Map<String, dynamic>? _preferences;
-
-  // UI State
-  bool _isLoading = true;
-  bool _isUpdating = false;
-  String? _profileImageUrl;
-
-  // Animation Controllers
-  late AnimationController _fadeController;
-  late AnimationController _slideController;
-  late Animation<double> _fadeAnimation;
-  late Animation<Offset> _slideAnimation;
+  Map<String, dynamic>? userProfile;
+  Map<String, dynamic>? orderStats;
+  List<Map<String, dynamic>> userAddresses = [];
+  bool isLoading = true;
+  bool isUploadingImage = false;
+  bool _disposed = false;
 
   @override
   void initState() {
     super.initState();
-    _initializeAnimations();
-    _loadUserData();
+    _loadProfileData();
   }
 
-  void _initializeAnimations() {
-    _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 600),
-      vsync: this,
-    );
-
-    _slideController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
-
-    _fadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _fadeController,
-      curve: Curves.easeInOut,
-    ));
-
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.3),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _slideController,
-      curve: Curves.easeOutCubic,
-    ));
-
-    _fadeController.forward();
-    _slideController.forward();
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 
-  Future<void> _loadUserData() async {
-    setState(() => _isLoading = true);
-
-    try {
-      await Future.wait([
-        _loadUserProfile(),
-        _loadUserAddresses(),
-        _loadUserOrders(),
-        _loadUserPreferences(),
-        _loadSupportTickets(),
-      ]);
-    } catch (e) {
-      print('Error loading user data: $e');
-    } finally {
-      setState(() => _isLoading = false);
+  void _safeSetState(VoidCallback fn) {
+    if (!_disposed && mounted) {
+      setState(fn);
     }
   }
 
-  Future<void> _loadUserProfile() async {
+  Future<void> _loadProfileData() async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
 
     try {
-      final response = await supabase
+      _safeSetState(() => isLoading = true);
+
+      final profileResponse = await supabase
           .from('user_profiles')
           .select()
-          .eq('id', user.id)
+          .eq('user_id', user.id)
           .maybeSingle();
 
-      if (response != null) {
-        setState(() {
-          _userProfile = response;
-          _nameController.text = response['full_name'] ?? '';
-          _phoneController.text = response['phone'] ?? '';
-          _profileImageUrl = response['profile_image_url'];
-        });
-      } else {
-        // Create default profile
-        await _createDefaultProfile();
-      }
-    } catch (e) {
-      print('Error loading profile: $e');
-    }
-  }
+      final statsResponse = await supabase
+          .rpc('get_user_order_stats', params: {'user_uuid': user.id});
 
-  Future<void> _createDefaultProfile() async {
-    final user = supabase.auth.currentUser;
-    if (user == null) return;
-
-    try {
-      await supabase.from('user_profiles').insert({
-        'id': user.id,
-        'full_name': '',
-        'phone': '',
-      });
-
-      await supabase.from('user_preferences').insert({
-        'user_id': user.id,
-      });
-
-      await _loadUserProfile();
-    } catch (e) {
-      print('Error creating profile: $e');
-    }
-  }
-
-  Future<void> _loadUserAddresses() async {
-    final user = supabase.auth.currentUser;
-    if (user == null) return;
-
-    try {
-      final response = await supabase
+      final addressResponse = await supabase
           .from('user_addresses')
-          .select()
-          .eq('user_id', user.id)
-          .order('created_at', ascending: false);
+          .select('id')
+          .eq('user_id', user.id);
 
-      setState(() {
-        _addresses = List<Map<String, dynamic>>.from(response);
+      _safeSetState(() {
+        userProfile = profileResponse ?? {'user_id': user.id};
+        orderStats = statsResponse.isNotEmpty ? statsResponse[0] : {
+          'total_orders': 0,
+          'completed_orders': 0,
+          'total_spent': 0.0
+        };
+        userAddresses = List<Map<String, dynamic>>.from(addressResponse ?? []);
+        isLoading = false;
       });
     } catch (e) {
-      print('Error loading addresses: $e');
-    }
-  }
-
-  Future<void> _loadUserOrders() async {
-    final user = supabase.auth.currentUser;
-    if (user == null) return;
-
-    try {
-      final response = await supabase
-          .from('orders')
-          .select()
-          .eq('user_id', user.id)
-          .order('created_at', ascending: false)
-          .limit(10);
-
-      setState(() {
-        _orders = List<Map<String, dynamic>>.from(response);
+      print('Error loading profile data: $e');
+      _safeSetState(() {
+        userProfile = {'user_id': user.id};
+        orderStats = {'total_orders': 0, 'completed_orders': 0, 'total_spent': 0.0};
+        userAddresses = [];
+        isLoading = false;
       });
-    } catch (e) {
-      print('Error loading orders: $e');
-    }
-  }
-
-  Future<void> _loadUserPreferences() async {
-    final user = supabase.auth.currentUser;
-    if (user == null) return;
-
-    try {
-      final response = await supabase
-          .from('user_preferences')
-          .select()
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-      setState(() {
-        _preferences = response;
-      });
-    } catch (e) {
-      print('Error loading preferences: $e');
-    }
-  }
-
-  Future<void> _loadSupportTickets() async {
-    final user = supabase.auth.currentUser;
-    if (user == null) return;
-
-    try {
-      final response = await supabase
-          .from('support_tickets')
-          .select()
-          .eq('user_id', user.id)
-          .order('created_at', ascending: false)
-          .limit(5);
-
-      setState(() {
-        _supportTickets = List<Map<String, dynamic>>.from(response);
-      });
-    } catch (e) {
-      print('Error loading support tickets: $e');
-    }
-  }
-
-  Future<void> _updateProfile() async {
-    if (_isUpdating) return;
-
-    setState(() => _isUpdating = true);
-
-    try {
-      final user = supabase.auth.currentUser;
-      if (user == null) return;
-
-      await supabase.from('user_profiles').update({
-        'full_name': _nameController.text.trim(),
-        'phone': _phoneController.text.trim(),
-      }).eq('id', user.id);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile updated successfully')),
-      );
-
-      await _loadUserProfile();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error updating profile: $e')),
-      );
-    } finally {
-      setState(() => _isUpdating = false);
     }
   }
 
   Future<void> _pickAndUploadImage() async {
     final user = supabase.auth.currentUser;
-    if (user == null) return;
-
-    try {
-      final pickedFile = await picker.pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 80,
-      );
-
-      if (pickedFile == null) return;
-
-      final file = File(pickedFile.path);
-      final fileName = '${user.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final filePath = 'profile-images/$fileName';
-
-      await supabase.storage
-          .from('profile-images')
-          .upload(filePath, file, fileOptions: const FileOptions(upsert: true));
-
-      final publicUrl = supabase.storage
-          .from('profile-images')
-          .getPublicUrl(filePath);
-
-      await supabase.from('user_profiles').update({
-        'profile_image_url': publicUrl,
-      }).eq('id', user.id);
-
-      setState(() => _profileImageUrl = publicUrl);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile image updated')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error uploading image: $e')),
-      );
-    }
-  }
-
-  Future<void> _submitSupportTicket() async {
-    if (_supportSubjectController.text.isEmpty || _supportMessageController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill all fields')),
-      );
+    if (user == null) {
+      _showErrorSnackBar('User not authenticated');
       return;
     }
 
-    try {
-      final user = supabase.auth.currentUser;
-      if (user == null) return;
+    final ImageSource? source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Select Image Source',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => Navigator.pop(context, ImageSource.camera),
+                    child: Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: kPrimaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: kPrimaryColor.withOpacity(0.3)),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(Icons.camera_alt, color: kPrimaryColor, size: 30),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Camera',
+                            style: TextStyle(
+                              color: kPrimaryColor,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => Navigator.pop(context, ImageSource.gallery),
+                    child: Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: kPrimaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: kPrimaryColor.withOpacity(0.3)),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(Icons.photo_library, color: kPrimaryColor, size: 30),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Gallery',
+                            style: TextStyle(
+                              color: kPrimaryColor,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
 
-      await supabase.from('support_tickets').insert({
+    if (source == null) return;
+
+    try {
+      final pickedFile = await picker.pickImage(
+        source: source,
+        maxWidth: 800,
+        maxHeight: 800,
+        imageQuality: 85,
+      );
+
+      if (pickedFile == null) {
+        _showErrorSnackBar('No image selected');
+        return;
+      }
+
+      _safeSetState(() => isUploadingImage = true);
+
+      // Check if file exists and is readable
+      final file = File(pickedFile.path);
+      if (!await file.exists()) {
+        throw Exception('Selected file does not exist');
+      }
+
+      // Check file size (limit to 5MB)
+      final fileSize = await file.length();
+      if (fileSize > 5 * 1024 * 1024) {
+        throw Exception('File size too large (max 5MB)');
+      }
+
+      print('📸 Starting upload process...');
+      print('📁 File path: ${pickedFile.path}');
+      print('📊 File size: ${(fileSize / 1024 / 1024).toStringAsFixed(2)}MB');
+
+      final fileExt = p.extension(file.path).toLowerCase();
+      if (fileExt.isEmpty) {
+        throw Exception('Invalid file format');
+      }
+
+      final fileName = '${user.id}_${DateTime.now().millisecondsSinceEpoch}$fileExt';
+      final filePath = fileName; // Remove 'avatars/' prefix, it's handled by the bucket
+
+      print('🚀 Uploading to path: $filePath');
+
+      // Step 1: Upload file to Supabase Storage
+      final uploadResponse = await supabase.storage
+          .from('avatars')
+          .upload(
+        filePath,
+        file,
+        fileOptions: const FileOptions(
+          cacheControl: '3600',
+          upsert: true,
+        ),
+      );
+
+      print('✅ Upload successful: ${uploadResponse}');
+
+      // Step 2: Get public URL
+      final publicUrl = supabase.storage
+          .from('avatars')
+          .getPublicUrl(filePath);
+
+      print('🔗 Public URL generated: $publicUrl');
+
+      // Step 3: Update user profile in database
+      final updateResponse = await supabase
+          .from('user_profiles')
+          .upsert({
         'user_id': user.id,
-        'subject': _supportSubjectController.text.trim(),
-        'message': _supportMessageController.text.trim(),
-        'category': 'general',
-        'priority': 'medium',
+        'avatar_url': publicUrl,
+        'updated_at': DateTime.now().toIso8601String(),
       });
 
-      _supportSubjectController.clear();
-      _supportMessageController.clear();
+      print('💾 Profile updated successfully');
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Support ticket submitted successfully')),
-      );
+      // Step 4: Reload profile data
+      await _loadProfileData();
 
-      await _loadSupportTickets();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error submitting ticket: $e')),
-      );
-    }
-  }
-
-  Future<void> _updatePreference(String key, dynamic value) async {
-    try {
-      final user = supabase.auth.currentUser;
-      if (user == null) return;
-
-      await supabase.from('user_preferences').update({
-        key: value,
-      }).eq('user_id', user.id);
-
-      await _loadUserPreferences();
-    } catch (e) {
-      print('Error updating preference: $e');
-    }
-  }
-
-  Future<void> _logout() async {
-    try {
-      await supabase.auth.signOut();
       if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
-              (route) => false,
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 12),
+                Text('Profile picture updated successfully!'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
         );
       }
+
     } catch (e) {
+      print('❌ Upload error: $e');
+
+      String errorMessage = 'Failed to upload image';
+
+      if (e.toString().contains('row-level security')) {
+        errorMessage = 'Storage permission denied. Please check your Supabase policies.';
+      } else if (e.toString().contains('bucket')) {
+        errorMessage = 'Storage bucket not found. Please create "avatars" bucket in Supabase.';
+      } else if (e.toString().contains('network') || e.toString().contains('connection')) {
+        errorMessage = 'Network error. Please check your internet connection.';
+      } else if (e.toString().contains('size')) {
+        errorMessage = 'File too large. Please select a smaller image.';
+      } else if (e.toString().contains('format')) {
+        errorMessage = 'Invalid file format. Please select a valid image.';
+      }
+
+      _showErrorSnackBar(errorMessage);
+
+    } finally {
+      _safeSetState(() => isUploadingImage = false);
+    }
+  }
+
+  void _showErrorSnackBar(String message) {
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error logging out: $e')),
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(child: Text(message)),
+            ],
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: const Duration(seconds: 4),
+        ),
       );
     }
   }
 
-  @override
-  void dispose() {
-    _fadeController.dispose();
-    _slideController.dispose();
-    _nameController.dispose();
-    _phoneController.dispose();
-    _supportSubjectController.dispose();
-    _supportMessageController.dispose();
-    super.dispose();
+  String get displayName {
+    final firstName = userProfile?['first_name'] ?? '';
+    final lastName = userProfile?['last_name'] ?? '';
+    if (firstName.isEmpty && lastName.isEmpty) {
+      return supabase.auth.currentUser?.email?.split('@').first.toUpperCase() ?? 'USER';
+    }
+    return '$firstName $lastName'.trim().toUpperCase();
+  }
+
+  int get profileCompleteness {
+    if (userProfile == null) return 0;
+    int completed = 0;
+    final fields = ['first_name', 'last_name', 'phone_number', 'avatar_url'];
+    for (String field in fields) {
+      if (userProfile![field] != null && userProfile![field].toString().isNotEmpty) {
+        completed++;
+      }
+    }
+    return ((completed / fields.length) * 100).round();
   }
 
   @override
@@ -375,94 +347,186 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     final user = supabase.auth.currentUser;
 
     if (user == null) {
-      return const Scaffold(
-        body: Center(child: Text("User not logged in")),
+      return Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.person_off, size: 80, color: Colors.grey.shade400),
+              const SizedBox(height: 16),
+              const Text('Please log in to view profile', style: TextStyle(fontSize: 16)),
+            ],
+          ),
+        ),
       );
     }
 
-    if (_isLoading) {
+    if (isLoading) {
       return Scaffold(
-        backgroundColor: const Color(0xFFF8F9FA),
+        backgroundColor: Colors.white,
         body: Center(
-          child: CircularProgressIndicator(color: kPrimaryColor),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: kPrimaryColor),
+              const SizedBox(height: 16),
+              const Text('Loading profile...', style: TextStyle(fontSize: 16)),
+            ],
+          ),
         ),
       );
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      body: AnimatedBuilder(
-        animation: _fadeAnimation,
-        builder: (context, child) {
-          return FadeTransition(
-            opacity: _fadeAnimation,
-            child: SlideTransition(
-              position: _slideAnimation,
-              child: CustomScrollView(
-                slivers: [
-                  _buildPremiumAppBar(),
-                  SliverToBoxAdapter(
-                    child: Column(
-                      children: [
-                        _buildProfileHeader(),
-                        _buildPersonalInfoSection(),
-                        _buildAddressSection(),
-                        _buildOrderHistorySection(),
-                        _buildPreferencesSection(),
-                        _buildSupportSection(),
-                        _buildAppInfoSection(),
-                        _buildLogoutSection(),
-                        const SizedBox(height: 100),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+      backgroundColor: Colors.grey.shade50,
+      body: CustomScrollView(
+        slivers: [
+          _buildSliverAppBar(),
+          SliverToBoxAdapter(
+            child: Column(
+              children: [
+                _buildProfileCard(),
+                const SizedBox(height: 16),
+                _buildQuickStats(),
+                const SizedBox(height: 16),
+                _buildMenuSection(),
+                const SizedBox(height: 100),
+              ],
             ),
-          );
-        },
+          ),
+        ],
       ),
       bottomNavigationBar: const CustomBottomNav(currentIndex: 2),
     );
   }
 
-  Widget _buildPremiumAppBar() {
+  Widget _buildSliverAppBar() {
     return SliverAppBar(
-      expandedHeight: 120,
+      expandedHeight: 200,
       pinned: true,
       backgroundColor: kPrimaryColor,
-      foregroundColor: Colors.white,
       elevation: 0,
+      automaticallyImplyLeading: false,
       flexibleSpace: FlexibleSpaceBar(
         background: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
               colors: [
                 kPrimaryColor,
                 kPrimaryColor.withOpacity(0.8),
               ],
             ),
           ),
-        ),
-        title: const Text(
-          'My Profile',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
+          child: SafeArea(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const SizedBox(height: 20),
+                _buildAvatarSection(),
+                const SizedBox(height: 12),
+                Text(
+                  displayName,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                Text(
+                  supabase.auth.currentUser?.email ?? '',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.9),
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        centerTitle: true,
       ),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
-      ),
+      actions: [
+        IconButton(
+          onPressed: _showEditDialog,
+          icon: const Icon(Icons.edit, color: Colors.white),
+        ),
+      ],
     );
   }
 
-  Widget _buildProfileHeader() {
+  Widget _buildAvatarSection() {
+    return Stack(
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 3),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: CircleAvatar(
+            radius: 45,
+            backgroundColor: Colors.white,
+            backgroundImage: userProfile?['avatar_url'] != null
+                ? NetworkImage(userProfile!['avatar_url'])
+                : null,
+            child: userProfile?['avatar_url'] == null
+                ? Icon(Icons.person, size: 50, color: kPrimaryColor)
+                : null,
+          ),
+        ),
+        if (isUploadingImage)
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.6),
+                shape: BoxShape.circle,
+              ),
+              child: const Center(
+                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+              ),
+            ),
+          ),
+        Positioned(
+          bottom: 0,
+          right: 0,
+          child: GestureDetector(
+            onTap: isUploadingImage ? null : _pickAndUploadImage,
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                border: Border.all(color: kPrimaryColor, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Icon(
+                Icons.camera_alt,
+                size: 16,
+                color: kPrimaryColor,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildProfileCard() {
     return Container(
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(20),
@@ -471,7 +535,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.grey.shade200,
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -479,56 +543,155 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
       ),
       child: Column(
         children: [
-          Stack(
+          Row(
             children: [
-              CircleAvatar(
-                radius: 50,
-                backgroundColor: Colors.grey.shade300,
-                backgroundImage: _profileImageUrl != null
-                    ? NetworkImage(_profileImageUrl!)
-                    : null,
-                child: _profileImageUrl == null
-                    ? Icon(Icons.person, size: 50, color: Colors.grey.shade600)
-                    : null,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Profile Completion',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: LinearProgressIndicator(
+                        value: profileCompleteness / 100,
+                        backgroundColor: Colors.grey.shade200,
+                        valueColor: AlwaysStoppedAnimation<Color>(kPrimaryColor),
+                        minHeight: 8,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              Positioned(
-                bottom: 0,
-                right: 0,
-                child: GestureDetector(
-                  onTap: _pickAndUploadImage,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: kPrimaryColor,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2),
-                    ),
-                    padding: const EdgeInsets.all(8),
-                    child: const Icon(
-                      Icons.camera_alt,
-                      size: 18,
-                      color: Colors.white,
-                    ),
+              const SizedBox(width: 16),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: kPrimaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '$profileCompleteness%',
+                  style: TextStyle(
+                    color: kPrimaryColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
                   ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 16),
+          _buildInfoRow(Icons.person, 'Name',
+              '${userProfile?['first_name'] ?? ''} ${userProfile?['last_name'] ?? ''}'.trim().isEmpty
+                  ? 'Not set' : '${userProfile!['first_name'] ?? ''} ${userProfile!['last_name'] ?? ''}'.trim()),
+          _buildInfoRow(Icons.phone, 'Phone', userProfile?['phone_number'] ?? 'Not set'),
+          _buildInfoRow(Icons.cake, 'Birthday', userProfile?['date_of_birth'] ?? 'Not set'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: kPrimaryColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 18, color: kPrimaryColor),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Colors.black87,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickStats() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          Expanded(child: _buildStatCard(
+              '${orderStats?['total_orders'] ?? 0}',
+              'Orders',
+              Icons.shopping_bag
+          )),
+          const SizedBox(width: 12),
+          Expanded(child: _buildStatCard(
+              '${userAddresses.length}',
+              'Addresses',
+              Icons.location_on
+          )),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatCard(String count, String label, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.shade200,
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: kPrimaryColor, size: 24),
+          const SizedBox(height: 8),
           Text(
-            _userProfile?['full_name']?.isNotEmpty == true
-                ? _userProfile!['full_name']
-                : 'Your Name',
+            count,
             style: const TextStyle(
-              fontSize: 22,
+              fontSize: 18,
               fontWeight: FontWeight.bold,
               color: Colors.black87,
             ),
           ),
-          const SizedBox(height: 4),
           Text(
-            supabase.auth.currentUser?.email ?? 'No email',
+            label,
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 12,
               color: Colors.grey.shade600,
             ),
           ),
@@ -537,109 +700,554 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     );
   }
 
-  Widget _buildPersonalInfoSection() {
+  Widget _buildMenuSection() {
+    const isFirstItem = true;
+    const isLastItem = false;
+
+    final menuItems = [
+      {
+        'icon': Icons.history,
+        'title': 'Order History',
+        'subtitle': 'View past orders',
+        'onTap': () => _navigateToOrderHistory(),
+      },
+      {
+        'icon': Icons.location_on,
+        'title': 'My Addresses',
+        'subtitle': 'Manage addresses',
+        'onTap': () => _navigateToAddressBook(),
+      },
+      {
+        'icon': Icons.notifications,
+        'title': 'Notifications',
+        'subtitle': 'App preferences',
+        'onTap': () => _navigateToNotifications(),
+      },
+      {
+        'icon': Icons.support_agent,
+        'title': 'Help & Support',
+        'subtitle': 'Get assistance',
+        'onTap': () => _navigateToSupport(),
+      },
+      {
+        'icon': Icons.privacy_tip,
+        'title': 'Privacy Policy',
+        'subtitle': 'Read privacy policy',
+        'onTap': () => _openPrivacyPolicy(),
+      },
+      {
+        'icon': Icons.description,
+        'title': 'Terms & Conditions',
+        'subtitle': 'Read terms',
+        'onTap': () => _openTermsConditions(),
+      },
+    ];
+
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.grey.shade200,
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(Icons.person_outline, color: kPrimaryColor, size: 20),
-              const SizedBox(width: 8),
-              const Text(
-                'Personal Information',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _nameController,
-            decoration: InputDecoration(
-              labelText: 'Full Name',
-              prefixIcon: Icon(Icons.person, color: kPrimaryColor),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: kPrimaryColor),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _phoneController,
-            decoration: InputDecoration(
-              labelText: 'Phone Number',
-              prefixIcon: Icon(Icons.phone, color: kPrimaryColor),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: kPrimaryColor),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _isUpdating ? null : _updateProfile,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: kPrimaryColor,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-              child: _isUpdating
-                  ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-              )
-                  : const Text(
-                'Update Profile',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-              ),
-            ),
-          ),
+          ...menuItems.asMap().entries.map((entry) {
+            final index = entry.key;
+            final item = entry.value;
+            return _buildMenuItem(
+              icon: item['icon'] as IconData,
+              title: item['title'] as String,
+              subtitle: item['subtitle'] as String,
+              onTap: item['onTap'] as VoidCallback,
+              isFirst: index == 0,
+              isLast: index == menuItems.length - 1,
+            );
+          }),
+          const Divider(height: 1),
+          _buildLogoutTile(),
         ],
       ),
     );
   }
 
-  Widget _buildAddressSection() {
+  Widget _buildMenuItem({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+    bool isFirst = false,
+    bool isLast = false,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.vertical(
+          top: isFirst ? const Radius.circular(16) : Radius.zero,
+          bottom: isLast ? const Radius.circular(16) : Radius.zero,
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: kPrimaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: kPrimaryColor, size: 20),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey.shade400),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLogoutTile() {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _showLogoutDialog,
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.logout, color: Colors.red, size: 20),
+              ),
+              const SizedBox(width: 16),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Logout',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.red,
+                      ),
+                    ),
+                    Text(
+                      'Sign out of your account',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.red,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey.shade400),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Navigation methods
+  void _navigateToOrderHistory() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const OrderHistoryScreen()),
+    );
+  }
+
+  void _navigateToAddressBook() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AddressBookScreen(
+          onAddressSelected: (Map<String, dynamic> address) {
+            // Handle address selection if needed
+            Navigator.pop(context);
+          },
+        ),
+      ),
+    );
+  }
+
+  void _navigateToNotifications() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const _NotificationSettingsScreen()),
+    );
+  }
+
+  void _navigateToSupport() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const SupportScreen()),
+    );
+  }
+
+  Future<void> _openPrivacyPolicy() async {
+    await _openUrlFromSupabase('privacy_policy_url');
+  }
+
+  Future<void> _openTermsConditions() async {
+    await _openUrlFromSupabase('terms_conditions_url');
+  }
+
+  Future<void> _openUrlFromSupabase(String settingKey) async {
+    try {
+      final response = await supabase
+          .from('app_settings')
+          .select('setting_value')
+          .eq('setting_key', settingKey)
+          .eq('is_active', true)
+          .maybeSingle();
+
+      if (response != null) {
+        final url = response['setting_value'] as String;
+        final uri = Uri.parse(url);
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        } else {
+          throw 'Could not launch $url';
+        }
+      } else {
+        throw 'URL not found';
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not open link: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
+  }
+
+  void _showEditDialog() {
+    final firstNameController = TextEditingController(text: userProfile?['first_name'] ?? '');
+    final lastNameController = TextEditingController(text: userProfile?['last_name'] ?? '');
+    final phoneController = TextEditingController(text: userProfile?['phone_number'] ?? '');
+
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: kPrimaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(Icons.edit, color: kPrimaryColor, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Edit Profile',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: firstNameController,
+                decoration: InputDecoration(
+                  labelText: 'First Name',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  prefixIcon: const Icon(Icons.person),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: lastNameController,
+                decoration: InputDecoration(
+                  labelText: 'Last Name',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  prefixIcon: const Icon(Icons.person_outline),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: phoneController,
+                keyboardType: TextInputType.phone,
+                decoration: InputDecoration(
+                  labelText: 'Phone Number',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  prefixIcon: const Icon(Icons.phone),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        firstNameController.dispose();
+                        lastNameController.dispose();
+                        phoneController.dispose();
+                      },
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        await _updateProfile({
+                          'first_name': firstNameController.text.trim(),
+                          'last_name': lastNameController.text.trim(),
+                          'phone_number': phoneController.text.trim(),
+                        });
+                        if (context.mounted) {
+                          Navigator.pop(context);
+                        }
+                        firstNameController.dispose();
+                        lastNameController.dispose();
+                        phoneController.dispose();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: kPrimaryColor,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: const Text('Save', style: TextStyle(color: Colors.white)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _updateProfile(Map<String, dynamic> updates) async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      updates['user_id'] = user.id;
+      await supabase.from('user_profiles').upsert(updates);
+      await _loadProfileData();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 12),
+                Text('Profile updated successfully!'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error updating profile: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.error, color: Colors.white),
+                SizedBox(width: 12),
+                Text('Failed to update profile'),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
+  }
+
+  void _showLogoutDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.logout, color: Colors.red),
+            SizedBox(width: 12),
+            Text('Logout'),
+          ],
+        ),
+        content: const Text('Are you sure you want to logout from your account?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await supabase.auth.signOut();
+              if (mounted) {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                      (route) => false,
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: const Text('Logout', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ========================================
+// ORDER HISTORY SCREEN
+// ========================================
+
+class OrderHistoryScreen extends StatefulWidget {
+  const OrderHistoryScreen({super.key});
+
+  @override
+  State<OrderHistoryScreen> createState() => _OrderHistoryScreenState();
+}
+
+class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
+  final SupabaseClient supabase = Supabase.instance.client;
+  List<Map<String, dynamic>> orders = [];
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadOrders();
+  }
+
+  Future<void> _loadOrders() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final response = await supabase
+          .from('orders')
+          .select('*, order_items(*)')
+          .eq('user_id', user.id)
+          .order('created_at', ascending: false);
+
+      if (mounted) {
+        setState(() {
+          orders = List<Map<String, dynamic>>.from(response);
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading orders: $e');
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Order History'),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        elevation: 1,
+      ),
+      body: isLoading
+          ? Center(child: CircularProgressIndicator(color: kPrimaryColor))
+          : orders.isEmpty
+          ? const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.shopping_bag_outlined, size: 80, color: Colors.grey),
+            SizedBox(height: 16),
+            Text('No orders yet', style: TextStyle(fontSize: 18)),
+            Text('Start shopping to see your orders here!'),
+          ],
+        ),
+      )
+          : ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: orders.length,
+        itemBuilder: (context, index) {
+          final order = orders[index];
+          return _buildOrderCard(order);
+        },
+      ),
+    );
+  }
+
+  Widget _buildOrderCard(Map<String, dynamic> order) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.grey.shade200,
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -649,466 +1257,41 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Icon(Icons.location_on_outlined, color: kPrimaryColor, size: 20),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'My Addresses',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                  ),
-                ],
+              Text(
+                'Order #${order['order_number'] ?? 'N/A'}',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
               ),
-              TextButton(
-                onPressed: () => _showAddAddressDialog(),
-                child: const Text('Add New'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (_addresses.isEmpty)
-            Container(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                children: [
-                  Icon(Icons.location_off, color: Colors.grey.shade400, size: 48),
-                  const SizedBox(height: 12),
-                  Text(
-                    'No addresses added yet',
-                    style: TextStyle(color: Colors.grey.shade600),
-                  ),
-                ],
-              ),
-            )
-          else
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _addresses.length > 3 ? 3 : _addresses.length,
-              itemBuilder: (context, index) {
-                final address = _addresses[index];
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade200),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        address['address_type'] == 'home' ? Icons.home : Icons.work,
-                        color: kPrimaryColor,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              address['address_type']?.toString().toUpperCase() ?? 'HOME',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: kPrimaryColor,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${address['address_line_1']}, ${address['city']} - ${address['pincode']}',
-                              style: const TextStyle(fontSize: 13),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (address['is_default'] == true)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.green.shade100,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            'Default',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.green.shade700,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                );
-              },
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildOrderHistorySection() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.history, color: kPrimaryColor, size: 20),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'Recent Orders',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                  ),
-                ],
-              ),
-              if (_orders.isNotEmpty)
-                TextButton(
-                  onPressed: () {
-                    // Navigate to full order history
-                  },
-                  child: const Text('View All'),
-                ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (_orders.isEmpty)
-            Container(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                children: [
-                  Icon(Icons.shopping_bag_outlined, color: Colors.grey.shade400, size: 48),
-                  const SizedBox(height: 12),
-                  Text(
-                    'No orders yet',
-                    style: TextStyle(color: Colors.grey.shade600),
-                  ),
-                ],
-              ),
-            )
-          else
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _orders.length > 3 ? 3 : _orders.length,
-              itemBuilder: (context, index) {
-                final order = _orders[index];
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade200),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: kPrimaryColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(
-                          Icons.receipt_long,
-                          color: kPrimaryColor,
-                          size: 20,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Order #${order['order_id']?.toString().substring(0, 8) ?? 'N/A'}',
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '₹${order['total_amount']?.toStringAsFixed(2) ?? '0.00'}',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: kPrimaryColor,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: _getStatusColor(order['status']),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          order['status']?.toString().toUpperCase() ?? 'PENDING',
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPreferencesSection() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.settings_outlined, color: kPrimaryColor, size: 20),
-              const SizedBox(width: 8),
-              const Text(
-                'Preferences',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _buildPreferenceSwitch(
-            'Push Notifications',
-            'notifications_enabled',
-            Icons.notifications_outlined,
-          ),
-          _buildPreferenceSwitch(
-            'Email Notifications',
-            'email_notifications',
-            Icons.email_outlined,
-          ),
-          _buildPreferenceSwitch(
-            'SMS Notifications',
-            'sms_notifications',
-            Icons.sms_outlined,
-          ),
-          _buildPreferenceSwitch(
-            'Marketing Emails',
-            'marketing_emails',
-            Icons.campaign_outlined,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSupportSection() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.support_agent, color: kPrimaryColor, size: 20),
-              const SizedBox(width: 8),
-              const Text(
-                'Support',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _supportSubjectController,
-            decoration: InputDecoration(
-              labelText: 'Subject',
-              prefixIcon: Icon(Icons.subject, color: kPrimaryColor),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: kPrimaryColor),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _supportMessageController,
-            maxLines: 3,
-            decoration: InputDecoration(
-              labelText: 'Message',
-              prefixIcon: Icon(Icons.message, color: kPrimaryColor),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: kPrimaryColor),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _submitSupportTicket,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: kPrimaryColor,
-                shape: RoundedRectangleBorder(
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _getStatusColor(order['status']).withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(
+                  order['status']?.toString().toUpperCase() ?? 'UNKNOWN',
+                  style: TextStyle(
+                    color: _getStatusColor(order['status']),
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
-              child: const Text(
-                'Submit Ticket',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-              ),
-            ),
+            ],
           ),
-          if (_supportTickets.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            const Text(
-              'Recent Tickets',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.black87,
-              ),
-            ),
+          const SizedBox(height: 8),
+          Text(
+            'Total: ₹${order['total_amount'] ?? '0.00'}',
+            style: const TextStyle(fontSize: 14, color: Colors.grey),
+          ),
+          Text(
+            'Date: ${_formatDate(order['created_at'])}',
+            style: const TextStyle(fontSize: 14, color: Colors.grey),
+          ),
+          if (order['order_items'] != null && order['order_items'].isNotEmpty) ...[
             const SizedBox(height: 8),
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _supportTickets.length > 2 ? 2 : _supportTickets.length,
-              itemBuilder: (context, index) {
-                final ticket = _supportTickets[index];
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade200),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.support_outlined,
-                        color: kPrimaryColor,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              ticket['subject'] ?? 'No Subject',
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              DateFormat('MMM dd, yyyy').format(
-                                DateTime.parse(ticket['created_at']),
-                              ),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: _getStatusColor(ticket['status']),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          ticket['status']?.toString().toUpperCase() ?? 'OPEN',
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
+            Text(
+              'Items: ${order['order_items'].length}',
+              style: const TextStyle(fontSize: 14),
             ),
           ],
         ],
@@ -1116,205 +1299,50 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     );
   }
 
-  Widget _buildAppInfoSection() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.info_outline, color: kPrimaryColor, size: 20),
-              const SizedBox(width: 8),
-              const Text(
-                'App Information',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _buildInfoTile(
-            Icons.privacy_tip_outlined,
-            'Privacy Policy',
-            onTap: () => _launchUrl('https://yourapp.com/privacy'),
-          ),
-          _buildInfoTile(
-            Icons.description_outlined,
-            'Terms & Conditions',
-            onTap: () => _launchUrl('https://yourapp.com/terms'),
-          ),
-          _buildInfoTile(
-            Icons.info_outlined,
-            'About Us',
-            onTap: () => _launchUrl('https://yourapp.com/about'),
-          ),
-          _buildInfoTile(
-            Icons.star_rate_outlined,
-            'Rate App',
-            onTap: () => _launchUrl('https://play.google.com/store/apps/details?id=com.yourapp'),
-          ),
-        ],
-      ),
-    );
+  String _formatDate(dynamic dateString) {
+    if (dateString == null) return 'N/A';
+    try {
+      final date = DateTime.parse(dateString.toString());
+      return '${date.day}/${date.month}/${date.year}';
+    } catch (e) {
+      return 'N/A';
+    }
   }
 
-  Widget _buildLogoutSection() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: SizedBox(
-        width: double.infinity,
-        child: ElevatedButton(
-          onPressed: _logout,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.red,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            padding: const EdgeInsets.symmetric(vertical: 14),
-          ),
-          child: const Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.logout, color: Colors.white, size: 20),
-              SizedBox(width: 8),
-              Text(
-                'Log Out',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 16,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPreferenceSwitch(String title, String key, IconData icon) {
-    final value = _preferences?[key] ?? false;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        children: [
-          Icon(icon, color: kPrimaryColor, size: 20),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              title,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: Colors.black87,
-              ),
-            ),
-          ),
-          Switch(
-            value: value,
-            onChanged: (newValue) => _updatePreference(key, newValue),
-            activeColor: kPrimaryColor,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoTile(IconData icon, String title, {VoidCallback? onTap}) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: Icon(icon, color: kPrimaryColor, size: 20),
-        title: Text(
-          title,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: Colors.black87,
-          ),
-        ),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-        onTap: onTap,
-        contentPadding: EdgeInsets.zero,
-      ),
-    );
-  }
-
-  void _showAddAddressDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add New Address'),
-        content: const Text('Address management feature will be implemented here.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Add'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Color _getStatusColor(String? status) {
-    switch (status?.toLowerCase()) {
-      case 'completed':
-      case 'resolved':
+  Color _getStatusColor(dynamic status) {
+    final statusString = status?.toString().toLowerCase() ?? '';
+    switch (statusString) {
+      case 'delivered':
         return Colors.green;
-      case 'pending':
-      case 'open':
-        return Colors.orange;
       case 'cancelled':
-      case 'closed':
         return Colors.red;
-      case 'processing':
-      case 'in_progress':
-        return Colors.blue;
+      case 'pending':
+        return Colors.orange;
       default:
-        return Colors.grey;
+        return Colors.blue;
     }
   }
+}
 
-  Future<void> _launchUrl(String url) async {
-    if (await canLaunchUrl(Uri.parse(url))) {
-      await launchUrl(Uri.parse(url));
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not launch $url')),
-      );
-    }
+// ========================================
+// SIMPLE NOTIFICATION SCREEN
+// ========================================
+
+class _NotificationSettingsScreen extends StatelessWidget {
+  const _NotificationSettingsScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Notification Settings'),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        elevation: 1,
+      ),
+      body: const Center(
+        child: Text('Notification Settings - Coming Soon'),
+      ),
+    );
   }
 }
