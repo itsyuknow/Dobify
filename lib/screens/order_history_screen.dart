@@ -18,10 +18,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
   Map<String, Timer?> _cancelTimers = {};
   Map<String, int> _cancelTimeRemaining = {};
 
-  // Cancel order settings
-  int standardDeliveryCancelMinutes = 30; // Default 30 minutes
-  int expressDeliveryCancelMinutes = 15;  // Default 15 minutes
-
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
 
@@ -35,7 +31,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
     );
-    _loadCancelSettings();
     _loadOrders();
   }
 
@@ -49,27 +44,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     super.dispose();
   }
 
-  Future<void> _loadCancelSettings() async {
-    try {
-      final response = await supabase
-          .from('app_settings')
-          .select('setting_key, setting_value')
-          .inFilter('setting_key', ['standard_delivery_cancel_minutes', 'express_delivery_cancel_minutes']);
-
-      for (var setting in response) {
-        if (setting['setting_key'] == 'standard_delivery_cancel_minutes') {
-          standardDeliveryCancelMinutes = int.tryParse(setting['setting_value']?.toString() ?? '30') ?? 30;
-        } else if (setting['setting_key'] == 'express_delivery_cancel_minutes') {
-          expressDeliveryCancelMinutes = int.tryParse(setting['setting_value']?.toString() ?? '15') ?? 15;
-        }
-      }
-
-      print('Cancel settings loaded - Standard: ${standardDeliveryCancelMinutes}min, Express: ${expressDeliveryCancelMinutes}min');
-    } catch (e) {
-      print('Error loading cancel settings: $e');
-    }
-  }
-
   Future<void> _loadOrders() async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
@@ -78,12 +52,13 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       setState(() => isLoading = true);
       print('Loading orders for user: ${user.id}');
 
-      // Get basic orders data
+      // Get basic orders data - LIMIT TO 10 ORDERS
       final ordersResponse = await supabase
           .from('orders')
           .select('*')
           .eq('user_id', user.id)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: false)
+          .limit(10);
 
       print('Found ${ordersResponse.length} orders');
 
@@ -111,19 +86,24 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
               try {
                 final productResponse = await supabase
                     .from('products')
-                    .select('id, name, image_url, price')
+                    .select('id, product_name, image_url, product_price')
                     .eq('id', item['product_id'])
                     .maybeSingle();
 
                 if (productResponse != null) {
-                  processedItem['products'] = productResponse;
+                  processedItem['products'] = {
+                    'id': productResponse['id'],
+                    'name': productResponse['product_name'],
+                    'image_url': productResponse['image_url'],
+                    'price': productResponse['product_price'],
+                  };
                 } else {
                   // Fallback product data
                   processedItem['products'] = {
                     'id': item['product_id'],
                     'name': item['product_name'] ?? 'Product ${item['product_id']}',
                     'image_url': null,
-                    'price': item['price'] ?? 0.0,
+                    'price': item['product_price'] ?? 0.0,
                   };
                 }
               } catch (e) {
@@ -133,7 +113,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                   'id': item['product_id'],
                   'name': item['product_name'] ?? 'Unknown Product',
                   'image_url': null,
-                  'price': item['price'] ?? 0.0,
+                  'price': item['product_price'] ?? 0.0,
                 };
               }
             } else {
@@ -142,7 +122,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                 'id': null,
                 'name': item['product_name'] ?? 'Unknown Product',
                 'image_url': null,
-                'price': item['price'] ?? 0.0,
+                'price': item['product_price'] ?? 0.0,
               };
             }
 
@@ -183,6 +163,23 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
             print('Error loading billing details for order ${order['id']}: $e');
           }
 
+          // Get pickup slot details for cancel timer
+          if (order['pickup_slot_id'] != null) {
+            try {
+              final pickupSlotResponse = await supabase
+                  .from('pickup_slots')
+                  .select('start_time, end_time, display_time')
+                  .eq('id', order['pickup_slot_id'])
+                  .maybeSingle();
+
+              if (pickupSlotResponse != null) {
+                orderWithDetails['pickup_slot'] = pickupSlotResponse;
+              }
+            } catch (e) {
+              print('Error loading pickup slot for order ${order['id']}: $e');
+            }
+          }
+
           // Setup cancel timer if order can be cancelled
           _setupCancelTimer(orderWithDetails);
 
@@ -217,51 +214,62 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     if (!_canShowCancelButton(order)) return;
 
     final orderId = order['id'].toString();
-    final orderTime = DateTime.parse(order['created_at']);
-    final isExpress = _isExpressDelivery(order);
-    final cancelMinutes = isExpress ? expressDeliveryCancelMinutes : standardDeliveryCancelMinutes;
-    final cancelDeadline = orderTime.add(Duration(minutes: cancelMinutes));
-    final now = DateTime.now();
+    final orderDate = order['pickup_date'];
+    final pickupSlot = order['pickup_slot'];
 
-    if (now.isBefore(cancelDeadline)) {
-      final remainingSeconds = cancelDeadline.difference(now).inSeconds;
-      _cancelTimeRemaining[orderId] = remainingSeconds;
+    if (orderDate == null || pickupSlot == null) return;
 
-      _cancelTimers[orderId] = Timer.periodic(const Duration(seconds: 1), (timer) {
-        if (!mounted) {
-          timer.cancel();
-          return;
-        }
+    try {
+      // Parse order date and pickup slot time
+      final pickupDate = DateTime.parse(orderDate);
+      final startTimeStr = pickupSlot['start_time'].toString();
 
-        setState(() {
-          _cancelTimeRemaining[orderId] = (_cancelTimeRemaining[orderId] ?? 0) - 1;
+      // Parse time (format: HH:mm:ss or HH:mm)
+      final timeParts = startTimeStr.split(':');
+      final hour = int.parse(timeParts[0]);
+      final minute = int.parse(timeParts[1]);
+
+      // Create pickup deadline (pickup date + pickup time)
+      final pickupDeadline = DateTime(
+          pickupDate.year,
+          pickupDate.month,
+          pickupDate.day,
+          hour,
+          minute
+      );
+
+      final now = DateTime.now();
+
+      if (now.isBefore(pickupDeadline)) {
+        final remainingSeconds = pickupDeadline.difference(now).inSeconds;
+        _cancelTimeRemaining[orderId] = remainingSeconds;
+
+        _cancelTimers[orderId] = Timer.periodic(const Duration(seconds: 1), (timer) {
+          if (!mounted) {
+            timer.cancel();
+            return;
+          }
+
+          setState(() {
+            _cancelTimeRemaining[orderId] = (_cancelTimeRemaining[orderId] ?? 0) - 1;
+          });
+
+          if ((_cancelTimeRemaining[orderId] ?? 0) <= 0) {
+            timer.cancel();
+            _cancelTimers.remove(orderId);
+            _cancelTimeRemaining.remove(orderId);
+          }
         });
-
-        if ((_cancelTimeRemaining[orderId] ?? 0) <= 0) {
-          timer.cancel();
-          _cancelTimers.remove(orderId);
-          _cancelTimeRemaining.remove(orderId);
-        }
-      });
+      }
+    } catch (e) {
+      print('Error setting up cancel timer: $e');
     }
   }
 
   bool _canShowCancelButton(Map<String, dynamic> order) {
-    final status = order['status']?.toString().toLowerCase() ?? '';
+    final status = order['status']?.toString().toLowerCase() ??
+        order['order_status']?.toString().toLowerCase() ?? '';
     return status == 'pending' || status == 'confirmed' || status == 'processing';
-  }
-
-  bool _isExpressDelivery(Map<String, dynamic> order) {
-    // Check from order_billing_details
-    final billingDetails = order['order_billing_details'];
-    if (billingDetails != null && billingDetails is List && billingDetails.isNotEmpty) {
-      final deliveryType = billingDetails[0]['delivery_type']?.toString().toLowerCase() ?? '';
-      return deliveryType == 'express';
-    }
-
-    // Fallback: check if order has express in any field
-    final orderString = order.toString().toLowerCase();
-    return orderString.contains('express');
   }
 
   int _getRemainingCancelTime(String orderId) {
@@ -269,9 +277,16 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
   }
 
   String _formatRemainingTime(int seconds) {
-    final minutes = seconds ~/ 60;
+    if (seconds <= 0) return '00:00';
+    final hours = seconds ~/ 3600;
+    final minutes = (seconds % 3600) ~/ 60;
     final remainingSeconds = seconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
+
+    if (hours > 0) {
+      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
+    } else {
+      return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
+    }
   }
 
   Future<void> _cancelOrder(Map<String, dynamic> order) async {
@@ -355,6 +370,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
           .from('orders')
           .update({
         'status': 'cancelled',
+        'order_status': 'cancelled',
         'cancelled_at': DateTime.now().toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
       })
@@ -408,6 +424,161 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        );
+      }
+    }
+  }
+
+  // FIXED REORDER FUNCTIONALITY
+  Future<void> _reorderItems(Map<String, dynamic> order) async {
+    final user = supabase.auth.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Please login to reorder'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+      return;
+    }
+
+    try {
+      // Show loading
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => Center(
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(color: kPrimaryColor),
+                const SizedBox(height: 16),
+                const Text('Adding items to cart...'),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      final orderItems = order['order_items'] as List<dynamic>? ?? [];
+      int addedItems = 0;
+
+      for (var item in orderItems) {
+        final product = item['products'];
+        if (product != null && product['id'] != null) {
+          try {
+            // Check if product is still available
+            final productCheck = await supabase
+                .from('products')
+                .select('id, product_name, product_price, image_url, is_enabled')
+                .eq('id', product['id'])
+                .eq('is_enabled', true)
+                .maybeSingle();
+
+            if (productCheck != null) {
+              // Check if item already exists in cart
+              final existingCartItem = await supabase
+                  .from('cart')
+                  .select('id, product_quantity')
+                  .eq('user_id', user.id)
+                  .eq('product_name', productCheck['product_name'])
+                  .maybeSingle();
+
+              if (existingCartItem != null) {
+                // Update quantity
+                await supabase
+                    .from('cart')
+                    .update({
+                  'product_quantity': (existingCartItem['product_quantity'] ?? 0) + (item['quantity'] ?? 1),
+                  'updated_at': DateTime.now().toIso8601String(),
+                })
+                    .eq('id', existingCartItem['id']);
+              } else {
+                // Add new item to cart
+                await supabase.from('cart').insert({
+                  'user_id': user.id,
+                  'product_name': productCheck['product_name'],
+                  'product_image': productCheck['image_url'],
+                  'product_price': productCheck['product_price'],
+                  'service_type': item['service_type'] ?? 'Standard',
+                  'service_price': item['service_price'] ?? 0.0,
+                  'product_quantity': item['quantity'] ?? 1,
+                  'total_price': (productCheck['product_price'] ?? 0.0) * (item['quantity'] ?? 1),
+                  'category': item['category'],
+                  'created_at': DateTime.now().toIso8601String(),
+                  'updated_at': DateTime.now().toIso8601String(),
+                });
+              }
+              addedItems++;
+            }
+          } catch (e) {
+            print('Error adding item ${product['name']} to cart: $e');
+          }
+        }
+      }
+
+      // Close loading dialog
+      if (mounted) Navigator.pop(context);
+
+      if (addedItems > 0) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.shopping_cart, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Text('$addedItems items added to cart successfully!'),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              action: SnackBarAction(
+                label: 'VIEW CART',
+                textColor: Colors.white,
+                onPressed: () {
+                  // Navigate to cart screen
+                  Navigator.of(context).pushNamed('/cart');
+                },
+              ),
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('No items could be added. Products may be unavailable.'),
+              backgroundColor: Colors.orange,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        }
+      }
+
+    } catch (e) {
+      // Close loading dialog
+      if (mounted) Navigator.pop(context);
+
+      print('Error during reorder: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Failed to reorder items'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -600,7 +771,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                     // Show countdown timer for cancellable orders, otherwise show status badge
                     canCancel && remainingTime > 0
                         ? _buildCountdownBadge(remainingTime)
-                        : _buildStatusBadge(order['status']),
+                        : _buildStatusBadge(order['status'] ?? order['order_status']),
                   ],
                 ),
 
@@ -829,7 +1000,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                           ],
                         ),
                       ))
-                          : (_canReorder(order['status'])
+                          : (_canReorder(order['status'] ?? order['order_status'])
                           ? TextButton.icon(
                         onPressed: () => _reorderItems(order),
                         icon: const Icon(Icons.refresh_rounded, size: 18, color: Colors.green),
@@ -860,7 +1031,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                             Icon(Icons.info_outline, size: 16, color: Colors.grey.shade500),
                             const SizedBox(width: 6),
                             Text(
-                              'Order ${order['status'] ?? 'Processing'}',
+                              'Order ${(order['status'] ?? order['order_status'] ?? 'Processing').toString().toLowerCase()}',
                               style: TextStyle(
                                 color: Colors.grey.shade600,
                                 fontWeight: FontWeight.w600,
@@ -900,7 +1071,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.timer, color: Colors.white, size: 14),
+          const Icon(Icons.timer, color: Colors.white, size: 14),
           const SizedBox(width: 6),
           Text(
             _formatRemainingTime(remainingTime),
@@ -990,18 +1161,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     return statusString == 'delivered' || statusString == 'cancelled';
   }
 
-  void _reorderItems(Map<String, dynamic> order) {
-    // Implement reorder functionality
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Reorder functionality coming soon!'),
-        backgroundColor: kPrimaryColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
-  }
-
   void _showOrderDetails(Map<String, dynamic> order) {
     showModalBottomSheet(
       context: context,
@@ -1024,7 +1183,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
   }
 }
 
-// Order Details Sheet
+// ENHANCED Order Details Sheet with Full Bill Details
 class _OrderDetailsSheet extends StatelessWidget {
   final Map<String, dynamic> order;
 
@@ -1034,9 +1193,13 @@ class _OrderDetailsSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final orderItems = order['order_items'] as List<dynamic>? ?? [];
     final address = order['user_addresses'];
+    final billingDetails = order['order_billing_details'] != null &&
+        (order['order_billing_details'] as List).isNotEmpty
+        ? (order['order_billing_details'] as List)[0]
+        : null;
 
     return Container(
-      height: MediaQuery.of(context).size.height * 0.85,
+      height: MediaQuery.of(context).size.height * 0.9,
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
@@ -1114,7 +1277,79 @@ class _OrderDetailsSheet extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  ...orderItems.map((item) => _buildOrderItem(item)),
+                  ...orderItems.map((item) => _buildOrderItem(item)).toList(),
+
+                  const SizedBox(height: 24),
+
+                  // FULL BILL BREAKDOWN
+                  const Text(
+                    'Bill Details',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [kPrimaryColor.withOpacity(0.05), Colors.purple.withOpacity(0.02)],
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: kPrimaryColor.withOpacity(0.1)),
+                    ),
+                    child: Column(
+                      children: [
+                        if (billingDetails != null) ...[
+                          _buildBillRow('Subtotal', '₹${billingDetails['subtotal'] ?? '0.00'}'),
+                          if ((billingDetails['minimum_cart_fee'] ?? 0) > 0)
+                            _buildBillRow('Minimum Cart Fee', '₹${billingDetails['minimum_cart_fee']}'),
+                          if ((billingDetails['platform_fee'] ?? 0) > 0)
+                            _buildBillRow('Platform Fee', '₹${billingDetails['platform_fee']}'),
+                          if ((billingDetails['service_tax'] ?? 0) > 0)
+                            _buildBillRow('Service Tax', '₹${billingDetails['service_tax']}'),
+                          if ((billingDetails['delivery_fee'] ?? 0) > 0)
+                            _buildBillRow('Delivery Fee', '₹${billingDetails['delivery_fee']}'),
+                          if ((billingDetails['express_delivery_fee'] ?? 0) > 0)
+                            _buildBillRow('Express Delivery', '₹${billingDetails['express_delivery_fee']}'),
+                          if ((billingDetails['standard_delivery_fee'] ?? 0) > 0)
+                            _buildBillRow('Standard Delivery', '₹${billingDetails['standard_delivery_fee']}'),
+                          if ((billingDetails['discount_amount'] ?? 0) > 0)
+                            _buildBillRow('Discount', '-₹${billingDetails['discount_amount']}', isDiscount: true),
+                          if (billingDetails['applied_coupon_code'] != null)
+                            _buildBillRow('Coupon', billingDetails['applied_coupon_code'].toString(), isInfo: true),
+                          const Divider(height: 24, thickness: 1),
+                          _buildBillRow('Total Amount', '₹${billingDetails['total_amount'] ?? order['total_amount'] ?? '0.00'}', isTotal: true),
+                        ] else ...[
+                          // Fallback when billing details are not available
+                          _buildBillRow('Total Amount', '₹${order['total_amount'] ?? '0.00'}', isTotal: true),
+                        ],
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Payment Method',
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            Text(
+                              order['payment_method']?.toString().toUpperCase() ?? 'N/A',
+                              style: TextStyle(
+                                color: kPrimaryColor,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
 
                   const SizedBox(height: 24),
 
@@ -1162,9 +1397,9 @@ class _OrderDetailsSheet extends StatelessWidget {
                     const SizedBox(height: 24),
                   ],
 
-                  // Order Summary
+                  // Order Timeline
                   const Text(
-                    'Order Summary',
+                    'Order Timeline',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
@@ -1192,7 +1427,7 @@ class _OrderDetailsSheet extends StatelessWidget {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             const Text(
-                              'Total Amount',
+                              'Order Placed',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 16,
@@ -1200,37 +1435,63 @@ class _OrderDetailsSheet extends StatelessWidget {
                               ),
                             ),
                             Text(
-                              '₹${order['total_amount'] ?? '0.00'}',
+                              _formatDate(order['created_at']),
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 24,
+                                fontSize: 16,
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Order Date',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.9),
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
+                        if (order['pickup_date'] != null) ...[
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Pickup Date',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.9),
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
-                            ),
-                            Text(
-                              _formatDate(order['created_at']),
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.9),
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
+                              Text(
+                                _formatDate(order['pickup_date']),
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.9),
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
+                            ],
+                          ),
+                        ],
+                        if (order['delivery_date'] != null) ...[
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Delivery Date',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.9),
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              Text(
+                                _formatDate(order['delivery_date']),
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.9),
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -1238,6 +1499,39 @@ class _OrderDetailsSheet extends StatelessWidget {
                   const SizedBox(height: 40),
                 ],
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBillRow(String label, String value, {bool isTotal = false, bool isDiscount = false, bool isInfo = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: isTotal ? 16 : 14,
+              fontWeight: isTotal ? FontWeight.w700 : FontWeight.w500,
+              color: isTotal ? Colors.black : Colors.grey.shade700,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: isTotal ? 18 : 14,
+              fontWeight: isTotal ? FontWeight.w800 : FontWeight.w600,
+              color: isTotal
+                  ? kPrimaryColor
+                  : isDiscount
+                  ? Colors.green
+                  : isInfo
+                  ? kPrimaryColor
+                  : Colors.black87,
             ),
           ),
         ],
@@ -1258,7 +1552,7 @@ class _OrderDetailsSheet extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Product Image
+          // Product Image - FIXED IMAGE LOADING
           Container(
             width: 60,
             height: 60,
@@ -1268,14 +1562,19 @@ class _OrderDetailsSheet extends StatelessWidget {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: product?['image_url'] != null && product['image_url'].toString().isNotEmpty
+              child: product?['image_url'] != null &&
+                  product['image_url'].toString().isNotEmpty &&
+                  product['image_url'].toString() != 'null'
                   ? Image.network(
                 product['image_url'],
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  padding: const EdgeInsets.all(16),
-                  child: Icon(Icons.image_not_supported_outlined, color: Colors.grey.shade400, size: 24),
-                ),
+                errorBuilder: (context, error, stackTrace) {
+                  print('Image load error: $error');
+                  return Container(
+                    padding: const EdgeInsets.all(16),
+                    child: Icon(Icons.image_not_supported_outlined, color: Colors.grey.shade400, size: 24),
+                  );
+                },
                 loadingBuilder: (context, child, loadingProgress) {
                   if (loadingProgress == null) return child;
                   return Center(
@@ -1322,7 +1621,7 @@ class _OrderDetailsSheet extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '₹${product?['price'] ?? item['price'] ?? '0.00'} each',
+                  '₹${product?['price'] ?? item['product_price'] ?? '0.00'} each',
                   style: TextStyle(
                     color: kPrimaryColor,
                     fontSize: 14,

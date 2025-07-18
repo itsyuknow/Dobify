@@ -381,7 +381,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     icon: Icons.photo_library,
                     title: 'Gallery',
                     subtitle: 'Choose from photos',
-                    gradient: [Colors.purple, Colors.purple.withOpacity(0.8)],
+                    gradient: [kPrimaryColor.withOpacity(0.8), kPrimaryColor.withOpacity(0.6)],
                     onTap: () => Navigator.pop(context, ImageSource.gallery),
                   ),
                 ),
@@ -715,7 +715,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     const SizedBox(height: 16),
                     _buildMenuSection(),
                     const SizedBox(height: 24),
-                    _buildPremiumLogoutSection(),
+                    _buildCompactLogoutSection(),
                     const SizedBox(height: 100),
                   ],
                 ),
@@ -744,7 +744,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               colors: [
                 kPrimaryColor,
                 kPrimaryColor.withOpacity(0.8),
-                Colors.purple.withOpacity(0.3),
+                kPrimaryColor.withOpacity(0.6),
               ],
             ),
           ),
@@ -863,7 +863,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [kPrimaryColor, Colors.purple],
+                  colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
                 ),
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.white, width: 3),
@@ -904,7 +904,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       ),
       child: Column(
         children: [
-          // Profile Completion Header with Dropdown Arrow
+          // Profile Completion Header with Dropdown Arrow - MADE SMALLER
           GestureDetector(
             onTap: () {
               HapticFeedback.lightImpact();
@@ -918,7 +918,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               });
             },
             child: Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(12), // Reduced from 16
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: profileCompleteness < 50
@@ -935,26 +935,26 @@ class _ProfileScreenState extends State<ProfileScreen>
               child: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(10),
+                    padding: const EdgeInsets.all(8), // Reduced from 10
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: profileCompleteness < 50
                             ? [Colors.orange, Colors.orange.withOpacity(0.8)]
                             : [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
                       ),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(10),
                       boxShadow: [
                         BoxShadow(
                           color: (profileCompleteness < 50 ? Colors.orange : kPrimaryColor)
                               .withOpacity(0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 4),
+                          blurRadius: 6,
+                          offset: const Offset(0, 3),
                         ),
                       ],
                     ),
-                    child: Icon(Icons.trending_up_rounded, color: Colors.white, size: 20),
+                    child: Icon(Icons.trending_up_rounded, color: Colors.white, size: 18), // Reduced from 20
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 12), // Reduced from 16
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -964,30 +964,30 @@ class _ProfileScreenState extends State<ProfileScreen>
                             const Text(
                               'Profile Completion',
                               style: TextStyle(
-                                fontSize: 16,
+                                fontSize: 14, // Reduced from 16
                                 fontWeight: FontWeight.w700,
                                 color: Colors.black87,
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 6),
                             AnimatedRotation(
                               turns: _isPersonalInfoExpanded ? 0.5 : 0.0,
                               duration: const Duration(milliseconds: 300),
                               child: Icon(
                                 Icons.keyboard_arrow_down_rounded,
                                 color: Colors.grey.shade600,
-                                size: 20,
+                                size: 18, // Reduced from 20
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 4),
                         Text(
                           _isPersonalInfoExpanded
                               ? 'Tap to collapse personal info'
                               : 'Tap to view personal info',
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 11, // Reduced from 12
                             color: Colors.grey.shade600,
                             fontWeight: FontWeight.w500,
                           ),
@@ -996,20 +996,20 @@ class _ProfileScreenState extends State<ProfileScreen>
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), // Reduced
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: profileCompleteness < 50
                             ? [Colors.orange, Colors.orange.withOpacity(0.8)]
                             : [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
                       ),
-                      borderRadius: BorderRadius.circular(25),
+                      borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
                           color: (profileCompleteness < 50 ? Colors.orange : kPrimaryColor)
                               .withOpacity(0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 4),
+                          blurRadius: 6,
+                          offset: const Offset(0, 3),
                         ),
                       ],
                     ),
@@ -1018,7 +1018,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,
-                        fontSize: 14,
+                        fontSize: 12, // Reduced from 14
                       ),
                     ),
                   ),
@@ -1027,18 +1027,18 @@ class _ProfileScreenState extends State<ProfileScreen>
             ),
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 16), // Reduced from 20
 
-          // Progress Bar
+          // Progress Bar - MADE SMALLER
           ClipRRect(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(10),
             child: LinearProgressIndicator(
               value: profileCompleteness / 100,
               backgroundColor: Colors.grey.shade200,
               valueColor: AlwaysStoppedAnimation<Color>(
                 profileCompleteness < 50 ? Colors.orange : kPrimaryColor,
               ),
-              minHeight: 8,
+              minHeight: 6, // Reduced from 8
             ),
           ),
 
@@ -1055,10 +1055,10 @@ class _ProfileScreenState extends State<ProfileScreen>
             },
             child: Column(
               children: [
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
                 // Personal Information Section
                 Container(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.all(18), // Reduced from 20
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
@@ -1084,7 +1084,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                               ),
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: Icon(Icons.person_rounded, color: kPrimaryColor, size: 20),
+                            child: Icon(Icons.person_rounded, color: kPrimaryColor, size: 18), // Reduced from 20
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -1094,7 +1094,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                                 const Text(
                                   'Personal Information',
                                   style: TextStyle(
-                                    fontSize: 16,
+                                    fontSize: 15, // Reduced from 16
                                     fontWeight: FontWeight.w800,
                                     color: Colors.black87,
                                   ),
@@ -1102,7 +1102,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                                 TextButton(
                                   onPressed: _showEditDialog,
                                   style: TextButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5), // Reduced
                                     backgroundColor: kPrimaryColor.withOpacity(0.1),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(8),
@@ -1113,7 +1113,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                                     style: TextStyle(
                                       color: kPrimaryColor,
                                       fontWeight: FontWeight.w600,
-                                      fontSize: 12,
+                                      fontSize: 11, // Reduced from 12
                                     ),
                                   ),
                                 ),
@@ -1122,7 +1122,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                           ),
                         ],
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16), // Reduced from 20
                       _buildEnhancedInfoRow(Icons.person_rounded, 'Name',
                           '${userProfile?['first_name'] ?? ''} ${userProfile?['last_name'] ?? ''}'.trim().isEmpty
                               ? 'Not set'
@@ -1152,7 +1152,7 @@ class _ProfileScreenState extends State<ProfileScreen>
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [kPrimaryColor.withOpacity(0.1), Colors.purple.withOpacity(0.05)],
+                colors: [kPrimaryColor.withOpacity(0.1), kPrimaryColor.withOpacity(0.05)],
               ),
               borderRadius: BorderRadius.circular(12),
             ),
@@ -1193,8 +1193,8 @@ class _ProfileScreenState extends State<ProfileScreen>
     bool hasValue = value != 'Not set' && value.isNotEmpty;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 14), // Reduced from 16
+      padding: const EdgeInsets.all(14), // Reduced from 16
       decoration: BoxDecoration(
         color: hasValue ? Colors.white : Colors.grey.shade50,
         borderRadius: BorderRadius.circular(12),
@@ -1204,7 +1204,7 @@ class _ProfileScreenState extends State<ProfileScreen>
         boxShadow: hasValue ? [
           BoxShadow(
             color: kPrimaryColor.withOpacity(0.05),
-            blurRadius: 8,
+            blurRadius: 6,
             offset: const Offset(0, 2),
           ),
         ] : null,
@@ -1212,7 +1212,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(8), // Reduced from 10
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: hasValue
@@ -1223,11 +1223,11 @@ class _ProfileScreenState extends State<ProfileScreen>
             ),
             child: Icon(
               icon,
-              size: 20,
+              size: 18, // Reduced from 20
               color: hasValue ? kPrimaryColor : Colors.grey.shade500,
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 14), // Reduced from 16
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1235,17 +1235,17 @@ class _ProfileScreenState extends State<ProfileScreen>
                 Text(
                   label,
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 11, // Reduced from 12
                     color: Colors.grey.shade600,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 0.5,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 3),
                 Text(
                   value,
                   style: TextStyle(
-                    fontSize: 15,
+                    fontSize: 14, // Reduced from 15
                     color: hasValue ? Colors.black87 : Colors.grey.shade500,
                     fontWeight: hasValue ? FontWeight.w700 : FontWeight.w500,
                   ),
@@ -1255,15 +1255,15 @@ class _ProfileScreenState extends State<ProfileScreen>
           ),
           if (!hasValue)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3), // Reduced
               decoration: BoxDecoration(
                 color: Colors.orange.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
                 'Add',
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 10, // Reduced from 11
                   color: Colors.orange.shade700,
                   fontWeight: FontWeight.w600,
                 ),
@@ -1272,7 +1272,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           if (hasValue)
             Icon(
               Icons.check_circle_rounded,
-              size: 18,
+              size: 16, // Reduced from 18
               color: Colors.green.shade600,
             ),
         ],
@@ -1290,7 +1290,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               '${orderStats?['total_orders'] ?? 0}',
               'Total Orders',
               Icons.shopping_bag_rounded,
-              [Colors.blue, Colors.blue.withOpacity(0.8)],
+              [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
             ),
           ),
           const SizedBox(width: 12),
@@ -1299,7 +1299,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               '₹${(orderStats?['total_saved'] ?? 0.0).toStringAsFixed(0)}',
               'Total Saved',
               Icons.local_offer_rounded,
-              [Colors.green, Colors.green.withOpacity(0.8)],
+              [kPrimaryColor.withOpacity(0.8), kPrimaryColor.withOpacity(0.6)],
             ),
           ),
           const SizedBox(width: 12),
@@ -1308,7 +1308,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               '₹${(orderStats?['total_spent'] ?? 0.0).toStringAsFixed(0)}',
               'Total Spent',
               Icons.currency_rupee_rounded,
-              [Colors.purple, Colors.purple.withOpacity(0.8)],
+              [kPrimaryColor.withOpacity(0.6), kPrimaryColor.withOpacity(0.4)],
             ),
           ),
         ],
@@ -1362,42 +1362,42 @@ class _ProfileScreenState extends State<ProfileScreen>
         'icon': Icons.history_rounded,
         'title': 'Order History',
         'subtitle': 'View past orders & track status',
-        'gradient': [Colors.orange, Colors.orange.withOpacity(0.8)],
+        'gradient': [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
         'onTap': () => _navigateToOrderHistory(),
       },
       {
         'icon': Icons.location_on_rounded,
         'title': 'My Addresses',
         'subtitle': 'Manage delivery addresses',
-        'gradient': [Colors.green, Colors.green.withOpacity(0.8)],
+        'gradient': [kPrimaryColor.withOpacity(0.8), kPrimaryColor.withOpacity(0.6)],
         'onTap': () => _navigateToAddressBook(),
       },
       {
         'icon': Icons.notifications_rounded,
         'title': 'Notifications',
         'subtitle': 'App preferences & alerts',
-        'gradient': [Colors.blue, Colors.blue.withOpacity(0.8)],
+        'gradient': [kPrimaryColor.withOpacity(0.6), kPrimaryColor.withOpacity(0.4)],
         'onTap': () => _navigateToNotifications(),
       },
       {
         'icon': Icons.support_agent_rounded,
         'title': 'Help & Support',
         'subtitle': 'Get assistance & contact us',
-        'gradient': [Colors.purple, Colors.purple.withOpacity(0.8)],
+        'gradient': [kPrimaryColor.withOpacity(0.7), kPrimaryColor.withOpacity(0.5)],
         'onTap': () => _navigateToSupport(),
       },
       {
         'icon': Icons.privacy_tip_rounded,
         'title': 'Privacy Policy',
         'subtitle': 'Read our privacy policy',
-        'gradient': [Colors.teal, Colors.teal.withOpacity(0.8)],
+        'gradient': [kPrimaryColor.withOpacity(0.5), kPrimaryColor.withOpacity(0.3)],
         'onTap': () => _openPrivacyPolicy(),
       },
       {
         'icon': Icons.description_rounded,
         'title': 'Terms & Conditions',
         'subtitle': 'Read terms of service',
-        'gradient': [Colors.indigo, Colors.indigo.withOpacity(0.8)],
+        'gradient': [kPrimaryColor.withOpacity(0.4), kPrimaryColor.withOpacity(0.2)],
         'onTap': () => _openTermsConditions(),
       },
     ];
@@ -1516,7 +1516,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildPremiumLogoutSection() {
+  Widget _buildCompactLogoutSection() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       child: Material(
@@ -1526,36 +1526,31 @@ class _ProfileScreenState extends State<ProfileScreen>
             HapticFeedback.lightImpact();
             _showLogoutDialog();
           },
-          borderRadius: BorderRadius.circular(25),
+          borderRadius: BorderRadius.circular(16),
           child: Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(16), // Reduced from 20
             decoration: BoxDecoration(
               color: const Color(0xFFDC2626), // Solid red color
-              borderRadius: BorderRadius.circular(25),
+              borderRadius: BorderRadius.circular(16), // Reduced from 25
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFFDC2626).withOpacity(0.4),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
-                ),
-                BoxShadow(
-                  color: const Color(0xFFDC2626).withOpacity(0.2),
-                  blurRadius: 40,
-                  offset: const Offset(0, 16),
+                  color: const Color(0xFFDC2626).withOpacity(0.3),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
                 ),
               ],
             ),
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(14),
+                  padding: const EdgeInsets.all(10), // Reduced from 14
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: BorderRadius.circular(12), // Reduced from 18
                   ),
-                  child: const Icon(Icons.logout_rounded, color: Colors.white, size: 26),
+                  child: const Icon(Icons.logout_rounded, color: Colors.white, size: 20), // Reduced from 26
                 ),
-                const SizedBox(width: 20),
+                const SizedBox(width: 16), // Reduced from 20
                 const Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1563,7 +1558,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       Text(
                         'Logout',
                         style: TextStyle(
-                          fontSize: 20,
+                          fontSize: 16, // Reduced from 20
                           fontWeight: FontWeight.w800,
                           color: Colors.white,
                           letterSpacing: 0.5,
@@ -1573,7 +1568,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       Text(
                         'Sign out of your account securely',
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 12, // Reduced from 14
                           color: Colors.white70,
                           fontWeight: FontWeight.w500,
                         ),
@@ -1582,14 +1577,14 @@ class _ProfileScreenState extends State<ProfileScreen>
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(8), // Reduced from 10
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10), // Reduced from 12
                   ),
                   child: const Icon(
                     Icons.arrow_forward_ios_rounded,
-                    size: 16,
+                    size: 14, // Reduced from 16
                     color: Colors.white,
                   ),
                 ),
@@ -1679,49 +1674,36 @@ class _ProfileScreenState extends State<ProfileScreen>
 
     showDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.8),
+      barrierColor: Colors.black.withOpacity(0.7),
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
           String selectedGender = userProfile?['gender'] ?? '';
 
           return Dialog(
             backgroundColor: Colors.transparent,
-            insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
+            insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 60), // Increased top/bottom padding
             child: Container(
               width: double.infinity,
-              constraints: const BoxConstraints(maxHeight: 700),
+              constraints: const BoxConstraints(maxHeight: 600), // Reduced from 700
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(28),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Colors.white,
-                    kPrimaryColor.withOpacity(0.02),
-                    Colors.white,
-                  ],
-                ),
+                borderRadius: BorderRadius.circular(20), // Reduced from 28
+                color: Colors.white,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
-                    blurRadius: 30,
-                    offset: const Offset(0, 15),
-                  ),
-                  BoxShadow(
-                    color: kPrimaryColor.withOpacity(0.1),
+                    color: Colors.black.withOpacity(0.2),
                     blurRadius: 20,
                     offset: const Offset(0, 10),
                   ),
                 ],
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(28),
+                borderRadius: BorderRadius.circular(20),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Premium Header
+                    // Compact Header
                     Container(
-                      padding: const EdgeInsets.all(24),
+                      padding: const EdgeInsets.all(16), // Reduced from 24
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
@@ -1730,22 +1712,18 @@ class _ProfileScreenState extends State<ProfileScreen>
                       child: Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.all(8), // Reduced from 12
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.3),
-                                width: 1,
-                              ),
+                              borderRadius: BorderRadius.circular(10), // Reduced from 16
                             ),
                             child: const Icon(
                                 Icons.edit_rounded,
                                 color: Colors.white,
-                                size: 24
+                                size: 20 // Reduced from 24
                             ),
                           ),
-                          const SizedBox(width: 16),
+                          const SizedBox(width: 12), // Reduced from 16
                           const Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1753,17 +1731,16 @@ class _ProfileScreenState extends State<ProfileScreen>
                                 Text(
                                   'Edit Profile',
                                   style: TextStyle(
-                                    fontSize: 22,
+                                    fontSize: 18, // Reduced from 22
                                     fontWeight: FontWeight.w800,
                                     color: Colors.white,
-                                    letterSpacing: 0.5,
                                   ),
                                 ),
-                                SizedBox(height: 4),
+                                SizedBox(height: 2),
                                 Text(
                                   'Update your personal information',
                                   style: TextStyle(
-                                    fontSize: 14,
+                                    fontSize: 12, // Reduced from 14
                                     color: Colors.white70,
                                     fontWeight: FontWeight.w500,
                                   ),
@@ -1774,7 +1751,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                           Container(
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(8),
                             ),
                             child: IconButton(
                               onPressed: () {
@@ -1787,7 +1764,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                               icon: const Icon(
                                 Icons.close_rounded,
                                 color: Colors.white,
-                                size: 24,
+                                size: 20,
                               ),
                             ),
                           ),
@@ -1798,22 +1775,22 @@ class _ProfileScreenState extends State<ProfileScreen>
                     // Form Content
                     Flexible(
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(24),
+                        padding: const EdgeInsets.all(16), // Reduced from 24
                         child: Column(
                           children: [
                             // Name Row
                             Row(
                               children: [
                                 Expanded(
-                                  child: _buildPremiumEditField(
+                                  child: _buildCompactEditField(
                                     firstNameController,
                                     'First Name',
                                     Icons.person_rounded,
                                   ),
                                 ),
-                                const SizedBox(width: 16),
+                                const SizedBox(width: 12),
                                 Expanded(
-                                  child: _buildPremiumEditField(
+                                  child: _buildCompactEditField(
                                     lastNameController,
                                     'Last Name',
                                     Icons.person_outline_rounded,
@@ -1821,16 +1798,16 @@ class _ProfileScreenState extends State<ProfileScreen>
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 20),
+                            const SizedBox(height: 16),
 
                             // Phone Number
-                            _buildPremiumEditField(
+                            _buildCompactEditField(
                               phoneController,
                               'Phone Number',
                               Icons.phone_rounded,
                               TextInputType.phone,
                             ),
-                            const SizedBox(height: 20),
+                            const SizedBox(height: 16),
 
                             // Date of Birth
                             GestureDetector(
@@ -1861,7 +1838,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                                 }
                               },
                               child: AbsorbPointer(
-                                child: _buildPremiumEditField(
+                                child: _buildCompactEditField(
                                     dobController,
                                     'Date of Birth',
                                     Icons.cake_rounded,
@@ -1870,34 +1847,19 @@ class _ProfileScreenState extends State<ProfileScreen>
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 20),
+                            const SizedBox(height: 16),
 
-                            // Gender Selection - Premium Design
+                            // Gender Selection - Compact Design
                             Container(
                               width: double.infinity,
-                              padding: const EdgeInsets.all(20),
+                              padding: const EdgeInsets.all(16), // Reduced from 20
                               decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    Colors.grey.shade50,
-                                    Colors.white,
-                                    kPrimaryColor.withOpacity(0.02),
-                                  ],
-                                ),
-                                borderRadius: BorderRadius.circular(20),
+                                color: Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(12), // Reduced from 20
                                 border: Border.all(
-                                  color: kPrimaryColor.withOpacity(0.15),
-                                  width: 1.5,
+                                  color: kPrimaryColor.withOpacity(0.2),
+                                  width: 1,
                                 ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: kPrimaryColor.withOpacity(0.05),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1905,37 +1867,37 @@ class _ProfileScreenState extends State<ProfileScreen>
                                   Row(
                                     children: [
                                       Container(
-                                        padding: const EdgeInsets.all(10),
+                                        padding: const EdgeInsets.all(8),
                                         decoration: BoxDecoration(
                                           gradient: LinearGradient(
                                             colors: [kPrimaryColor.withOpacity(0.15), kPrimaryColor.withOpacity(0.08)],
                                           ),
-                                          borderRadius: BorderRadius.circular(12),
+                                          borderRadius: BorderRadius.circular(8),
                                         ),
                                         child: Icon(
                                             Icons.person_outline_rounded,
                                             color: kPrimaryColor,
-                                            size: 20
+                                            size: 16 // Reduced from 20
                                         ),
                                       ),
-                                      const SizedBox(width: 12),
+                                      const SizedBox(width: 8),
                                       const Text(
                                         'Gender',
                                         style: TextStyle(
-                                          fontSize: 16,
+                                          fontSize: 14, // Reduced from 16
                                           fontWeight: FontWeight.w700,
                                           color: Colors.black87,
                                         ),
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 16),
+                                  const SizedBox(height: 12),
 
                                   // Gender Options
                                   Row(
                                     children: [
                                       Expanded(
-                                        child: _buildGenderOption(
+                                        child: _buildCompactGenderOption(
                                           'Male',
                                           Icons.male_rounded,
                                           selectedGender == 'Male',
@@ -1946,9 +1908,9 @@ class _ProfileScreenState extends State<ProfileScreen>
                                           },
                                         ),
                                       ),
-                                      const SizedBox(width: 12),
+                                      const SizedBox(width: 10),
                                       Expanded(
-                                        child: _buildGenderOption(
+                                        child: _buildCompactGenderOption(
                                           'Female',
                                           Icons.female_rounded,
                                           selectedGender == 'Female',
@@ -1965,19 +1927,17 @@ class _ProfileScreenState extends State<ProfileScreen>
                               ),
                             ),
 
-                            const SizedBox(height: 32),
+                            const SizedBox(height: 24),
 
                             // Action Buttons
                             Row(
                               children: [
                                 Expanded(
                                   child: Container(
-                                    height: 56,
+                                    height: 44, // Reduced from 56
                                     decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: [Colors.grey.shade100, Colors.grey.shade50],
-                                      ),
-                                      borderRadius: BorderRadius.circular(16),
+                                      color: Colors.grey.shade100,
+                                      borderRadius: BorderRadius.circular(12),
                                       border: Border.all(
                                         color: Colors.grey.shade300,
                                         width: 1,
@@ -1993,13 +1953,13 @@ class _ProfileScreenState extends State<ProfileScreen>
                                       },
                                       style: TextButton.styleFrom(
                                         shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(16),
+                                          borderRadius: BorderRadius.circular(12),
                                         ),
                                       ),
                                       child: Text(
                                         'Cancel',
                                         style: TextStyle(
-                                          fontSize: 16,
+                                          fontSize: 14, // Reduced from 16
                                           fontWeight: FontWeight.w600,
                                           color: Colors.grey.shade700,
                                         ),
@@ -2007,21 +1967,21 @@ class _ProfileScreenState extends State<ProfileScreen>
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 16),
+                                const SizedBox(width: 12),
                                 Expanded(
                                   flex: 2,
                                   child: Container(
-                                    height: 56,
+                                    height: 44, // Reduced from 56
                                     decoration: BoxDecoration(
                                       gradient: LinearGradient(
                                         colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
                                       ),
-                                      borderRadius: BorderRadius.circular(16),
+                                      borderRadius: BorderRadius.circular(12),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: kPrimaryColor.withOpacity(0.4),
-                                          blurRadius: 12,
-                                          offset: const Offset(0, 6),
+                                          color: kPrimaryColor.withOpacity(0.3),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 4),
                                         ),
                                       ],
                                     ),
@@ -2055,18 +2015,18 @@ class _ProfileScreenState extends State<ProfileScreen>
                                         foregroundColor: Colors.white,
                                         shadowColor: Colors.transparent,
                                         shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(16),
+                                          borderRadius: BorderRadius.circular(12),
                                         ),
                                       ),
-                                      child: Row(
+                                      child: const Row(
                                         mainAxisAlignment: MainAxisAlignment.center,
-                                        children: const [
-                                          Icon(Icons.save_rounded, size: 20),
-                                          SizedBox(width: 8),
+                                        children: [
+                                          Icon(Icons.save_rounded, size: 16), // Reduced from 20
+                                          SizedBox(width: 6),
                                           Text(
                                             'Save Changes',
                                             style: TextStyle(
-                                              fontSize: 16,
+                                              fontSize: 14, // Reduced from 16
                                               fontWeight: FontWeight.w700,
                                             ),
                                           ),
@@ -2091,7 +2051,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildPremiumEditField(
+  Widget _buildCompactEditField(
       TextEditingController controller,
       String label,
       IconData icon,
@@ -2099,19 +2059,12 @@ class _ProfileScreenState extends State<ProfileScreen>
       ) {
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.white,
-            Colors.grey.shade50,
-          ],
-        ),
+        borderRadius: BorderRadius.circular(12),
+        color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: kPrimaryColor.withOpacity(0.05),
-            blurRadius: 8,
+            color: kPrimaryColor.withOpacity(0.08),
+            blurRadius: 6,
             offset: const Offset(0, 2),
           ),
         ],
@@ -2120,7 +2073,7 @@ class _ProfileScreenState extends State<ProfileScreen>
         controller: controller,
         keyboardType: keyboardType,
         style: const TextStyle(
-          fontSize: 15,
+          fontSize: 14, // Reduced from 15
           fontWeight: FontWeight.w600,
           color: Colors.black87,
         ),
@@ -2130,49 +2083,52 @@ class _ProfileScreenState extends State<ProfileScreen>
           labelStyle: TextStyle(
             color: kPrimaryColor.withOpacity(0.7),
             fontWeight: FontWeight.w600,
-            fontSize: 14,
+            fontSize: 12, // Reduced from 14
           ),
           hintStyle: TextStyle(
             color: Colors.grey.shade500,
-            fontSize: 14,
+            fontSize: 12,
           ),
           prefixIcon: Container(
-            margin: const EdgeInsets.all(12),
-            padding: const EdgeInsets.all(10),
+            margin: const EdgeInsets.all(8), // Reduced from 12
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [kPrimaryColor.withOpacity(0.15), kPrimaryColor.withOpacity(0.08)],
               ),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(icon, color: kPrimaryColor, size: 20),
+            child: Icon(icon, color: kPrimaryColor, size: 16), // Reduced from 20
           ),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5),
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.grey.shade200, width: 1),
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5),
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.grey.shade200, width: 1),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide(color: kPrimaryColor, width: 2),
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: kPrimaryColor, width: 1.5),
           ),
           filled: true,
           fillColor: Colors.transparent,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12), // Reduced from 16
         ),
       ),
     );
   }
 
-  Widget _buildGenderOption(String gender, IconData icon, bool isSelected, VoidCallback onTap) {
+  Widget _buildCompactGenderOption(String gender, IconData icon, bool isSelected, VoidCallback onTap) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: () {
+        HapticFeedback.lightImpact();
+        onTap();
+      },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12), // Reduced from 16
         decoration: BoxDecoration(
           gradient: isSelected
               ? LinearGradient(
@@ -2181,15 +2137,15 @@ class _ProfileScreenState extends State<ProfileScreen>
               : LinearGradient(
             colors: [Colors.white, Colors.grey.shade50],
           ),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isSelected ? kPrimaryColor : Colors.grey.shade300,
-            width: isSelected ? 2 : 1,
+            width: isSelected ? 1.5 : 1,
           ),
           boxShadow: isSelected
               ? [
             BoxShadow(
-              color: kPrimaryColor.withOpacity(0.3),
+              color: kPrimaryColor.withOpacity(0.25),
               blurRadius: 8,
               offset: const Offset(0, 4),
             ),
@@ -2207,15 +2163,15 @@ class _ProfileScreenState extends State<ProfileScreen>
             Icon(
               icon,
               color: isSelected ? Colors.white : kPrimaryColor,
-              size: 28,
+              size: 24, // Reduced from 28
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6), // Reduced from 8
             Text(
               gender,
               style: TextStyle(
                 color: isSelected ? Colors.white : Colors.black87,
                 fontWeight: FontWeight.w600,
-                fontSize: 14,
+                fontSize: 13, // Reduced from 14
               ),
             ),
           ],
@@ -2235,7 +2191,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           margin: const EdgeInsets.all(12),
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [kPrimaryColor.withOpacity(0.1), Colors.purple.withOpacity(0.05)]),
+            gradient: LinearGradient(colors: [kPrimaryColor.withOpacity(0.1), kPrimaryColor.withOpacity(0.05)]),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Icon(icon, color: kPrimaryColor, size: 20),
@@ -2292,11 +2248,11 @@ class _ProfileScreenState extends State<ProfileScreen>
     showDialog(
       context: context,
       builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         child: Container(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(20),
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -2307,45 +2263,45 @@ class _ProfileScreenState extends State<ProfileScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [Colors.red, Color(0xFFE91E63)]),
-                  borderRadius: BorderRadius.circular(20),
+                  gradient: const LinearGradient(colors: [Colors.red, Color(0xFFDC2626)]),
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                child: const Icon(Icons.logout_rounded, color: Colors.white, size: 32),
+                child: const Icon(Icons.logout_rounded, color: Colors.white, size: 28),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               const Text(
                 'Logout Confirmation',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Text(
                 'Are you sure you want to logout from your account? You\'ll need to sign in again to access your profile.',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               Row(
                 children: [
                   Expanded(
                     child: TextButton(
                       onPressed: () => Navigator.pop(context),
                       style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                       child: Text(
                         'Cancel',
                         style: TextStyle(
-                          fontSize: 16,
+                          fontSize: 14,
                           fontWeight: FontWeight.w600,
                           color: Colors.grey.shade600,
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: ElevatedButton(
                       onPressed: () async {
@@ -2360,15 +2316,15 @@ class _ProfileScreenState extends State<ProfileScreen>
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.red,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        elevation: 4,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        elevation: 2,
                       ),
                       child: const Text(
                         'Logout',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 16,
+                          fontSize: 14,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -2423,7 +2379,7 @@ class _NotificationSettingsScreen extends StatelessWidget {
               padding: const EdgeInsets.all(32),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [kPrimaryColor.withOpacity(0.1), Colors.purple.withOpacity(0.05)],
+                  colors: [kPrimaryColor.withOpacity(0.1), kPrimaryColor.withOpacity(0.05)],
                 ),
                 borderRadius: BorderRadius.circular(24),
               ),

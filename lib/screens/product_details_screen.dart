@@ -43,7 +43,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     _initializeAnimations();
     _fetchProductDetails();
     _fetchServices();
-    // ✅ FIXED: Don't call _fetchCurrentCartQuantity here, call it after product is loaded
 
     // ✅ NEW: Listen to cart changes
     cartCountNotifier.addListener(_onCartCountChanged);
@@ -94,11 +93,17 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     setState(() => _isLoading = true);
 
     try {
+      debugPrint('🔄 Fetching product details for ID: ${widget.productId}');
+
+      // ✅ FIXED: Use the same pattern as OrdersScreen with better query handling
       final response = await supabase
           .from('products')
-          .select('*, categories (name)')
+          .select('id, product_name, product_price, image_url, category_id, is_enabled, created_at, categories(name)')
           .eq('id', widget.productId)
+          .eq('is_enabled', true)
           .maybeSingle();
+
+      debugPrint('📦 Product response: $response');
 
       if (response != null) {
         setState(() {
@@ -106,10 +111,83 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
           _isLoading = false;
         });
 
+        debugPrint('✅ Product loaded: ${response['product_name']}');
+
         // ✅ FIXED: Fetch cart quantity after product is loaded
         await _fetchCurrentCartQuantity();
+      } else {
+        debugPrint('⚠️ No product found, trying fallback query...');
+        await _fetchProductDetailsFallback();
       }
     } catch (e) {
+      debugPrint('❌ Error fetching product with categories: $e');
+      // ✅ FIXED: Try fallback query without categories join
+      await _fetchProductDetailsFallback();
+    }
+  }
+
+  // ✅ NEW: Fallback method without categories join
+  Future<void> _fetchProductDetailsFallback() async {
+    try {
+      debugPrint('🔄 Trying fallback query without categories join...');
+
+      final response = await supabase
+          .from('products')
+          .select('*')
+          .eq('id', widget.productId)
+          .eq('is_enabled', true)
+          .maybeSingle();
+
+      debugPrint('📦 Fallback response: $response');
+
+      if (response != null) {
+        // ✅ FIXED: Fetch category separately and map it
+        String categoryName = 'General';
+        if (response['category_id'] != null) {
+          try {
+            final categoryResponse = await supabase
+                .from('categories')
+                .select('name')
+                .eq('id', response['category_id'])
+                .eq('is_active', true)
+                .maybeSingle();
+
+            if (categoryResponse != null) {
+              categoryName = categoryResponse['name'] ?? 'General';
+            }
+          } catch (e) {
+            debugPrint('Could not fetch category: $e');
+          }
+        }
+
+        // Add categories object to product
+        response['categories'] = {'name': categoryName};
+
+        setState(() {
+          _product = response;
+          _isLoading = false;
+        });
+
+        debugPrint('✅ Fallback successful: ${response['product_name']} - Category: $categoryName');
+
+        // ✅ FIXED: Fetch cart quantity after product is loaded
+        await _fetchCurrentCartQuantity();
+      } else {
+        debugPrint('❌ Product not found in fallback query');
+        setState(() => _isLoading = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Product not found'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Fallback query also failed: $e');
       setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -126,11 +204,15 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
 
   Future<void> _fetchServices() async {
     try {
+      debugPrint('🔄 Fetching services...');
+
       final response = await supabase
           .from('services')
           .select()
           .eq('is_active', true)
           .order('sort_order');
+
+      debugPrint('📋 Services response: ${response.length} services found');
 
       final serviceList = List<Map<String, dynamic>>.from(response);
       setState(() {
@@ -138,10 +220,11 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
         if (_services.isNotEmpty) {
           _selectedService = _services[0]['name'];
           _selectedServicePrice = _services[0]['price'];
+          debugPrint('✅ Default service selected: $_selectedService (₹$_selectedServicePrice)');
         }
       });
     } catch (e) {
-      print('Error fetching services: $e');
+      debugPrint('❌ Error fetching services: $e');
     }
   }
 
@@ -151,11 +234,15 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     if (user == null || _product == null) return;
 
     try {
+      debugPrint('🔄 Fetching current cart quantity for: ${_product!['product_name']}');
+
       final response = await supabase
           .from('cart')
           .select('product_quantity, service_type, service_price')
           .eq('user_id', user.id)
           .eq('product_name', _product!['product_name']);
+
+      debugPrint('🛒 Cart response: ${response.length} items found');
 
       if (response.isNotEmpty) {
         // Get total quantity across all services for this product
@@ -173,15 +260,19 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
             _selectedService = serviceInCart;
             _selectedServicePrice = servicePriceInCart ?? _selectedServicePrice;
           });
+          debugPrint('✅ Found in cart: $_currentCartQuantity x $_selectedService');
         } else {
           setState(() {
             _currentCartQuantity = totalQuantity;
             _quantity = totalQuantity > 0 ? totalQuantity : 1;
           });
+          debugPrint('✅ Found in cart: $_currentCartQuantity items (different service)');
         }
+      } else {
+        debugPrint('ℹ️ Product not in cart');
       }
     } catch (e) {
-      print('Error fetching current cart quantity: $e');
+      debugPrint('❌ Error fetching current cart quantity: $e');
     }
   }
 
@@ -209,6 +300,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       final category = _product!['categories']?['name'] ?? 'General';
       final totalPrice = (basePrice + _selectedServicePrice) * _quantity;
 
+      debugPrint('🔄 Adding to cart: $name x $_quantity with $_selectedService (₹$_selectedServicePrice each)');
+
       // ✅ FIXED: Check for existing item with same service
       final existing = await supabase
           .from('cart')
@@ -225,7 +318,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
           'total_price': totalPrice,
         }).eq('id', existing['id']);
 
-        print('✅ Updated existing cart item to quantity: $_quantity');
+        debugPrint('✅ Updated existing cart item to quantity: $_quantity');
       } else {
         // ✅ FIXED: Remove any existing items with different services for this product
         await supabase
@@ -247,7 +340,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
           'total_price': totalPrice,
         });
 
-        print('✅ Added new cart item with quantity: $_quantity');
+        debugPrint('✅ Added new cart item with quantity: $_quantity');
       }
 
       // ✅ FIXED: Update current cart quantity
@@ -286,7 +379,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       }
 
     } catch (e) {
-      print('❌ Error updating cart: $e');
+      debugPrint('❌ Error updating cart: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -315,8 +408,9 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
 
       final totalCount = data.fold<int>(0, (sum, item) => sum + (item['product_quantity'] as int? ?? 0));
       cartCountNotifier.value = totalCount;
+      debugPrint('🛒 Updated global cart count: $totalCount');
     } catch (e) {
-      print('Error updating cart count: $e');
+      debugPrint('❌ Error updating cart count: $e');
     }
   }
 
@@ -358,7 +452,21 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     if (_isLoading) {
       return Scaffold(
         backgroundColor: const Color(0xFFF8F9FA),
-        body: const Center(child: CircularProgressIndicator()),
+        appBar: AppBar(
+          backgroundColor: kPrimaryColor,
+          title: const Text('Loading...'),
+          foregroundColor: Colors.white,
+        ),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: kPrimaryColor),
+              const SizedBox(height: 16),
+              const Text('Loading product details...'),
+            ],
+          ),
+        ),
       );
     }
 
@@ -370,7 +478,22 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
           title: const Text('Product Not Found'),
           foregroundColor: Colors.white,
         ),
-        body: const Center(child: Text('Product not found')),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, size: 80, color: Colors.grey.shade400),
+              const SizedBox(height: 16),
+              const Text('Product not found'),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(backgroundColor: kPrimaryColor),
+                child: const Text('Go Back', style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+        ),
       );
     }
 
@@ -521,6 +644,29 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
 
   // ✅ ELEGANT: Compact service selection
   Widget _buildServiceSelection() {
+    if (_services.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.orange.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.orange.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.info_outline, color: Colors.orange.shade600, size: 20),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Loading services...',
+                style: TextStyle(fontSize: 14),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -547,6 +693,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                   onTap: () => setState(() {
                     _selectedService = name;
                     _selectedServicePrice = price;
+                    debugPrint('🔧 Service selected: $name (₹$price)');
                   }),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),

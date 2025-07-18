@@ -33,6 +33,8 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   String? _backgroundImageUrl;
   bool _isInitialLoadDone = false;
+  // ✅ NEW: Loading and empty states
+  bool _isLoading = false;
 
   // ✅ ENHANCED: Premium smooth animation controllers
   late AnimationController _floatingCartController;
@@ -74,13 +76,12 @@ class _OrdersScreenState extends State<OrdersScreen>
     super.initState();
     _initializeSmoothAnimations();
 
-    if (!_isInitialLoadDone) {
-      _selectedCategory = widget.category ?? 'All';
-      _fetchBackgroundImage();
-      _fetchCategoriesAndProducts();
-      _fetchCartData();
-      _isInitialLoadDone = true;
-    }
+    // ✅ FIXED: Always fetch fresh data on init
+    _selectedCategory = widget.category ?? 'All';
+    _fetchBackgroundImage();
+    _testDatabaseConnection(); // Add test first
+    _fetchCategoriesAndProducts();
+    _fetchCartData();
 
     // Show drag hint after 3 seconds if cart has items, for longer duration
     Future.delayed(const Duration(seconds: 3), () {
@@ -88,6 +89,32 @@ class _OrdersScreenState extends State<OrdersScreen>
         _showDragHintTemporarily();
       }
     });
+  }
+
+  // ✅ NEW: Test database connection
+  Future<void> _testDatabaseConnection() async {
+    try {
+      debugPrint('🔍 Testing database connection...');
+
+      // Test categories
+      final categoriesTest = await supabase.from('categories').select('count').single();
+      debugPrint('📊 Categories test: $categoriesTest');
+
+      // Test products
+      final productsTest = await supabase.from('products').select('count').single();
+      debugPrint('📊 Products test: $productsTest');
+
+      // Test simple products query
+      final simpleProducts = await supabase
+          .from('products')
+          .select('product_name, product_price')
+          .eq('is_enabled', true)
+          .limit(3);
+      debugPrint('📊 Simple products: $simpleProducts');
+
+    } catch (e) {
+      debugPrint('❌ Database connection test failed: $e');
+    }
   }
 
   // ✅ FIXED: Initialize FAB position with proper footer boundaries
@@ -253,6 +280,7 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   // ✅ NEW: Show drag hint temporarily with longer duration
   void _showDragHintTemporarily() {
+    if (!mounted) return;
     setState(() {
       _showDragHint = true;
     });
@@ -292,57 +320,147 @@ class _OrdersScreenState extends State<OrdersScreen>
   }
 
   Future<void> _fetchCategoriesAndProducts() async {
-    // ✅ Use cache if already fetched
-    if (_hasFetchedProducts) {
-      _products.clear();
-      _products.addAll(_cachedProducts);
+    // ✅ FIXED: Set loading state
+    if (mounted) {
       setState(() {
-        _categories = _cachedCategories;
+        _isLoading = true;
       });
-      return;
     }
 
     try {
+      debugPrint('🔄 Fetching products from database...');
+
+      // ✅ FIXED: Use the correct Supabase query syntax for your data
       final response = await supabase
           .from('products')
-          .select('*, categories (name)')
-          .eq('is_enabled', true);
+          .select('id, product_name, product_price, image_url, category_id, is_enabled, created_at, categories(name)')
+          .eq('is_enabled', true)
+          .order('created_at', ascending: false);
+
+      debugPrint('📦 Raw products response: $response');
+      debugPrint('📦 Products count: ${response.length}');
+
+      if (response.isEmpty) {
+        debugPrint('⚠️ No products returned from query');
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
+        return;
+      }
 
       final productList = List<Map<String, dynamic>>.from(response);
       _products.clear();
       _products.addAll(productList);
 
+      debugPrint('✅ Products loaded: ${_products.length}');
+      for (var product in _products) {
+        debugPrint('Product: ${product['product_name']} - ₹${product['product_price']} - Category: ${product['categories']?['name'] ?? 'No Category'}');
+      }
+
+      // ✅ FIXED: Extract categories from products (Male, Female, Boys, Girls, Essential)
       final uniqueCategories = _products
-          .map((p) => p['categories']?['name']?.toString() ?? '')
+          .map((p) => p['categories']?['name']?.toString())
+          .where((name) => name != null && name.isNotEmpty)
+          .cast<String>() // ✅ FIXED: Cast to String to fix type error
           .toSet()
-          .where((name) => name.isNotEmpty)
           .toList();
 
       _categories = ['All', ...uniqueCategories];
+      debugPrint('📂 Categories: $_categories');
 
       // ✅ Save to cache
       _cachedProducts = List<Map<String, dynamic>>.from(_products);
       _cachedCategories = List<String>.from(_categories);
       _hasFetchedProducts = true;
 
-      setState(() {});
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
 
       // Auto-scroll to selected category
       if (widget.category != null && widget.category != 'All') {
         final index = _categories.indexOf(widget.category!);
         if (index != -1) {
           await Future.delayed(const Duration(milliseconds: 300));
-          _scrollController.animateTo(
-            index * 120.0,
-            duration: const Duration(milliseconds: 400),
-            curve: Curves.easeInOut,
-          );
+          if (mounted && _scrollController.hasClients) {
+            _scrollController.animateTo(
+              index * 120.0,
+              duration: const Duration(milliseconds: 400),
+              curve: Curves.easeInOut,
+            );
+          }
         }
       }
     } catch (e) {
-      print('❌ Error fetching products: $e');
+      debugPrint('❌ Error fetching products with categories: $e');
+
+      // ✅ FIXED: Fallback - fetch products without categories join
+      try {
+        debugPrint('🔄 Trying fallback query without categories join...');
+        final fallbackResponse = await supabase
+            .from('products')
+            .select('*')
+            .eq('is_enabled', true)
+            .order('created_at', ascending: false);
+
+        debugPrint('📦 Fallback response: ${fallbackResponse.length} products');
+
+        if (fallbackResponse.isNotEmpty) {
+          final productList = List<Map<String, dynamic>>.from(fallbackResponse);
+          _products.clear();
+          _products.addAll(productList);
+
+          // ✅ FIXED: Fetch categories separately and map them
+          final categoriesResponse = await supabase
+              .from('categories')
+              .select('id, name')
+              .eq('is_active', true);
+
+          final categoriesMap = <String, String>{};
+          for (var category in categoriesResponse) {
+            categoriesMap[category['id']] = category['name'];
+          }
+
+          // Add categories object to each product
+          for (var product in _products) {
+            final categoryId = product['category_id'];
+            final categoryName = categoriesMap[categoryId] ?? 'General';
+            product['categories'] = {'name': categoryName};
+          }
+
+          final uniqueCategories = _products
+              .map((p) => p['categories']?['name']?.toString())
+              .where((name) => name != null && name.isNotEmpty)
+              .cast<String>() // ✅ FIXED: Cast to String to fix type error
+              .toSet()
+              .toList();
+
+          _categories = ['All', ...uniqueCategories];
+          _cachedProducts = List<Map<String, dynamic>>.from(_products);
+          _cachedCategories = List<String>.from(_categories);
+          _hasFetchedProducts = true;
+
+          debugPrint('✅ Fallback successful: ${_products.length} products with categories mapped');
+          debugPrint('📂 Fallback categories: $_categories');
+        }
+
+      } catch (fallbackError) {
+        debugPrint('❌ Fallback query also failed: $fallbackError');
+      }
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
+
+  // ✅ REMOVED: Sample products function since you have real data
 
   List<Map<String, dynamic>> _getFilteredProducts() {
     if (_selectedCategory == 'All') return _products;
@@ -351,10 +469,10 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   // ✅ FIXED: Cart data fetching
   Future<void> _fetchCartData() async {
-    print('🔄 Fetching cart data...');
+    debugPrint('🔄 Fetching cart data...');
     final user = supabase.auth.currentUser;
     if (user == null) {
-      print('❌ No user found');
+      debugPrint('❌ No user found');
       return;
     }
 
@@ -364,7 +482,7 @@ class _OrdersScreenState extends State<OrdersScreen>
           .select()
           .eq('user_id', user.id);
 
-      print('📦 Cart data fetched: ${data.length} items');
+      debugPrint('📦 Cart data fetched: ${data.length} items');
 
       // Clear and rebuild quantities
       _productQuantities.clear();
@@ -378,8 +496,8 @@ class _OrdersScreenState extends State<OrdersScreen>
       final totalCount = _productQuantities.values.fold<int>(0, (sum, qty) => sum + qty);
       cartCountNotifier.value = totalCount;
 
-      print('✅ Product quantities: $_productQuantities');
-      print('✅ Total cart count: $totalCount');
+      debugPrint('✅ Product quantities: $_productQuantities');
+      debugPrint('✅ Total cart count: $totalCount');
 
       // Animate floating cart
       if (totalCount > 0) {
@@ -393,7 +511,7 @@ class _OrdersScreenState extends State<OrdersScreen>
         setState(() {});
       }
     } catch (e) {
-      print('❌ Error fetching cart: $e');
+      debugPrint('❌ Error fetching cart: $e');
     }
   }
 
@@ -403,7 +521,7 @@ class _OrdersScreenState extends State<OrdersScreen>
     if (user == null) return;
 
     final name = product['product_name'];
-    print('🔄 Updating cart quantity for $name by $delta');
+    debugPrint('🔄 Updating cart quantity for $name by $delta');
 
     try {
       final existingItems = await supabase
@@ -413,14 +531,14 @@ class _OrdersScreenState extends State<OrdersScreen>
           .eq('product_name', name);
 
       if (existingItems.isEmpty) {
-        print('❌ No existing cart items found for $name');
+        debugPrint('❌ No existing cart items found for $name');
         return;
       }
 
       final currentQty = _productQuantities[name] ?? 0;
       final newQty = currentQty + delta;
 
-      print('📊 Current: $currentQty, Delta: $delta, New: $newQty');
+      debugPrint('📊 Current: $currentQty, Delta: $delta, New: $newQty');
 
       if (newQty <= 0) {
         for (final item in existingItems) {
@@ -430,7 +548,7 @@ class _OrdersScreenState extends State<OrdersScreen>
               .eq('id', item['id']);
         }
         _productQuantities.remove(name);
-        print('🗑️ Removed all $name items from cart');
+        debugPrint('🗑️ Removed all $name items from cart');
       } else {
         final firstItem = existingItems.first;
         final productPrice = (firstItem['product_price'] as num?)?.toDouble() ?? 0.0;
@@ -450,14 +568,14 @@ class _OrdersScreenState extends State<OrdersScreen>
         }
 
         _productQuantities[name] = newQty;
-        print('✅ Updated $name quantity to $newQty');
+        debugPrint('✅ Updated $name quantity to $newQty');
       }
 
       await _fetchCartData();
       _triggerAnimations(name);
 
     } catch (e) {
-      print('❌ Error updating cart quantity: $e');
+      debugPrint('❌ Error updating cart quantity: $e');
     }
   }
 
@@ -465,7 +583,7 @@ class _OrdersScreenState extends State<OrdersScreen>
   Future<void> _addToCartWithService(Map<String, dynamic> product, String service, int servicePrice) async {
     final user = supabase.auth.currentUser;
     if (user == null) {
-      print('❌ No user found');
+      debugPrint('❌ No user found');
       return;
     }
 
@@ -475,12 +593,14 @@ class _OrdersScreenState extends State<OrdersScreen>
     final category = product['categories']?['name'] ?? '';
     final totalPrice = basePrice + servicePrice;
 
-    print('🔄 Adding $name to cart with $service service (₹$servicePrice)');
+    debugPrint('🔄 Adding $name to cart with $service service (₹$servicePrice)');
 
     try {
-      setState(() {
-        _addedStatus[name] = true;
-      });
+      if (mounted) {
+        setState(() {
+          _addedStatus[name] = true;
+        });
+      }
 
       final existing = await supabase
           .from('cart')
@@ -499,7 +619,7 @@ class _OrdersScreenState extends State<OrdersScreen>
           'total_price': newTotalPrice,
         }).eq('id', existing['id']);
 
-        print('✅ Updated existing cart item: $name, qty: $newQty');
+        debugPrint('✅ Updated existing cart item: $name, qty: $newQty');
       } else {
         await supabase.from('cart').insert({
           'user_id': user.id,
@@ -513,7 +633,7 @@ class _OrdersScreenState extends State<OrdersScreen>
           'category': category,
         });
 
-        print('✅ Added new cart item: $name');
+        debugPrint('✅ Added new cart item: $name');
       }
 
       _productQuantities[name] = (_productQuantities[name] ?? 0) + 1;
@@ -529,7 +649,7 @@ class _OrdersScreenState extends State<OrdersScreen>
       await _fetchCartData();
 
     } catch (e) {
-      print('❌ Error adding to cart: $e');
+      debugPrint('❌ Error adding to cart: $e');
       if (mounted) {
         setState(() {
           _addedStatus[name] = false;
@@ -567,22 +687,26 @@ class _OrdersScreenState extends State<OrdersScreen>
   Future<void> _showServiceSelectionPopup(Map<String, dynamic> product) async {
     final user = supabase.auth.currentUser;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please login to add items to cart')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please login to add items to cart')),
+        );
+      }
       return;
     }
 
-    print('🔄 Loading services...');
+    debugPrint('🔄 Loading services...');
 
     try {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(
+            child: CircularProgressIndicator(),
+          ),
+        );
+      }
 
       final response = await supabase
           .from('services')
@@ -592,150 +716,158 @@ class _OrdersScreenState extends State<OrdersScreen>
 
       final services = List<Map<String, dynamic>>.from(response);
 
-      Navigator.pop(context);
+      if (mounted) {
+        Navigator.pop(context);
+      }
 
       if (services.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No services available')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No services available')),
+          );
+        }
         return;
       }
 
-      print('✅ Services loaded: ${services.length}');
+      debugPrint('✅ Services loaded: ${services.length}');
 
-      showDialog(
-        context: context,
-        builder: (BuildContext context) {
-          return Dialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Container(
-              padding: const EdgeInsets.all(20),
-              constraints: const BoxConstraints(
-                maxWidth: 300,
-                maxHeight: 400,
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (BuildContext context) {
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Choose Service',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                constraints: const BoxConstraints(
+                  maxWidth: 300,
+                  maxHeight: 400,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Choose Service',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Select service for ${product['product_name']}',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.black54,
+                    const SizedBox(height: 8),
+                    Text(
+                      'Select service for ${product['product_name']}',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.black54,
+                      ),
+                      textAlign: TextAlign.center,
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 20),
+                    const SizedBox(height: 20),
 
-                  Flexible(
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: services.length,
-                      itemBuilder: (context, index) {
-                        final service = services[index];
-                        final name = service['name'];
-                        final price = service['price'];
+                    Flexible(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: services.length,
+                        itemBuilder: (context, index) {
+                          final service = services[index];
+                          final name = service['name'];
+                          final price = service['price'];
 
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: () async {
-                                Navigator.pop(context);
-                                await _addToCartWithService(product, name, price);
-                              },
-                              borderRadius: BorderRadius.circular(12),
-                              child: Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.grey.shade50,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.grey.shade200),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(8),
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: kPrimaryColor.withOpacity(0.1),
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () async {
+                                  Navigator.pop(context);
+                                  await _addToCartWithService(product, name, price);
+                                },
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade50,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: Colors.grey.shade200),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: kPrimaryColor.withOpacity(0.1),
+                                        ),
+                                        child: Icon(
+                                          _getServiceIcon(name),
+                                          size: 20,
+                                          color: kPrimaryColor,
+                                        ),
                                       ),
-                                      child: Icon(
-                                        _getServiceIcon(name),
-                                        size: 20,
-                                        color: kPrimaryColor,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            name,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w600,
-                                              fontSize: 14,
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              name,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 14,
+                                              ),
                                             ),
-                                          ),
-                                          Text(
-                                            'Base + ₹$price',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey.shade600,
+                                            Text(
+                                              'Base + ₹$price',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey.shade600,
+                                              ),
                                             ),
-                                          ),
-                                        ],
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                    Text(
-                                      '+₹$price',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: kPrimaryColor,
-                                        fontWeight: FontWeight.bold,
+                                      Text(
+                                        '+₹$price',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: kPrimaryColor,
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        );
-                      },
+                          );
+                        },
+                      ),
                     ),
-                  ),
 
-                  const SizedBox(height: 10),
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Cancel'),
-                  ),
-                ],
+                    const SizedBox(height: 10),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          );
-        },
-      );
+            );
+          },
+        );
+      }
 
     } catch (e) {
-      Navigator.pop(context);
-      print('❌ Error loading services: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to load services: $e')),
-      );
+      if (mounted) {
+        Navigator.pop(context);
+        debugPrint('❌ Error loading services: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load services: $e')),
+        );
+      }
     }
   }
 
@@ -1219,7 +1351,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                 const SizedBox(height: 12),
                 _buildPremiumCategoryTabs(),
                 const SizedBox(height: 16),
-                Expanded(child: _buildPremiumProductGrid(products)),
+                Expanded(child: _buildContent()),
               ],
             ),
 
@@ -1230,6 +1362,91 @@ class _OrdersScreenState extends State<OrdersScreen>
       ),
       bottomNavigationBar: const CustomBottomNav(currentIndex: 1),
     );
+  }
+
+  // ✅ NEW: Content builder with states
+  Widget _buildContent() {
+    final products = _getFilteredProducts();
+
+    // ✅ Loading state
+    if (_isLoading) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text(
+              'Loading products...',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.black54,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // ✅ Empty state
+    if (products.isEmpty && !_isLoading) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.shopping_bag_outlined,
+              size: 80,
+              color: Colors.grey.shade400,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No products found',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _selectedCategory == 'All'
+                  ? 'No products available'
+                  : 'No products in "$_selectedCategory" category',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade500,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () {
+                _hasFetchedProducts = false;
+                _cachedProducts.clear();
+                _cachedCategories = ['All'];
+                _fetchCategoriesAndProducts();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: kPrimaryColor,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              ),
+              icon: const Icon(Icons.refresh, color: Colors.white),
+              label: const Text(
+                'Reload Products',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // ✅ Normal grid
+    return _buildPremiumProductGrid(products);
   }
 
   // ✅ Premium AppBar
@@ -1285,6 +1502,22 @@ class _OrdersScreenState extends State<OrdersScreen>
           ),
         ],
       ),
+      actions: [
+        // ✅ NEW: Debug refresh button
+        IconButton(
+          onPressed: () {
+            debugPrint('🔄 Manual refresh triggered');
+            _hasFetchedProducts = false;
+            _cachedProducts.clear();
+            _cachedCategories = ['All'];
+            _products.clear();
+            _categories = ['All'];
+            _fetchCategoriesAndProducts();
+          },
+          icon: const Icon(Icons.refresh, color: Colors.white),
+          tooltip: 'Refresh Products',
+        ),
+      ],
     );
   }
 
@@ -1572,7 +1805,7 @@ class _OrdersScreenState extends State<OrdersScreen>
     // Show "Add" button
     return ElevatedButton(
       onPressed: () {
-        print('🔘 Add button pressed for: $name');
+        debugPrint('🔘 Add button pressed for: $name');
         _showServiceSelectionPopup(item);
       },
       style: ElevatedButton.styleFrom(
