@@ -33,6 +33,9 @@ dependencies:
   animated_splash_screen: ^1.3.0
   google_fonts: ^6.1.0
   cupertino_icons: ^1.0.6
+  pdf: ^3.10.4
+  path_provider: ^2.1.1
+  share_plus: ^11.0.0
 
   # ✅ Supabase packages (already included)
   supabase_flutter: ^2.9.1
@@ -41,7 +44,6 @@ dependencies:
   # ✅ Image & file support (already included)
   image_picker: ^1.0.4
   path: ^1.9.0
-  path_provider: ^2.1.3
 
   # ✅ State management (already included)
   provider: ^6.1.2

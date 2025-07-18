@@ -1,6 +1,13 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'colors.dart';
 
 class OrderHistoryScreen extends StatefulWidget {
@@ -52,15 +59,17 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       setState(() => isLoading = true);
       print('Loading orders for user: ${user.id}');
 
-      // Get basic orders data - LIMIT TO 10 ORDERS
+      // Get orders from past 30 days
+      final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
+
       final ordersResponse = await supabase
           .from('orders')
           .select('*')
           .eq('user_id', user.id)
-          .order('created_at', ascending: false)
-          .limit(10);
+          .gte('created_at', thirtyDaysAgo.toIso8601String())
+          .order('created_at', ascending: false);
 
-      print('Found ${ordersResponse.length} orders');
+      print('Found ${ordersResponse.length} orders from past 30 days');
 
       List<Map<String, dynamic>> ordersWithDetails = [];
 
@@ -86,7 +95,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
               try {
                 final productResponse = await supabase
                     .from('products')
-                    .select('id, product_name, image_url, product_price')
+                    .select('id, product_name, image_url, product_price, category_id')
                     .eq('id', item['product_id'])
                     .maybeSingle();
 
@@ -96,6 +105,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                     'name': productResponse['product_name'],
                     'image_url': productResponse['image_url'],
                     'price': productResponse['product_price'],
+                    'category_id': productResponse['category_id'],
                   };
                 } else {
                   // Fallback product data
@@ -104,6 +114,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                     'name': item['product_name'] ?? 'Product ${item['product_id']}',
                     'image_url': null,
                     'price': item['product_price'] ?? 0.0,
+                    'category_id': null,
                   };
                 }
               } catch (e) {
@@ -114,6 +125,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                   'name': item['product_name'] ?? 'Unknown Product',
                   'image_url': null,
                   'price': item['product_price'] ?? 0.0,
+                  'category_id': null,
                 };
               }
             } else {
@@ -123,6 +135,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                 'name': item['product_name'] ?? 'Unknown Product',
                 'image_url': null,
                 'price': item['product_price'] ?? 0.0,
+                'category_id': null,
               };
             }
 
@@ -132,19 +145,11 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
           orderWithDetails['order_items'] = processedItems;
 
           // Get delivery address if available
-          if (order['delivery_address_id'] != null) {
+          if (order['address_details'] != null) {
             try {
-              final addressResponse = await supabase
-                  .from('user_addresses')
-                  .select('recipient_name, address_line_1, city, state, pincode')
-                  .eq('id', order['delivery_address_id'])
-                  .maybeSingle();
-
-              if (addressResponse != null) {
-                orderWithDetails['user_addresses'] = addressResponse;
-              }
+              orderWithDetails['address_info'] = order['address_details'];
             } catch (e) {
-              print('Error loading address for order ${order['id']}: $e');
+              print('Error parsing address details: $e');
             }
           }
 
@@ -229,14 +234,14 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       final hour = int.parse(timeParts[0]);
       final minute = int.parse(timeParts[1]);
 
-      // Create pickup deadline (pickup date + pickup time)
+      // Create pickup deadline (pickup date + pickup time - 1 hour buffer)
       final pickupDeadline = DateTime(
           pickupDate.year,
           pickupDate.month,
           pickupDate.day,
           hour,
           minute
-      );
+      ).subtract(const Duration(hours: 1)); // 1 hour before pickup
 
       final now = DateTime.now();
 
@@ -269,7 +274,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
   bool _canShowCancelButton(Map<String, dynamic> order) {
     final status = order['status']?.toString().toLowerCase() ??
         order['order_status']?.toString().toLowerCase() ?? '';
-    return status == 'pending' || status == 'confirmed' || status == 'processing';
+    return status == 'pending' || status == 'confirmed';
   }
 
   int _getRemainingCancelTime(String orderId) {
@@ -293,43 +298,109 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: Colors.white,
         title: Row(
           children: [
-            Icon(Icons.cancel_outlined, color: Colors.red, size: 24),
-            const SizedBox(width: 8),
-            const Text('Cancel Order'),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.cancel_outlined, color: Colors.red, size: 24),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              'Cancel Order',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Are you sure you want to cancel this order?'),
-            const SizedBox(height: 8),
-            Text(
-              'Order #${order['order_number'] ?? order['id']}',
-              style: TextStyle(fontWeight: FontWeight.w600, color: kPrimaryColor),
+            const Text(
+              'Are you sure you want to cancel this order?',
+              style: TextStyle(fontSize: 16),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'This action cannot be undone.',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: kPrimaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                'Order #${order['id'].toString().substring(0, 8)}',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: kPrimaryColor,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.orange, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Cancellation is only allowed up to 1 hour before pickup time.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.orange.shade700,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Keep Order'),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+            child: const Text(
+              'Keep Order',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
-            child: const Text('Cancel Order'),
+            child: const Text(
+              'Cancel Order',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ],
       ),
@@ -342,28 +413,8 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
   Future<void> _performOrderCancellation(Map<String, dynamic> order) async {
     try {
-      // Show loading
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => Center(
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(color: kPrimaryColor),
-                const SizedBox(height: 16),
-                const Text('Cancelling your order...'),
-              ],
-            ),
-          ),
-        ),
-      );
+      // Show loading overlay
+      _showLoadingDialog('Cancelling your order...');
 
       // Update order status to cancelled
       await supabase
@@ -386,22 +437,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       if (mounted) Navigator.pop(context);
 
       // Show success message
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 8),
-                Text('Order cancelled successfully'),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          ),
-        );
-      }
+      _showSuccessSnackBar('Order cancelled successfully');
 
       // Reload orders
       await _loadOrders();
@@ -411,99 +447,45 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       if (mounted) Navigator.pop(context);
 
       print('Error cancelling order: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.error, color: Colors.white),
-                SizedBox(width: 8),
-                Text('Failed to cancel order'),
-              ],
-            ),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          ),
-        );
-      }
+      _showErrorSnackBar('Failed to cancel order');
     }
   }
 
-  // FIXED REORDER FUNCTIONALITY
   Future<void> _reorderItems(Map<String, dynamic> order) async {
     final user = supabase.auth.currentUser;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Please login to reorder'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
+      _showErrorSnackBar('Please login to reorder');
       return;
     }
 
     try {
-      // Show loading
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => Center(
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(color: kPrimaryColor),
-                const SizedBox(height: 16),
-                const Text('Adding items to cart...'),
-              ],
-            ),
-          ),
-        ),
-      );
+      // Show loading overlay
+      _showLoadingDialog('Adding items to cart...');
 
       final orderItems = order['order_items'] as List<dynamic>? ?? [];
       int addedItems = 0;
 
+      // First, clear any existing cart for fresh reorder
+      await supabase
+          .from('cart')
+          .delete()
+          .eq('user_id', user.id);
+
       for (var item in orderItems) {
         final product = item['products'];
-        if (product != null && product['id'] != null) {
+        if (product != null) {
           try {
-            // Check if product is still available
-            final productCheck = await supabase
-                .from('products')
-                .select('id, product_name, product_price, image_url, is_enabled')
-                .eq('id', product['id'])
-                .eq('is_enabled', true)
-                .maybeSingle();
-
-            if (productCheck != null) {
-              // Check if item already exists in cart
-              final existingCartItem = await supabase
-                  .from('cart')
-                  .select('id, product_quantity')
-                  .eq('user_id', user.id)
-                  .eq('product_name', productCheck['product_name'])
+            // Check if product is still available (if product_id exists)
+            if (product['id'] != null) {
+              final productCheck = await supabase
+                  .from('products')
+                  .select('id, product_name, product_price, image_url, is_enabled, category_id')
+                  .eq('id', product['id'])
+                  .eq('is_enabled', true)
                   .maybeSingle();
 
-              if (existingCartItem != null) {
-                // Update quantity
-                await supabase
-                    .from('cart')
-                    .update({
-                  'product_quantity': (existingCartItem['product_quantity'] ?? 0) + (item['quantity'] ?? 1),
-                  'updated_at': DateTime.now().toIso8601String(),
-                })
-                    .eq('id', existingCartItem['id']);
-              } else {
-                // Add new item to cart
+              if (productCheck != null) {
+                // Add item to cart with same service type
                 await supabase.from('cart').insert({
                   'user_id': user.id,
                   'product_name': productCheck['product_name'],
@@ -513,11 +495,27 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                   'service_price': item['service_price'] ?? 0.0,
                   'product_quantity': item['quantity'] ?? 1,
                   'total_price': (productCheck['product_price'] ?? 0.0) * (item['quantity'] ?? 1),
-                  'category': item['category'],
+                  'category': product['category_id'],
                   'created_at': DateTime.now().toIso8601String(),
                   'updated_at': DateTime.now().toIso8601String(),
                 });
+                addedItems++;
               }
+            } else {
+              // For products without product_id, add based on name
+              await supabase.from('cart').insert({
+                'user_id': user.id,
+                'product_name': product['name'] ?? item['product_name'],
+                'product_image': product['image_url'],
+                'product_price': product['price'] ?? item['product_price'],
+                'service_type': item['service_type'] ?? 'Standard',
+                'service_price': item['service_price'] ?? 0.0,
+                'product_quantity': item['quantity'] ?? 1,
+                'total_price': (product['price'] ?? item['product_price'] ?? 0.0) * (item['quantity'] ?? 1),
+                'category': product['category_id'],
+                'created_at': DateTime.now().toIso8601String(),
+                'updated_at': DateTime.now().toIso8601String(),
+              });
               addedItems++;
             }
           } catch (e) {
@@ -530,41 +528,17 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       if (mounted) Navigator.pop(context);
 
       if (addedItems > 0) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.shopping_cart, color: Colors.white),
-                  const SizedBox(width: 8),
-                  Text('$addedItems items added to cart successfully!'),
-                ],
-              ),
-              backgroundColor: Colors.green,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              action: SnackBarAction(
-                label: 'VIEW CART',
-                textColor: Colors.white,
-                onPressed: () {
-                  // Navigate to cart screen
-                  Navigator.of(context).pushNamed('/cart');
-                },
-              ),
-            ),
-          );
-        }
+        // Show success message and navigate to cart
+        _showSuccessSnackBar('$addedItems items added to cart!');
+
+        // Navigate to cart screen
+        Future.delayed(const Duration(milliseconds: 1000), () {
+          if (mounted) {
+            Navigator.of(context).pushNamed('/cart');
+          }
+        });
       } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('No items could be added. Products may be unavailable.'),
-              backgroundColor: Colors.orange,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-          );
-        }
+        _showErrorSnackBar('No items could be added. Products may be unavailable.');
       }
 
     } catch (e) {
@@ -572,17 +546,379 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       if (mounted) Navigator.pop(context);
 
       print('Error during reorder: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Failed to reorder items'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
-      }
+      _showErrorSnackBar('Failed to reorder items');
     }
+  }
+
+  Future<void> _generateInvoice(Map<String, dynamic> order) async {
+    try {
+      // Show loading overlay
+      _showLoadingDialog('Generating invoice...');
+
+      final pdf = pw.Document();
+      final orderItems = order['order_items'] as List<dynamic>? ?? [];
+      final billingDetails = order['order_billing_details'] != null &&
+          (order['order_billing_details'] as List).isNotEmpty
+          ? (order['order_billing_details'] as List)[0]
+          : null;
+
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          build: (pw.Context context) {
+            return pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                // Header
+                pw.Container(
+                  padding: const pw.EdgeInsets.all(20),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.blue100,
+                    borderRadius: pw.BorderRadius.circular(10),
+                  ),
+                  child: pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text(
+                            'INVOICE',
+                            style: pw.TextStyle(
+                              fontSize: 24,
+                              fontWeight: pw.FontWeight.bold,
+                              color: PdfColors.blue800,
+                            ),
+                          ),
+                          pw.SizedBox(height: 5),
+                          pw.Text(
+                            'Your Laundry Service',
+                            style: pw.TextStyle(fontSize: 16),
+                          ),
+                        ],
+                      ),
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.end,
+                        children: [
+                          pw.Text(
+                            'Order #${order['id'].toString().substring(0, 8)}',
+                            style: pw.TextStyle(
+                              fontSize: 16,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
+                          pw.Text(
+                            'Date: ${_formatDate(order['created_at'])}',
+                            style: pw.TextStyle(fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                pw.SizedBox(height: 20),
+
+                // Order Items
+                pw.Text(
+                  'Order Items',
+                  style: pw.TextStyle(
+                    fontSize: 18,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.SizedBox(height: 10),
+
+                pw.Table(
+                  border: pw.TableBorder.all(),
+                  children: [
+                    // Header row
+                    pw.TableRow(
+                      decoration: pw.BoxDecoration(color: PdfColors.grey300),
+                      children: [
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text('Item', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text('Service', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text('Qty', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text('Price', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text('Total', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                    // Item rows
+                    ...orderItems.map((item) => pw.TableRow(
+                      children: [
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text(item['products']?['name'] ?? item['product_name'] ?? 'Unknown'),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text(item['service_type'] ?? 'Standard'),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text('${item['quantity'] ?? 1}'),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text('₹${item['product_price'] ?? '0.00'}'),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text('₹${item['total_price'] ?? '0.00'}'),
+                        ),
+                      ],
+                    )).toList(),
+                  ],
+                ),
+
+                pw.SizedBox(height: 20),
+
+                // Bill Summary
+                pw.Text(
+                  'Bill Summary',
+                  style: pw.TextStyle(
+                    fontSize: 18,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.SizedBox(height: 10),
+
+                pw.Container(
+                  padding: const pw.EdgeInsets.all(15),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(),
+                    borderRadius: pw.BorderRadius.circular(5),
+                  ),
+                  child: pw.Column(
+                    children: [
+                      if (billingDetails != null) ...[
+                        _buildPdfBillRow('Subtotal', '₹${billingDetails['subtotal'] ?? '0.00'}'),
+                        if ((billingDetails['minimum_cart_fee'] ?? 0) > 0)
+                          _buildPdfBillRow('Minimum Cart Fee', '₹${billingDetails['minimum_cart_fee']}'),
+                        if ((billingDetails['platform_fee'] ?? 0) > 0)
+                          _buildPdfBillRow('Platform Fee', '₹${billingDetails['platform_fee']}'),
+                        if ((billingDetails['service_tax'] ?? 0) > 0)
+                          _buildPdfBillRow('Service Tax', '₹${billingDetails['service_tax']}'),
+                        if ((billingDetails['delivery_fee'] ?? 0) > 0)
+                          _buildPdfBillRow('Delivery Fee', '₹${billingDetails['delivery_fee']}'),
+                        if ((billingDetails['discount_amount'] ?? 0) > 0)
+                          _buildPdfBillRow('Discount', '-₹${billingDetails['discount_amount']}'),
+                        pw.Divider(),
+                        _buildPdfBillRow('Total Amount', '₹${billingDetails['total_amount'] ?? order['total_amount'] ?? '0.00'}', isTotal: true),
+                      ] else ...[
+                        _buildPdfBillRow('Total Amount', '₹${order['total_amount'] ?? '0.00'}', isTotal: true),
+                      ],
+                      pw.SizedBox(height: 10),
+                      pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                        children: [
+                          pw.Text('Payment Method:'),
+                          pw.Text(order['payment_method']?.toString().toUpperCase() ?? 'N/A'),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                pw.SizedBox(height: 20),
+
+                // Footer
+                pw.Container(
+                  padding: const pw.EdgeInsets.all(15),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.grey100,
+                    borderRadius: pw.BorderRadius.circular(5),
+                  ),
+                  child: pw.Column(
+                    children: [
+                      pw.Text(
+                        'Thank you for choosing our service!',
+                        style: pw.TextStyle(
+                          fontSize: 16,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                      pw.SizedBox(height: 5),
+                      pw.Text(
+                        'For any queries, contact us at support@yourlaundry.com',
+                        style: pw.TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+
+      // Save and share PDF
+      final output = await getTemporaryDirectory();
+      final file = File('${output.path}/invoice_${order['id'].toString().substring(0, 8)}.pdf');
+      await file.writeAsBytes(await pdf.save());
+
+      // Close loading dialog
+      if (mounted) Navigator.pop(context);
+
+      // Share the PDF
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'Invoice for Order #${order['id'].toString().substring(0, 8)}',
+      );
+
+      _showSuccessSnackBar('Invoice generated successfully!');
+
+    } catch (e) {
+      // Close loading dialog
+      if (mounted) Navigator.pop(context);
+
+      print('Error generating invoice: $e');
+      _showErrorSnackBar('Failed to generate invoice');
+    }
+  }
+
+  pw.Widget _buildPdfBillRow(String label, String value, {bool isTotal = false}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 3),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text(
+            label,
+            style: pw.TextStyle(
+              fontSize: isTotal ? 14 : 12,
+              fontWeight: isTotal ? pw.FontWeight.bold : pw.FontWeight.normal,
+            ),
+          ),
+          pw.Text(
+            value,
+            style: pw.TextStyle(
+              fontSize: isTotal ? 14 : 12,
+              fontWeight: isTotal ? pw.FontWeight.bold : pw.FontWeight.normal,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Helper methods for UI feedback
+  void _showLoadingDialog(String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        content: Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(
+                color: kPrimaryColor,
+                strokeWidth: 3,
+              ),
+              const SizedBox(height: 20),
+              Text(
+                message,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showSuccessSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.check_circle, color: Colors.white, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.green.shade600,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _showErrorSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.error, color: Colors.white, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.red.shade600,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   @override
@@ -644,7 +980,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
             ),
             const SizedBox(height: 24),
             const Text(
-              'No Orders Yet',
+              'No Orders in Last 30 Days',
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.w800,
@@ -652,7 +988,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
             ),
             const SizedBox(height: 8),
             Text(
-              'Your order history will appear here once you make your first purchase.',
+              'Your recent order history will appear here.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 16,
@@ -748,7 +1084,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                               ),
                               const SizedBox(width: 8),
                               Text(
-                                'Order #${order['order_number'] ?? order['id'].toString().substring(0, 8)}',
+                                'Order #${order['id'].toString().substring(0, 8)}',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w800,
                                   fontSize: 16,
@@ -845,7 +1181,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Qty: ${firstProduct['quantity'] ?? 1}',
+                              'Qty: ${firstProduct['quantity'] ?? 1} • ${firstProduct['service_type'] ?? 'Standard'}',
                               style: TextStyle(
                                 fontSize: 13,
                                 color: Colors.grey.shade600,
@@ -929,118 +1265,123 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                   ),
                 ),
 
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
 
-                // Action Row - Always show View Details, and Cancel Order if applicable
+                // Action Buttons Row
                 Row(
                   children: [
+                    // View Details Button
                     Expanded(
-                      child: TextButton.icon(
-                        onPressed: () => _showOrderDetails(order),
-                        icon: Icon(Icons.visibility_rounded, size: 18, color: kPrimaryColor),
-                        label: Text(
-                          'View Details',
-                          style: TextStyle(
-                            color: kPrimaryColor,
-                            fontWeight: FontWeight.w600,
+                      child: Container(
+                        height: 48,
+                        child: ElevatedButton.icon(
+                          onPressed: () => _showOrderDetails(order),
+                          icon: Icon(Icons.visibility_rounded, size: 18, color: kPrimaryColor),
+                          label: Text(
+                            'View Details',
+                            style: TextStyle(
+                              color: kPrimaryColor,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
                           ),
-                        ),
-                        style: TextButton.styleFrom(
-                          backgroundColor: kPrimaryColor.withOpacity(0.1),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: kPrimaryColor.withOpacity(0.1),
+                            foregroundColor: kPrimaryColor,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                           ),
                         ),
                       ),
                     ),
                     const SizedBox(width: 12),
 
-                    // Always show second button - Cancel Order or Reorder
+                    // Cancel Order or Reorder Button
                     Expanded(
-                      child: canCancel
-                          ? (remainingTime > 0
-                          ? TextButton.icon(
-                        onPressed: () => _cancelOrder(order),
-                        icon: const Icon(Icons.cancel_outlined, size: 18, color: Colors.red),
-                        label: const Text(
-                          'Cancel Order',
-                          style: TextStyle(
-                            color: Colors.red,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        style: TextButton.styleFrom(
-                          backgroundColor: Colors.red.withOpacity(0.1),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      )
-                          : Container(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade200,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.block, size: 16, color: Colors.grey.shade500),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Cannot Cancel',
-                              style: TextStyle(
-                                color: Colors.grey.shade600,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
-                              ),
+                      child: Container(
+                        height: 48,
+                        child: canCancel
+                            ? (remainingTime > 0
+                            ? ElevatedButton.icon(
+                          onPressed: () => _cancelOrder(order),
+                          icon: const Icon(Icons.cancel_outlined, size: 18, color: Colors.white),
+                          label: const Text(
+                            'Cancel Order',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
                             ),
-                          ],
-                        ),
-                      ))
-                          : (_canReorder(order['status'] ?? order['order_status'])
-                          ? TextButton.icon(
-                        onPressed: () => _reorderItems(order),
-                        icon: const Icon(Icons.refresh_rounded, size: 18, color: Colors.green),
-                        label: const Text(
-                          'Reorder',
-                          style: TextStyle(
-                            color: Colors.green,
-                            fontWeight: FontWeight.w600,
                           ),
-                        ),
-                        style: TextButton.styleFrom(
-                          backgroundColor: Colors.green.withOpacity(0.1),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      )
-                          : Container(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.info_outline, size: 16, color: Colors.grey.shade500),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Order ${(order['status'] ?? order['order_status'] ?? 'Processing').toString().toLowerCase()}',
-                              style: TextStyle(
-                                color: Colors.grey.shade600,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
-                              ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red.shade600,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                          ],
-                        ),
-                      )),
+                          ),
+                        )
+                            : ElevatedButton.icon(
+                          onPressed: null,
+                          icon: Icon(Icons.block, size: 18, color: Colors.grey.shade500),
+                          label: Text(
+                            'Cannot Cancel',
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.grey.shade200,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ))
+                            : (_canReorder(order['status'] ?? order['order_status'])
+                            ? ElevatedButton.icon(
+                          onPressed: () => _reorderItems(order),
+                          icon: const Icon(Icons.refresh_rounded, size: 18, color: Colors.white),
+                          label: const Text(
+                            'Reorder',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green.shade600,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        )
+                            : ElevatedButton.icon(
+                          onPressed: null,
+                          icon: Icon(Icons.info_outline, size: 18, color: Colors.grey.shade500),
+                          label: Text(
+                            'Order ${(order['status'] ?? order['order_status'] ?? 'Processing').toString().toLowerCase()}',
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.grey.shade100,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        )),
+                      ),
                     ),
                   ],
                 ),
@@ -1057,7 +1398,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Colors.orange, Colors.orange.withOpacity(0.8)],
+          colors: [Colors.orange.shade600, Colors.orange.shade500],
         ),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
@@ -1094,31 +1435,31 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
     switch (statusString) {
       case 'delivered':
-        color = Colors.green;
+        color = Colors.green.shade600;
         icon = Icons.check_circle_rounded;
         break;
       case 'cancelled':
-        color = Colors.red;
+        color = Colors.red.shade600;
         icon = Icons.cancel_rounded;
         break;
       case 'pending':
-        color = Colors.orange;
+        color = Colors.orange.shade600;
         icon = Icons.access_time_rounded;
         break;
       case 'confirmed':
-        color = Colors.blue;
+        color = Colors.blue.shade600;
         icon = Icons.check_rounded;
         break;
       case 'processing':
-        color = Colors.purple;
+        color = Colors.purple.shade600;
         icon = Icons.sync_rounded;
         break;
       case 'shipped':
-        color = Colors.indigo;
+        color = Colors.indigo.shade600;
         icon = Icons.local_shipping_rounded;
         break;
       default:
-        color = Colors.grey;
+        color = Colors.grey.shade600;
         icon = Icons.help_outline_rounded;
     }
 
@@ -1166,7 +1507,10 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => _OrderDetailsSheet(order: order),
+      builder: (context) => _OrderDetailsSheet(
+        order: order,
+        onGenerateInvoice: () => _generateInvoice(order),
+      ),
     );
   }
 
@@ -1183,16 +1527,20 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
   }
 }
 
-// ENHANCED Order Details Sheet with Full Bill Details
+// Enhanced Order Details Sheet with Premium Design
 class _OrderDetailsSheet extends StatelessWidget {
   final Map<String, dynamic> order;
+  final VoidCallback onGenerateInvoice;
 
-  const _OrderDetailsSheet({required this.order});
+  const _OrderDetailsSheet({
+    required this.order,
+    required this.onGenerateInvoice,
+  });
 
   @override
   Widget build(BuildContext context) {
     final orderItems = order['order_items'] as List<dynamic>? ?? [];
-    final address = order['user_addresses'];
+    final addressInfo = order['address_info'] ?? order['address_details'];
     final billingDetails = order['order_billing_details'] != null &&
         (order['order_billing_details'] as List).isNotEmpty
         ? (order['order_billing_details'] as List)[0]
@@ -1243,7 +1591,7 @@ class _OrderDetailsSheet extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        'Order #${order['order_number'] ?? order['id'].toString().substring(0, 8)}',
+                        'Order #${order['id'].toString().substring(0, 8)}',
                         style: TextStyle(
                           fontSize: 14,
                           color: Colors.grey.shade600,
@@ -1255,7 +1603,14 @@ class _OrderDetailsSheet extends StatelessWidget {
                 ),
                 IconButton(
                   onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close_rounded),
+                  icon: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.close_rounded, size: 20),
+                  ),
                 ),
               ],
             ),
@@ -1268,26 +1623,53 @@ class _OrderDetailsSheet extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Order Items
-                  const Text(
-                    'Order Items',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
+                  // Order Items Section
+                  _buildSectionHeader('Order Items', Icons.shopping_bag_outlined),
+                  const SizedBox(height: 12),
                   ...orderItems.map((item) => _buildOrderItem(item)).toList(),
 
                   const SizedBox(height: 24),
 
-                  // FULL BILL BREAKDOWN
-                  const Text(
-                    'Bill Details',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  // Bill Details Section with Invoice Button
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.receipt_long, color: kPrimaryColor, size: 20),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Bill Details',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Container(
+                        height: 36,
+                        child: ElevatedButton.icon(
+                          onPressed: onGenerateInvoice,
+                          icon: const Icon(Icons.picture_as_pdf, size: 16, color: Colors.white),
+                          label: const Text(
+                            'Get Invoice',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: kPrimaryColor,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 12),
                   Container(
@@ -1311,10 +1693,6 @@ class _OrderDetailsSheet extends StatelessWidget {
                             _buildBillRow('Service Tax', '₹${billingDetails['service_tax']}'),
                           if ((billingDetails['delivery_fee'] ?? 0) > 0)
                             _buildBillRow('Delivery Fee', '₹${billingDetails['delivery_fee']}'),
-                          if ((billingDetails['express_delivery_fee'] ?? 0) > 0)
-                            _buildBillRow('Express Delivery', '₹${billingDetails['express_delivery_fee']}'),
-                          if ((billingDetails['standard_delivery_fee'] ?? 0) > 0)
-                            _buildBillRow('Standard Delivery', '₹${billingDetails['standard_delivery_fee']}'),
                           if ((billingDetails['discount_amount'] ?? 0) > 0)
                             _buildBillRow('Discount', '-₹${billingDetails['discount_amount']}', isDiscount: true),
                           if (billingDetails['applied_coupon_code'] != null)
@@ -1322,30 +1700,36 @@ class _OrderDetailsSheet extends StatelessWidget {
                           const Divider(height: 24, thickness: 1),
                           _buildBillRow('Total Amount', '₹${billingDetails['total_amount'] ?? order['total_amount'] ?? '0.00'}', isTotal: true),
                         ] else ...[
-                          // Fallback when billing details are not available
                           _buildBillRow('Total Amount', '₹${order['total_amount'] ?? '0.00'}', isTotal: true),
                         ],
                         const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Payment Method',
-                              style: TextStyle(
-                                color: Colors.grey.shade600,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: kPrimaryColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Payment Method',
+                                style: TextStyle(
+                                  color: Colors.grey.shade700,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
-                            ),
-                            Text(
-                              order['payment_method']?.toString().toUpperCase() ?? 'N/A',
-                              style: TextStyle(
-                                color: kPrimaryColor,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
+                              Text(
+                                order['payment_method']?.toString().toUpperCase() ?? 'N/A',
+                                style: TextStyle(
+                                  color: kPrimaryColor,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ],
                     ),
@@ -1354,14 +1738,8 @@ class _OrderDetailsSheet extends StatelessWidget {
                   const SizedBox(height: 24),
 
                   // Delivery Address
-                  if (address != null) ...[
-                    const Text(
-                      'Delivery Address',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+                  if (addressInfo != null) ...[
+                    _buildSectionHeader('Delivery Address', Icons.location_on),
                     const SizedBox(height: 12),
                     Container(
                       padding: const EdgeInsets.all(16),
@@ -1375,16 +1753,22 @@ class _OrderDetailsSheet extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            address['recipient_name'] ?? 'N/A',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 16,
-                            ),
+                          Row(
+                            children: [
+                              Icon(Icons.person, color: kPrimaryColor, size: 18),
+                              const SizedBox(width: 8),
+                              Text(
+                                addressInfo['recipient_name'] ?? 'N/A',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            '${address['address_line_1'] ?? ''}\n${address['city'] ?? ''}, ${address['state'] ?? ''} - ${address['pincode'] ?? ''}',
+                            '${addressInfo['address_line_1'] ?? ''}\n${addressInfo['city'] ?? ''}, ${addressInfo['state'] ?? ''} - ${addressInfo['pincode'] ?? ''}',
                             style: TextStyle(
                               color: Colors.grey.shade700,
                               fontSize: 14,
@@ -1398,13 +1782,7 @@ class _OrderDetailsSheet extends StatelessWidget {
                   ],
 
                   // Order Timeline
-                  const Text(
-                    'Order Timeline',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+                  _buildSectionHeader('Order Timeline', Icons.timeline),
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.all(20),
@@ -1423,74 +1801,14 @@ class _OrderDetailsSheet extends StatelessWidget {
                     ),
                     child: Column(
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'Order Placed',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            Text(
-                              _formatDate(order['created_at']),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ],
-                        ),
+                        _buildTimelineRow('Order Placed', _formatDate(order['created_at'])),
                         if (order['pickup_date'] != null) ...[
                           const SizedBox(height: 12),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Pickup Date',
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.9),
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              Text(
-                                _formatDate(order['pickup_date']),
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.9),
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
+                          _buildTimelineRow('Pickup Date', _formatDate(order['pickup_date'])),
                         ],
                         if (order['delivery_date'] != null) ...[
-                          const SizedBox(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Delivery Date',
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.9),
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              Text(
-                                _formatDate(order['delivery_date']),
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.9),
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
+                          const SizedBox(height: 12),
+                          _buildTimelineRow('Delivery Date', _formatDate(order['delivery_date'])),
                         ],
                       ],
                     ),
@@ -1503,6 +1821,46 @@ class _OrderDetailsSheet extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, color: kPrimaryColor, size: 20),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTimelineRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
     );
   }
 
@@ -1552,7 +1910,7 @@ class _OrderDetailsSheet extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Product Image - FIXED IMAGE LOADING
+          // Product Image
           Container(
             width: 60,
             height: 60,
@@ -1569,7 +1927,6 @@ class _OrderDetailsSheet extends StatelessWidget {
                 product['image_url'],
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
-                  print('Image load error: $error');
                   return Container(
                     padding: const EdgeInsets.all(16),
                     child: Icon(Icons.image_not_supported_outlined, color: Colors.grey.shade400, size: 24),
@@ -1620,13 +1977,33 @@ class _OrderDetailsSheet extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  '₹${product?['price'] ?? item['product_price'] ?? '0.00'} each',
-                  style: TextStyle(
-                    color: kPrimaryColor,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                  ),
+                Row(
+                  children: [
+                    Text(
+                      '₹${product?['price'] ?? item['product_price'] ?? '0.00'} each',
+                      style: TextStyle(
+                        color: kPrimaryColor,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        item['service_type'] ?? 'Standard',
+                        style: TextStyle(
+                          color: Colors.blue.shade700,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

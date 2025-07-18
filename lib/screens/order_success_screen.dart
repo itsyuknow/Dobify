@@ -346,6 +346,16 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
     Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
   }
 
+  // ✅ FIXED: Navigate to orders screen instead of home
+  void _navigateToOrdersScreen() {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (context) => const ProfileScreen(openOrderHistory: true),
+      ),
+          (route) => false,
+    );
+  }
+
   @override
   void dispose() {
     _backgroundController.dispose();
@@ -580,97 +590,52 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                       ),
                                     ),
 
-                                    const SizedBox(height: 24),
+                                    const SizedBox(height: 32),
 
-                                    // Action Buttons - Updated with proper navigation
-                                    // Replace the existing Row section for action buttons with this:
-
-// Action Buttons - Fixed Track Order button overflow
+                                    // ✅ FIXED Action Buttons - Perfect styling and navigation
                                     SlideTransition(
                                       position: _detailsSlideAnimation,
                                       child: FadeTransition(
                                         opacity: _detailsFadeAnimation,
-                                        child: Row(
+                                        child: Column(
                                           children: [
-                                            Expanded(
-                                              child: OutlinedButton(
-                                                onPressed: _navigateToOrderHistory,
-                                                style: OutlinedButton.styleFrom(
-                                                  side: BorderSide(color: kPrimaryColor),
-                                                  shape: RoundedRectangleBorder(
-                                                    borderRadius: BorderRadius.circular(25),
-                                                  ),
-                                                  padding: const EdgeInsets.symmetric(
-                                                    vertical: 12,
-                                                    horizontal: 16, // Added horizontal padding
+
+
+                                            // Start Shopping Button (goes to orders instead of home)
+                                            SizedBox(
+                                              width: double.infinity,
+                                              child: ElevatedButton.icon(
+                                                onPressed: _navigateToOrdersScreen, // ✅ FIXED: Now goes to orders
+                                                icon: const Icon(
+                                                  Icons.shopping_bag_rounded,
+                                                  color: Colors.white,
+                                                  size: 20,
+                                                ),
+                                                label: const Text(
+                                                  'View All Orders',
+                                                  style: TextStyle(
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: Colors.white,
                                                   ),
                                                 ),
-                                                child: Row(
-                                                  mainAxisAlignment: MainAxisAlignment.center,
-                                                  mainAxisSize: MainAxisSize.min, // Added this to prevent overflow
-                                                  children: [
-                                                    Icon(
-                                                      Icons.history_rounded,
-                                                      color: kPrimaryColor,
-                                                      size: 18, // Reduced icon size slightly
-                                                    ),
-                                                    const SizedBox(width: 6), // Reduced spacing
-                                                    Flexible( // Wrapped text in Flexible
-                                                      child: Text(
-                                                        'Track Order',
-                                                        style: TextStyle(
-                                                          fontSize: 13, // Reduced font size slightly
-                                                          fontWeight: FontWeight.w600,
-                                                          color: kPrimaryColor,
-                                                        ),
-                                                        overflow: TextOverflow.ellipsis, // Handle overflow
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 12),
-                                            Expanded(
-                                              flex: 2,
-                                              child: ElevatedButton(
-                                                onPressed: _navigateToHome,
                                                 style: ElevatedButton.styleFrom(
                                                   backgroundColor: kPrimaryColor,
+                                                  foregroundColor: Colors.white,
                                                   shape: RoundedRectangleBorder(
-                                                    borderRadius: BorderRadius.circular(25),
+                                                    borderRadius: BorderRadius.circular(16),
                                                   ),
                                                   padding: const EdgeInsets.symmetric(
-                                                    vertical: 12,
-                                                    horizontal: 16, // Added horizontal padding
+                                                    vertical: 16,
+                                                    horizontal: 24,
                                                   ),
-                                                  elevation: 2,
-                                                ),
-                                                child: Row(
-                                                  mainAxisAlignment: MainAxisAlignment.center,
-                                                  mainAxisSize: MainAxisSize.min, // Added this to prevent overflow
-                                                  children: [
-                                                    const Icon(
-                                                      Icons.home_rounded,
-                                                      color: Colors.white,
-                                                      size: 18, // Reduced icon size slightly
-                                                    ),
-                                                    const SizedBox(width: 6), // Reduced spacing
-                                                    Flexible( // Wrapped text in Flexible
-                                                      child: Text(
-                                                        'Continue Shopping',
-                                                        style: TextStyle(
-                                                          fontSize: 13, // Reduced font size slightly
-                                                          fontWeight: FontWeight.w600,
-                                                          color: Colors.white,
-                                                        ),
-                                                        overflow: TextOverflow.ellipsis, // Handle overflow
-                                                      ),
-                                                    ),
-                                                  ],
+                                                  elevation: 4,
+                                                  shadowColor: kPrimaryColor.withOpacity(0.3),
                                                 ),
                                               ),
                                             ),
+
+
                                           ],
                                         ),
                                       ),

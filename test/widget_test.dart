@@ -5,7 +5,7 @@ import 'package:ironly/main.dart'; // Make sure IronlyApp is defined in main.dar
 void main() {
   testWidgets('App builds without crashing', (WidgetTester tester) async {
     // Build the app and trigger a frame
-    await tester.pumpWidget(const ironlyApp());
+    await tester.pumpWidget(const ironXpressApp());
 
     // Basic smoke test to confirm MaterialApp is present
     expect(find.byType(MaterialApp), findsOneWidget);
