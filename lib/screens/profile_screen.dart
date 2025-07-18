@@ -12,9 +12,12 @@ import 'login_screen.dart';
 import 'support_screen.dart';
 import 'address_book_screen.dart';
 import '../widgets/custom_bottom_nav.dart';
+import 'order_history_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  final bool openOrderHistory;
+
+  const ProfileScreen({super.key, this.openOrderHistory = false});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -32,17 +35,27 @@ class _ProfileScreenState extends State<ProfileScreen>
   bool isUploadingImage = false;
   double uploadProgress = 0.0;
   bool _disposed = false;
+  bool _isPersonalInfoExpanded = false; // New state for expansion
 
   late AnimationController _fadeController;
   late AnimationController _scaleController;
+  late AnimationController _expansionController; // New controller for expansion
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
+  late Animation<double> _expansionAnimation; // New animation for expansion
 
   @override
   void initState() {
     super.initState();
     _initAnimations();
     _loadProfileData();
+
+    // Open order history if requested
+    if (widget.openOrderHistory) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _navigateToOrderHistory();
+      });
+    }
   }
 
   void _initAnimations() {
@@ -54,12 +67,19 @@ class _ProfileScreenState extends State<ProfileScreen>
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
+    _expansionController = AnimationController(
+      duration: const Duration(milliseconds: 400),
+      vsync: this,
+    );
 
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _fadeController, curve: Curves.easeOut),
     );
     _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
       CurvedAnimation(parent: _scaleController, curve: Curves.elasticOut),
+    );
+    _expansionAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _expansionController, curve: Curves.easeInOut),
     );
 
     _fadeController.forward();
@@ -71,6 +91,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     _disposed = true;
     _fadeController.dispose();
     _scaleController.dispose();
+    _expansionController.dispose();
     super.dispose();
   }
 
@@ -133,18 +154,19 @@ class _ProfileScreenState extends State<ProfileScreen>
         }
       }
 
-      // Calculate order stats manually with enhanced approach
+      // Calculate order stats with proper data handling
       Map<String, dynamic> orderStatsData = {'total_orders': 0, 'completed_orders': 0, 'total_spent': 0.0, 'total_saved': 0.0};
+
       try {
         print('Calculating order stats for user: ${user.id}');
 
+        // Get all orders for the user
         final ordersResponse = await supabase
             .from('orders')
-            .select('id, status, total_amount, discount_amount, coupon_discount, created_at')
+            .select('id, status, total_amount, discount_amount, created_at')
             .eq('user_id', user.id);
 
         print('Found ${ordersResponse.length} orders for stats calculation');
-        print('Orders data: $ordersResponse');
 
         if (ordersResponse.isNotEmpty) {
           orderStatsData['total_orders'] = ordersResponse.length;
@@ -154,66 +176,115 @@ class _ProfileScreenState extends State<ProfileScreen>
           double totalSaved = 0.0;
 
           for (var order in ordersResponse) {
+            print('Processing order: ${order['id']} - Status: ${order['status']} - Amount: ${order['total_amount']} - Discount: ${order['discount_amount']}');
+
             // Count completed/delivered orders
             final status = order['status']?.toString().toLowerCase() ?? '';
             if (status == 'delivered' || status == 'completed') {
               completedCount++;
             }
 
-            // Sum total amount
-            final amount = order['total_amount'];
-            if (amount != null) {
-              if (amount is String) {
-                totalSpent += double.tryParse(amount) ?? 0.0;
-              } else if (amount is num) {
-                totalSpent += amount.toDouble();
+            // Sum total amount - handle different data types
+            final totalAmountRaw = order['total_amount'];
+            double orderAmount = 0.0;
+
+            if (totalAmountRaw != null) {
+              if (totalAmountRaw is String) {
+                orderAmount = double.tryParse(totalAmountRaw) ?? 0.0;
+              } else if (totalAmountRaw is int) {
+                orderAmount = totalAmountRaw.toDouble();
+              } else if (totalAmountRaw is double) {
+                orderAmount = totalAmountRaw;
+              } else if (totalAmountRaw is num) {
+                orderAmount = totalAmountRaw.toDouble();
               }
             }
 
-            // Sum total savings (discount_amount + coupon_discount)
-            final discountAmount = order['discount_amount'];
-            final couponDiscount = order['coupon_discount'];
+            totalSpent += orderAmount;
+            print('Order amount: $orderAmount, Running total: $totalSpent');
 
-            if (discountAmount != null) {
-              if (discountAmount is String) {
-                totalSaved += double.tryParse(discountAmount) ?? 0.0;
-              } else if (discountAmount is num) {
-                totalSaved += discountAmount.toDouble();
+            // Sum total savings from discount_amount
+            final discountAmountRaw = order['discount_amount'];
+            double discountAmount = 0.0;
+
+            if (discountAmountRaw != null) {
+              if (discountAmountRaw is String) {
+                discountAmount = double.tryParse(discountAmountRaw) ?? 0.0;
+              } else if (discountAmountRaw is int) {
+                discountAmount = discountAmountRaw.toDouble();
+              } else if (discountAmountRaw is double) {
+                discountAmount = discountAmountRaw;
+              } else if (discountAmountRaw is num) {
+                discountAmount = discountAmountRaw.toDouble();
               }
             }
 
-            if (couponDiscount != null) {
-              if (couponDiscount is String) {
-                totalSaved += double.tryParse(couponDiscount) ?? 0.0;
-              } else if (couponDiscount is num) {
-                totalSaved += couponDiscount.toDouble();
-              }
-            }
+            totalSaved += discountAmount;
+            print('Discount amount: $discountAmount, Running total saved: $totalSaved');
           }
 
           orderStatsData['completed_orders'] = completedCount;
           orderStatsData['total_spent'] = totalSpent;
           orderStatsData['total_saved'] = totalSaved;
 
-          print('Calculated stats: ${orderStatsData}');
+          print('Final calculated stats: $orderStatsData');
         }
+
+        // Alternative: Try to get from order_billing_details table for more accurate data
+        if (ordersResponse.isNotEmpty) {
+          try {
+            final orderIds = ordersResponse.map((order) => order['id']).toList();
+            final billingResponse = await supabase
+                .from('order_billing_details')
+                .select('total_amount, discount_amount, order_id')
+                .inFilter('order_id', orderIds);
+
+            if (billingResponse.isNotEmpty) {
+              double billingTotalSpent = 0.0;
+              double billingTotalSaved = 0.0;
+
+              for (var billing in billingResponse) {
+                // Total amount from billing
+                final billingAmountRaw = billing['total_amount'];
+                if (billingAmountRaw != null) {
+                  double amount = 0.0;
+                  if (billingAmountRaw is String) {
+                    amount = double.tryParse(billingAmountRaw) ?? 0.0;
+                  } else if (billingAmountRaw is num) {
+                    amount = billingAmountRaw.toDouble();
+                  }
+                  billingTotalSpent += amount;
+                }
+
+                // Discount amount from billing
+                final billingDiscountRaw = billing['discount_amount'];
+                if (billingDiscountRaw != null) {
+                  double discount = 0.0;
+                  if (billingDiscountRaw is String) {
+                    discount = double.tryParse(billingDiscountRaw) ?? 0.0;
+                  } else if (billingDiscountRaw is num) {
+                    discount = billingDiscountRaw.toDouble();
+                  }
+                  billingTotalSaved += discount;
+                }
+              }
+
+              // Use billing data if it seems more accurate (has more data)
+              if (billingTotalSpent > 0 || billingTotalSaved > 0) {
+                orderStatsData['total_spent'] = billingTotalSpent;
+                orderStatsData['total_saved'] = billingTotalSaved;
+                print('Using billing data - Spent: $billingTotalSpent, Saved: $billingTotalSaved');
+              }
+            }
+          } catch (e) {
+            print('Could not fetch from billing details: $e');
+          }
+        }
+
       } catch (e) {
         print('Error calculating order stats: $e');
-        // Try RPC function as fallback
-        try {
-          final statsResponse = await supabase
-              .rpc('get_user_order_stats', params: {'user_uuid': user.id});
-          if (statsResponse.isNotEmpty) {
-            orderStatsData = statsResponse[0];
-            // Ensure total_saved exists
-            if (!orderStatsData.containsKey('total_saved')) {
-              orderStatsData['total_saved'] = 0.0;
-            }
-            print('Got stats from RPC: $orderStatsData');
-          }
-        } catch (e2) {
-          print('RPC also failed: $e2');
-        }
+        // Set default values on error
+        orderStatsData = {'total_orders': 0, 'completed_orders': 0, 'total_spent': 0.0, 'total_saved': 0.0};
       }
 
       final addressResponse = await supabase
@@ -818,7 +889,7 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   Widget _buildProfileCard() {
     return Container(
-      margin: const EdgeInsets.all(16),
+      margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -837,7 +908,14 @@ class _ProfileScreenState extends State<ProfileScreen>
           GestureDetector(
             onTap: () {
               HapticFeedback.lightImpact();
-              _showEditDialog();
+              setState(() {
+                _isPersonalInfoExpanded = !_isPersonalInfoExpanded;
+                if (_isPersonalInfoExpanded) {
+                  _expansionController.forward();
+                } else {
+                  _expansionController.reverse();
+                }
+              });
             },
             child: Container(
               padding: const EdgeInsets.all(16),
@@ -892,16 +970,22 @@ class _ProfileScreenState extends State<ProfileScreen>
                               ),
                             ),
                             const SizedBox(width: 8),
-                            Icon(
-                              Icons.keyboard_arrow_down_rounded,
-                              color: Colors.grey.shade600,
-                              size: 20,
+                            AnimatedRotation(
+                              turns: _isPersonalInfoExpanded ? 0.5 : 0.0,
+                              duration: const Duration(milliseconds: 300),
+                              child: Icon(
+                                Icons.keyboard_arrow_down_rounded,
+                                color: Colors.grey.shade600,
+                                size: 20,
+                              ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Tap to complete your profile',
+                          _isPersonalInfoExpanded
+                              ? 'Tap to collapse personal info'
+                              : 'Tap to view personal info',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey.shade600,
@@ -958,59 +1042,99 @@ class _ProfileScreenState extends State<ProfileScreen>
             ),
           ),
 
-          const SizedBox(height: 24),
-
-          // Personal Information Section
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Colors.grey.shade50,
-                  Colors.white,
-                ],
-              ),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.grey.shade200),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [kPrimaryColor.withOpacity(0.2), kPrimaryColor.withOpacity(0.1)],
-                        ),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(Icons.person_rounded, color: kPrimaryColor, size: 20),
-                    ),
-                    const SizedBox(width: 12),
-                    const Text(
-                      'Personal Information',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.black87,
-                      ),
-                    ),
-                  ],
+          // Expanded Personal Information Section
+          AnimatedBuilder(
+            animation: _expansionAnimation,
+            builder: (context, child) {
+              return ClipRect(
+                child: Align(
+                  heightFactor: _expansionAnimation.value,
+                  child: child,
                 ),
-                const SizedBox(height: 20),
-                _buildEnhancedInfoRow(Icons.person_rounded, 'Name',
-                    '${userProfile?['first_name'] ?? ''} ${userProfile?['last_name'] ?? ''}'.trim().isEmpty
-                        ? 'Not set'
-                        : '${userProfile!['first_name'] ?? ''} ${userProfile!['last_name'] ?? ''}'.trim()),
-                _buildEnhancedInfoRow(Icons.email_rounded, 'Email',
-                    supabase.auth.currentUser?.email ?? 'Not set'),
-                _buildEnhancedInfoRow(Icons.phone_rounded, 'Phone', userProfile?['phone_number'] ?? 'Not set'),
-                _buildEnhancedInfoRow(Icons.cake_rounded, 'Birthday', userProfile?['date_of_birth'] ?? 'Not set'),
-                _buildEnhancedInfoRow(Icons.person_outline_rounded, 'Gender', userProfile?['gender'] ?? 'Not set'),
+              );
+            },
+            child: Column(
+              children: [
+                const SizedBox(height: 24),
+                // Personal Information Section
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.grey.shade50,
+                        Colors.white,
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [kPrimaryColor.withOpacity(0.2), kPrimaryColor.withOpacity(0.1)],
+                              ),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(Icons.person_rounded, color: kPrimaryColor, size: 20),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Personal Information',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: _showEditDialog,
+                                  style: TextButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    backgroundColor: kPrimaryColor.withOpacity(0.1),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    'Edit',
+                                    style: TextStyle(
+                                      color: kPrimaryColor,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      _buildEnhancedInfoRow(Icons.person_rounded, 'Name',
+                          '${userProfile?['first_name'] ?? ''} ${userProfile?['last_name'] ?? ''}'.trim().isEmpty
+                              ? 'Not set'
+                              : '${userProfile!['first_name'] ?? ''} ${userProfile!['last_name'] ?? ''}'.trim()),
+                      _buildEnhancedInfoRow(Icons.email_rounded, 'Email',
+                          supabase.auth.currentUser?.email ?? 'Not set'),
+                      _buildEnhancedInfoRow(Icons.phone_rounded, 'Phone', userProfile?['phone_number'] ?? 'Not set'),
+                      _buildEnhancedInfoRow(Icons.cake_rounded, 'Birthday', userProfile?['date_of_birth'] ?? 'Not set'),
+                      _buildEnhancedInfoRow(Icons.person_outline_rounded, 'Gender', userProfile?['gender'] ?? 'Not set'),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -1555,252 +1679,407 @@ class _ProfileScreenState extends State<ProfileScreen>
 
     showDialog(
       context: context,
+      barrierColor: Colors.black.withOpacity(0.8),
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
           String selectedGender = userProfile?['gender'] ?? '';
 
           return Dialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
             child: Container(
-              constraints: const BoxConstraints(maxHeight: 650),
-              padding: const EdgeInsets.all(24),
+              width: double.infinity,
+              constraints: const BoxConstraints(maxHeight: 700),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(28),
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: [
                     Colors.white,
-                    kPrimaryColor.withOpacity(0.05),
+                    kPrimaryColor.withOpacity(0.02),
+                    Colors.white,
                   ],
                 ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 30,
+                    offset: const Offset(0, 15),
+                  ),
+                  BoxShadow(
+                    color: kPrimaryColor.withOpacity(0.1),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
               ),
-              child: SingleChildScrollView(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(28),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)]),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(Icons.edit_rounded, color: Colors.white, size: 20),
-                        ),
-                        const SizedBox(width: 16),
-                        const Text(
-                          'Edit Profile',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-
-                    // First Name
-                    _buildEditField(firstNameController, 'First Name', Icons.person_rounded),
-                    const SizedBox(height: 16),
-
-                    // Last Name
-                    _buildEditField(lastNameController, 'Last Name', Icons.person_outline_rounded),
-                    const SizedBox(height: 16),
-
-                    // Phone Number
-                    _buildEditField(phoneController, 'Phone Number', Icons.phone_rounded, TextInputType.phone),
-                    const SizedBox(height: 16),
-
-                    // Date of Birth
-                    GestureDetector(
-                      onTap: () async {
-                        final DateTime? picked = await showDatePicker(
-                          context: context,
-                          initialDate: userProfile?['date_of_birth'] != null
-                              ? DateTime.tryParse(userProfile!['date_of_birth']) ?? DateTime.now()
-                              : DateTime.now(),
-                          firstDate: DateTime(1900),
-                          lastDate: DateTime.now(),
-                          builder: (context, child) {
-                            return Theme(
-                              data: Theme.of(context).copyWith(
-                                colorScheme: ColorScheme.light(
-                                  primary: kPrimaryColor,
-                                  onPrimary: Colors.white,
-                                  surface: Colors.white,
-                                  onSurface: Colors.black,
-                                ),
-                              ),
-                              child: child!,
-                            );
-                          },
-                        );
-                        if (picked != null) {
-                          dobController.text = picked.toIso8601String().split('T')[0];
-                        }
-                      },
-                      child: AbsorbPointer(
-                        child: _buildEditField(
-                            dobController,
-                            'Date of Birth',
-                            Icons.cake_rounded,
-                            null,
-                            'Tap to select date'
+                    // Premium Header
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Gender Selection
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              margin: const EdgeInsets.only(left: 12),
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(colors: [kPrimaryColor.withOpacity(0.1), Colors.purple.withOpacity(0.05)]),
-                                borderRadius: BorderRadius.circular(8),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.3),
+                                width: 1,
                               ),
-                              child: Icon(Icons.person_outline_rounded, color: kPrimaryColor, size: 20),
                             ),
-                            const SizedBox(width: 16),
-                            const Text(
-                              'Gender',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.black87,
+                            child: const Icon(
+                                Icons.edit_rounded,
+                                color: Colors.white,
+                                size: 24
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Edit Profile',
+                                  style: TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'Update your personal information',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.white70,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: IconButton(
+                              onPressed: () {
+                                Navigator.pop(context);
+                                firstNameController.dispose();
+                                lastNameController.dispose();
+                                phoneController.dispose();
+                                dobController.dispose();
+                              },
+                              icon: const Icon(
+                                Icons.close_rounded,
+                                color: Colors.white,
+                                size: 24,
                               ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Form Content
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          children: [
+                            // Name Row
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildPremiumEditField(
+                                    firstNameController,
+                                    'First Name',
+                                    Icons.person_rounded,
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: _buildPremiumEditField(
+                                    lastNameController,
+                                    'Last Name',
+                                    Icons.person_outline_rounded,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 20),
+
+                            // Phone Number
+                            _buildPremiumEditField(
+                              phoneController,
+                              'Phone Number',
+                              Icons.phone_rounded,
+                              TextInputType.phone,
+                            ),
+                            const SizedBox(height: 20),
+
+                            // Date of Birth
+                            GestureDetector(
+                              onTap: () async {
+                                final DateTime? picked = await showDatePicker(
+                                  context: context,
+                                  initialDate: userProfile?['date_of_birth'] != null
+                                      ? DateTime.tryParse(userProfile!['date_of_birth']) ?? DateTime.now()
+                                      : DateTime.now(),
+                                  firstDate: DateTime(1900),
+                                  lastDate: DateTime.now(),
+                                  builder: (context, child) {
+                                    return Theme(
+                                      data: Theme.of(context).copyWith(
+                                        colorScheme: ColorScheme.light(
+                                          primary: kPrimaryColor,
+                                          onPrimary: Colors.white,
+                                          surface: Colors.white,
+                                          onSurface: Colors.black,
+                                        ),
+                                      ),
+                                      child: child!,
+                                    );
+                                  },
+                                );
+                                if (picked != null) {
+                                  dobController.text = picked.toIso8601String().split('T')[0];
+                                }
+                              },
+                              child: AbsorbPointer(
+                                child: _buildPremiumEditField(
+                                    dobController,
+                                    'Date of Birth',
+                                    Icons.cake_rounded,
+                                    null,
+                                    'Tap to select date'
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+
+                            // Gender Selection - Premium Design
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    Colors.grey.shade50,
+                                    Colors.white,
+                                    kPrimaryColor.withOpacity(0.02),
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: kPrimaryColor.withOpacity(0.15),
+                                  width: 1.5,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: kPrimaryColor.withOpacity(0.05),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: [kPrimaryColor.withOpacity(0.15), kPrimaryColor.withOpacity(0.08)],
+                                          ),
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: Icon(
+                                            Icons.person_outline_rounded,
+                                            color: kPrimaryColor,
+                                            size: 20
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      const Text(
+                                        'Gender',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 16),
+
+                                  // Gender Options
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: _buildGenderOption(
+                                          'Male',
+                                          Icons.male_rounded,
+                                          selectedGender == 'Male',
+                                              () {
+                                            setDialogState(() {
+                                              selectedGender = 'Male';
+                                            });
+                                          },
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: _buildGenderOption(
+                                          'Female',
+                                          Icons.female_rounded,
+                                          selectedGender == 'Female',
+                                              () {
+                                            setDialogState(() {
+                                              selectedGender = 'Female';
+                                            });
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            const SizedBox(height: 32),
+
+                            // Action Buttons
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Container(
+                                    height: 56,
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [Colors.grey.shade100, Colors.grey.shade50],
+                                      ),
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: Colors.grey.shade300,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: TextButton(
+                                      onPressed: () {
+                                        Navigator.pop(context);
+                                        firstNameController.dispose();
+                                        lastNameController.dispose();
+                                        phoneController.dispose();
+                                        dobController.dispose();
+                                      },
+                                      style: TextButton.styleFrom(
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(16),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        'Cancel',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.grey.shade700,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  flex: 2,
+                                  child: Container(
+                                    height: 56,
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+                                      ),
+                                      borderRadius: BorderRadius.circular(16),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: kPrimaryColor.withOpacity(0.4),
+                                          blurRadius: 12,
+                                          offset: const Offset(0, 6),
+                                        ),
+                                      ],
+                                    ),
+                                    child: ElevatedButton(
+                                      onPressed: () async {
+                                        Map<String, dynamic> updateData = {
+                                          'first_name': firstNameController.text.trim(),
+                                          'last_name': lastNameController.text.trim(),
+                                          'phone_number': phoneController.text.trim(),
+                                        };
+
+                                        if (dobController.text.trim().isNotEmpty) {
+                                          updateData['date_of_birth'] = dobController.text.trim();
+                                        }
+
+                                        if (selectedGender.isNotEmpty) {
+                                          updateData['gender'] = selectedGender;
+                                        }
+
+                                        await _updateProfile(updateData);
+                                        if (context.mounted) {
+                                          Navigator.pop(context);
+                                        }
+                                        firstNameController.dispose();
+                                        lastNameController.dispose();
+                                        phoneController.dispose();
+                                        dobController.dispose();
+                                      },
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.transparent,
+                                        foregroundColor: Colors.white,
+                                        shadowColor: Colors.transparent,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(16),
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: const [
+                                          Icon(Icons.save_rounded, size: 20),
+                                          SizedBox(width: 8),
+                                          Text(
+                                            'Save Changes',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade50,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.grey.shade300),
-                          ),
-                          child: Column(
-                            children: [
-                              ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: Radio<String>(
-                                  value: 'Male',
-                                  groupValue: selectedGender,
-                                  activeColor: kPrimaryColor,
-                                  onChanged: (value) {
-                                    setDialogState(() {
-                                      selectedGender = value!;
-                                    });
-                                  },
-                                ),
-                                title: const Text('Male'),
-                                onTap: () {
-                                  setDialogState(() {
-                                    selectedGender = 'Male';
-                                  });
-                                },
-                              ),
-                              ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: Radio<String>(
-                                  value: 'Female',
-                                  groupValue: selectedGender,
-                                  activeColor: kPrimaryColor,
-                                  onChanged: (value) {
-                                    setDialogState(() {
-                                      selectedGender = value!;
-                                    });
-                                  },
-                                ),
-                                title: const Text('Female'),
-                                onTap: () {
-                                  setDialogState(() {
-                                    selectedGender = 'Female';
-                                  });
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 32),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextButton(
-                            onPressed: () {
-                              Navigator.pop(context);
-                              firstNameController.dispose();
-                              lastNameController.dispose();
-                              phoneController.dispose();
-                              dobController.dispose();
-                            },
-                            style: TextButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              backgroundColor: Colors.grey.shade100,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            child: Text(
-                              'Cancel',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.grey.shade700,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: () async {
-                              Map<String, dynamic> updateData = {
-                                'first_name': firstNameController.text.trim(),
-                                'last_name': lastNameController.text.trim(),
-                                'phone_number': phoneController.text.trim(),
-                              };
-
-                              if (dobController.text.trim().isNotEmpty) {
-                                updateData['date_of_birth'] = dobController.text.trim();
-                              }
-
-                              if (selectedGender.isNotEmpty) {
-                                updateData['gender'] = selectedGender;
-                              }
-
-                              await _updateProfile(updateData);
-                              if (context.mounted) {
-                                Navigator.pop(context);
-                              }
-                              firstNameController.dispose();
-                              lastNameController.dispose();
-                              phoneController.dispose();
-                              dobController.dispose();
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: kPrimaryColor,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              elevation: 4,
-                            ),
-                            child: const Text(
-                              'Save Changes',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ],
                 ),
@@ -1808,6 +2087,139 @@ class _ProfileScreenState extends State<ProfileScreen>
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildPremiumEditField(
+      TextEditingController controller,
+      String label,
+      IconData icon,
+      [TextInputType? keyboardType, String? hintText]
+      ) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white,
+            Colors.grey.shade50,
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: kPrimaryColor.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: TextField(
+        controller: controller,
+        keyboardType: keyboardType,
+        style: const TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          color: Colors.black87,
+        ),
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hintText,
+          labelStyle: TextStyle(
+            color: kPrimaryColor.withOpacity(0.7),
+            fontWeight: FontWeight.w600,
+            fontSize: 14,
+          ),
+          hintStyle: TextStyle(
+            color: Colors.grey.shade500,
+            fontSize: 14,
+          ),
+          prefixIcon: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [kPrimaryColor.withOpacity(0.15), kPrimaryColor.withOpacity(0.08)],
+              ),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: kPrimaryColor, size: 20),
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: kPrimaryColor, width: 2),
+          ),
+          filled: true,
+          fillColor: Colors.transparent,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGenderOption(String gender, IconData icon, bool isSelected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: isSelected
+              ? LinearGradient(
+            colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+          )
+              : LinearGradient(
+            colors: [Colors.white, Colors.grey.shade50],
+          ),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isSelected ? kPrimaryColor : Colors.grey.shade300,
+            width: isSelected ? 2 : 1,
+          ),
+          boxShadow: isSelected
+              ? [
+            BoxShadow(
+              color: kPrimaryColor.withOpacity(0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ]
+              : [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? Colors.white : kPrimaryColor,
+              size: 28,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              gender,
+              style: TextStyle(
+                color: isSelected ? Colors.white : Colors.black87,
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1969,995 +2381,6 @@ class _ProfileScreenState extends State<ProfileScreen>
         ),
       ),
     );
-  }
-}
-
-// ========================================
-// ENHANCED ORDER HISTORY SCREEN
-// ========================================
-
-class OrderHistoryScreen extends StatefulWidget {
-  const OrderHistoryScreen({super.key});
-
-  @override
-  State<OrderHistoryScreen> createState() => _OrderHistoryScreenState();
-}
-
-class _OrderHistoryScreenState extends State<OrderHistoryScreen>
-    with TickerProviderStateMixin {
-  final SupabaseClient supabase = Supabase.instance.client;
-  List<Map<String, dynamic>> orders = [];
-  bool isLoading = true;
-
-  late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 600),
-      vsync: this,
-    );
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
-    );
-    _loadOrders();
-  }
-
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _loadOrders() async {
-    final user = supabase.auth.currentUser;
-    if (user == null) return;
-
-    try {
-      print('Loading orders for user: ${user.id}');
-
-      // First, get basic orders data
-      final ordersResponse = await supabase
-          .from('orders')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', ascending: false);
-
-      print('Found ${ordersResponse.length} orders');
-
-      List<Map<String, dynamic>> ordersWithDetails = [];
-
-      for (var order in ordersResponse) {
-        Map<String, dynamic> orderWithDetails = Map<String, dynamic>.from(order);
-
-        try {
-          // Get order items for this order
-          final orderItemsResponse = await supabase
-              .from('order_items')
-              .select('*')
-              .eq('order_id', order['id']);
-
-          print('Found ${orderItemsResponse.length} items for order ${order['id']}');
-
-          List<Map<String, dynamic>> itemsWithProducts = [];
-
-          for (var item in orderItemsResponse) {
-            Map<String, dynamic> itemWithProduct = Map<String, dynamic>.from(item);
-
-            try {
-              // Get product details if product_id exists
-              if (item['product_id'] != null) {
-                final productResponse = await supabase
-                    .from('products')
-                    .select('name, image_url, price')
-                    .eq('id', item['product_id'])
-                    .maybeSingle();
-
-                if (productResponse != null) {
-                  itemWithProduct['products'] = productResponse;
-                  print('Added product details for item ${item['id']}');
-                } else {
-                  // Add placeholder product data if product not found
-                  itemWithProduct['products'] = {
-                    'name': 'Product ${item['product_id']}',
-                    'image_url': null,
-                    'price': item['price'] ?? 0.0,
-                  };
-                }
-              } else {
-                // Add placeholder if no product_id
-                itemWithProduct['products'] = {
-                  'name': 'Unknown Product',
-                  'image_url': null,
-                  'price': item['price'] ?? 0.0,
-                };
-              }
-            } catch (e) {
-              print('Error loading product for item ${item['id']}: $e');
-              // Add fallback product data
-              itemWithProduct['products'] = {
-                'name': 'Product',
-                'image_url': null,
-                'price': item['price'] ?? 0.0,
-              };
-            }
-
-            itemsWithProducts.add(itemWithProduct);
-          }
-
-          orderWithDetails['order_items'] = itemsWithProducts;
-
-          // Get delivery address if available
-          if (order['delivery_address_id'] != null) {
-            try {
-              final addressResponse = await supabase
-                  .from('user_addresses')
-                  .select('recipient_name, address_line_1, city, state, pincode')
-                  .eq('id', order['delivery_address_id'])
-                  .maybeSingle();
-
-              if (addressResponse != null) {
-                orderWithDetails['user_addresses'] = addressResponse;
-                print('Added address details for order ${order['id']}');
-              }
-            } catch (e) {
-              print('Error loading address for order ${order['id']}: $e');
-            }
-          }
-
-        } catch (e) {
-          print('Error loading order items for order ${order['id']}: $e');
-          orderWithDetails['order_items'] = [];
-        }
-
-        ordersWithDetails.add(orderWithDetails);
-      }
-
-      if (mounted) {
-        setState(() {
-          orders = ordersWithDetails;
-          isLoading = false;
-        });
-        _animationController.forward();
-        print('Successfully loaded ${orders.length} orders with details');
-      }
-    } catch (e) {
-      print('Error loading orders: $e');
-      if (mounted) {
-        setState(() {
-          orders = [];
-          isLoading = false;
-        });
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: const Text(
-          'Order History',
-          style: TextStyle(fontWeight: FontWeight.w800),
-        ),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
-        leading: IconButton(
-          onPressed: () => Navigator.pop(context),
-          icon: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: kPrimaryColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(Icons.arrow_back_ios_rounded, color: kPrimaryColor, size: 16),
-          ),
-        ),
-      ),
-      body: isLoading
-          ? Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(color: kPrimaryColor),
-            const SizedBox(height: 16),
-            const Text(
-              'Loading your orders...',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-          ],
-        ),
-      )
-          : orders.isEmpty
-          ? Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(32),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [kPrimaryColor.withOpacity(0.1), Colors.purple.withOpacity(0.05)],
-                ),
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Icon(
-                Icons.shopping_bag_outlined,
-                size: 80,
-                color: kPrimaryColor,
-              ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'No Orders Yet',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Your order history will appear here once you make your first purchase.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () {
-                // Navigate to shop or home
-                Navigator.of(context).popUntil((route) => route.isFirst);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: kPrimaryColor,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
-              ),
-              child: const Text(
-                'Start Shopping',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ],
-        ),
-      )
-          : FadeTransition(
-        opacity: _fadeAnimation,
-        child: RefreshIndicator(
-          onRefresh: _loadOrders,
-          color: kPrimaryColor,
-          child: ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: orders.length,
-            itemBuilder: (context, index) {
-              return _buildEnhancedOrderCard(orders[index], index);
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEnhancedOrderCard(Map<String, dynamic> order, int index) {
-    final orderItems = order['order_items'] as List<dynamic>? ?? [];
-    final totalItems = orderItems.length;
-    final firstProduct = orderItems.isNotEmpty ? orderItems[0] : null;
-
-    // Debug output
-    print('Building order card for order: ${order['id']}');
-    print('Order items count: $totalItems');
-    print('First product: $firstProduct');
-    if (firstProduct != null) {
-      print('First product details: ${firstProduct['products']}');
-    }
-
-    return Container(
-      margin: EdgeInsets.only(bottom: 16, top: index == 0 ? 8 : 0),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.shade200,
-            blurRadius: 15,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => _showOrderDetails(order),
-          borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header Row
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.receipt_rounded,
-                                color: kPrimaryColor,
-                                size: 18,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Order #${order['order_number'] ?? 'N/A'}',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _formatDate(order['created_at']),
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade600,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    _buildStatusBadge(order['status']),
-                  ],
-                ),
-
-                const SizedBox(height: 16),
-
-                // Product Preview
-                if (firstProduct != null && firstProduct['products'] != null) ...[
-                  Row(
-                    children: [
-                      // Product Image
-                      Container(
-                        width: 60,
-                        height: 60,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          color: Colors.grey.shade100,
-                        ),
-                        child: firstProduct['products']['image_url'] != null && firstProduct['products']['image_url'].toString().isNotEmpty
-                            ? ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: Image.network(
-                            firstProduct['products']['image_url'],
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) =>
-                                Icon(Icons.image_outlined, color: Colors.grey.shade400, size: 30),
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return Center(
-                                child: CircularProgressIndicator(
-                                  value: loadingProgress.expectedTotalBytes != null
-                                      ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
-                                      : null,
-                                  strokeWidth: 2,
-                                  color: kPrimaryColor,
-                                ),
-                              );
-                            },
-                          ),
-                        )
-                            : Icon(Icons.shopping_bag_outlined, color: Colors.grey.shade400, size: 30),
-                      ),
-                      const SizedBox(width: 12),
-
-                      // Product Info
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              firstProduct['products']['name']?.toString() ?? 'Unknown Product',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 15,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Qty: ${firstProduct['quantity'] ?? 1}',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey.shade600,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            if (totalItems > 1) ...[
-                              const SizedBox(height: 2),
-                              Text(
-                                '+${totalItems - 1} more item${totalItems > 2 ? 's' : ''}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: kPrimaryColor,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                ],
-
-                // Order Summary
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [kPrimaryColor.withOpacity(0.05), Colors.purple.withOpacity(0.02)],
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Total Amount',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade600,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            '₹${order['total_amount'] ?? '0.00'}',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: kPrimaryColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            'Items',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade600,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            '$totalItems',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.black87,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 12),
-
-                // Action Row
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextButton.icon(
-                        onPressed: () => _showOrderDetails(order),
-                        icon: Icon(Icons.visibility_rounded, size: 18, color: kPrimaryColor),
-                        label: Text(
-                          'View Details',
-                          style: TextStyle(
-                            color: kPrimaryColor,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        style: TextButton.styleFrom(
-                          backgroundColor: kPrimaryColor.withOpacity(0.1),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (_canReorder(order['status'])) ...[
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: TextButton.icon(
-                          onPressed: () => _reorderItems(order),
-                          icon: const Icon(Icons.refresh_rounded, size: 18, color: Colors.green),
-                          label: const Text(
-                            'Reorder',
-                            style: TextStyle(
-                              color: Colors.green,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          style: TextButton.styleFrom(
-                            backgroundColor: Colors.green.withOpacity(0.1),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatusBadge(dynamic status) {
-    final statusString = status?.toString().toLowerCase() ?? '';
-    Color color;
-    IconData icon;
-
-    switch (statusString) {
-      case 'delivered':
-        color = Colors.green;
-        icon = Icons.check_circle_rounded;
-        break;
-      case 'cancelled':
-        color = Colors.red;
-        icon = Icons.cancel_rounded;
-        break;
-      case 'pending':
-        color = Colors.orange;
-        icon = Icons.access_time_rounded;
-        break;
-      case 'processing':
-        color = Colors.blue;
-        icon = Icons.sync_rounded;
-        break;
-      case 'shipped':
-        color = Colors.purple;
-        icon = Icons.local_shipping_rounded;
-        break;
-      default:
-        color = Colors.grey;
-        icon = Icons.help_outline_rounded;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [color, color.withOpacity(0.8)],
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: Colors.white, size: 14),
-          const SizedBox(width: 6),
-          Text(
-            status?.toString().toUpperCase() ?? 'UNKNOWN',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  bool _canReorder(dynamic status) {
-    final statusString = status?.toString().toLowerCase() ?? '';
-    return statusString == 'delivered' || statusString == 'cancelled';
-  }
-
-  void _reorderItems(Map<String, dynamic> order) {
-    // Implement reorder functionality
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Reorder functionality coming soon!'),
-        backgroundColor: kPrimaryColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
-  }
-
-  void _showOrderDetails(Map<String, dynamic> order) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _OrderDetailsSheet(order: order),
-    );
-  }
-
-  String _formatDate(dynamic dateString) {
-    if (dateString == null) return 'N/A';
-    try {
-      final date = DateTime.parse(dateString.toString());
-      final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      return '${date.day} ${months[date.month - 1]}, ${date.year}';
-    } catch (e) {
-      return 'N/A';
-    }
-  }
-}
-
-// ========================================
-// ORDER DETAILS BOTTOM SHEET
-// ========================================
-
-class _OrderDetailsSheet extends StatelessWidget {
-  final Map<String, dynamic> order;
-
-  const _OrderDetailsSheet({required this.order});
-
-  @override
-  Widget build(BuildContext context) {
-    final orderItems = order['order_items'] as List<dynamic>? ?? [];
-    final address = order['user_addresses'];
-
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.85,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
-      ),
-      child: Column(
-        children: [
-          // Handle
-          Container(
-            margin: const EdgeInsets.only(top: 12),
-            width: 50,
-            height: 5,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade300,
-              borderRadius: BorderRadius.circular(2.5),
-            ),
-          ),
-
-          // Header
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)]),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(Icons.receipt_rounded, color: Colors.white, size: 20),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Order Details',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      Text(
-                        'Order #${order['id']?.toString() ?? order['order_number']?.toString() ?? order['order_id']?.toString() ?? 'Unknown'}',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade600,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close_rounded),
-                ),
-              ],
-            ),
-          ),
-
-          // Content
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Order Items
-                  const Text(
-                    'Order Items',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  ...orderItems.map((item) => _buildOrderItem(item)),
-
-                  const SizedBox(height: 24),
-
-                  // Delivery Address
-                  if (address != null) ...[
-                    const Text(
-                      'Delivery Address',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [kPrimaryColor.withOpacity(0.05), Colors.purple.withOpacity(0.02)],
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: kPrimaryColor.withOpacity(0.1)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            address['recipient_name'] ?? 'N/A',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 16,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            '${address['address_line_1'] ?? ''}\n${address['city'] ?? ''}, ${address['state'] ?? ''} - ${address['pincode'] ?? ''}',
-                            style: TextStyle(
-                              color: Colors.grey.shade700,
-                              fontSize: 14,
-                              height: 1.4,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
-
-                  // Order Summary
-                  const Text(
-                    'Order Summary',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: kPrimaryColor.withOpacity(0.3),
-                          blurRadius: 12,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'Total Amount',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            Text(
-                              '₹${order['total_amount'] ?? '0.00'}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Order Date',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.9),
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            Text(
-                              _formatDate(order['created_at']),
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.9),
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 40),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildOrderItem(Map<String, dynamic> item) {
-    final product = item['products'];
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        children: [
-          // Product Image
-          Container(
-            width: 60,
-            height: 60,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              color: Colors.white,
-            ),
-            child: product?['image_url'] != null && product['image_url'].toString().isNotEmpty
-                ? ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.network(
-                product['image_url'],
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) =>
-                    Icon(Icons.image_outlined, color: Colors.grey.shade400, size: 24),
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-                  return Center(
-                    child: CircularProgressIndicator(
-                      value: loadingProgress.expectedTotalBytes != null
-                          ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
-                          : null,
-                      strokeWidth: 2,
-                      color: kPrimaryColor,
-                    ),
-                  );
-                },
-              ),
-            )
-                : Icon(Icons.shopping_bag_outlined, color: Colors.grey.shade400, size: 24),
-          ),
-          const SizedBox(width: 12),
-
-          // Product Details
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  product?['name']?.toString() ?? 'Unknown Product',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Quantity: ${item['quantity'] ?? 1}',
-                  style: TextStyle(
-                    color: Colors.grey.shade600,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '₹${product?['price'] ?? '0.00'} each',
-                  style: TextStyle(
-                    color: kPrimaryColor,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Item Total
-          Text(
-            '₹${((product?['price'] ?? 0) * (item['quantity'] ?? 1)).toStringAsFixed(2)}',
-            style: const TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 16,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatDate(dynamic dateString) {
-    if (dateString == null) return 'N/A';
-    try {
-      final date = DateTime.parse(dateString.toString());
-      final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      return '${date.day} ${months[date.month - 1]}, ${date.year}';
-    } catch (e) {
-      return 'N/A';
-    }
   }
 }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'colors.dart';
+import 'profile_screen.dart';
 
 class OrderSuccessScreen extends StatefulWidget {
   final String orderId;
@@ -323,11 +324,21 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
 
     if (shouldExit == true) {
       // Navigate to home screen and clear the stack
-      Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+      _navigateToHome();
       return false;
     }
 
     return false; // Prevent back navigation
+  }
+
+  // ✅ Navigate to order history (Profile screen with order history opened)
+  void _navigateToOrderHistory() {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (context) => const ProfileScreen(openOrderHistory: true),
+      ),
+          (route) => false,
+    );
   }
 
   // ✅ Navigate to home screen and clear entire navigation stack
@@ -486,7 +497,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                         child: Column(
                                           children: [
                                             Text(
-                                              '🎉 Order Placed',
+                                              'Order Placed',
                                               style: TextStyle(
                                                 fontSize: 22,
                                                 fontWeight: FontWeight.bold,
@@ -571,7 +582,10 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
 
                                     const SizedBox(height: 24),
 
-                                    // Action Buttons
+                                    // Action Buttons - Updated with proper navigation
+                                    // Replace the existing Row section for action buttons with this:
+
+// Action Buttons - Fixed Track Order button overflow
                                     SlideTransition(
                                       position: _detailsSlideAnimation,
                                       child: FadeTransition(
@@ -580,21 +594,39 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                           children: [
                                             Expanded(
                                               child: OutlinedButton(
-                                                onPressed: _navigateToHome,
+                                                onPressed: _navigateToOrderHistory,
                                                 style: OutlinedButton.styleFrom(
                                                   side: BorderSide(color: kPrimaryColor),
                                                   shape: RoundedRectangleBorder(
                                                     borderRadius: BorderRadius.circular(25),
                                                   ),
-                                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                                ),
-                                                child: Text(
-                                                  'Track Order',
-                                                  style: TextStyle(
-                                                    fontSize: 14,
-                                                    fontWeight: FontWeight.w600,
-                                                    color: kPrimaryColor,
+                                                  padding: const EdgeInsets.symmetric(
+                                                    vertical: 12,
+                                                    horizontal: 16, // Added horizontal padding
                                                   ),
+                                                ),
+                                                child: Row(
+                                                  mainAxisAlignment: MainAxisAlignment.center,
+                                                  mainAxisSize: MainAxisSize.min, // Added this to prevent overflow
+                                                  children: [
+                                                    Icon(
+                                                      Icons.history_rounded,
+                                                      color: kPrimaryColor,
+                                                      size: 18, // Reduced icon size slightly
+                                                    ),
+                                                    const SizedBox(width: 6), // Reduced spacing
+                                                    Flexible( // Wrapped text in Flexible
+                                                      child: Text(
+                                                        'Track Order',
+                                                        style: TextStyle(
+                                                          fontSize: 13, // Reduced font size slightly
+                                                          fontWeight: FontWeight.w600,
+                                                          color: kPrimaryColor,
+                                                        ),
+                                                        overflow: TextOverflow.ellipsis, // Handle overflow
+                                                      ),
+                                                    ),
+                                                  ],
                                                 ),
                                               ),
                                             ),
@@ -608,16 +640,34 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                                   shape: RoundedRectangleBorder(
                                                     borderRadius: BorderRadius.circular(25),
                                                   ),
-                                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                                  padding: const EdgeInsets.symmetric(
+                                                    vertical: 12,
+                                                    horizontal: 16, // Added horizontal padding
+                                                  ),
                                                   elevation: 2,
                                                 ),
-                                                child: const Text(
-                                                  'Continue Shopping',
-                                                  style: TextStyle(
-                                                    fontSize: 14,
-                                                    fontWeight: FontWeight.w600,
-                                                    color: Colors.white,
-                                                  ),
+                                                child: Row(
+                                                  mainAxisAlignment: MainAxisAlignment.center,
+                                                  mainAxisSize: MainAxisSize.min, // Added this to prevent overflow
+                                                  children: [
+                                                    const Icon(
+                                                      Icons.home_rounded,
+                                                      color: Colors.white,
+                                                      size: 18, // Reduced icon size slightly
+                                                    ),
+                                                    const SizedBox(width: 6), // Reduced spacing
+                                                    Flexible( // Wrapped text in Flexible
+                                                      child: Text(
+                                                        'Continue Shopping',
+                                                        style: TextStyle(
+                                                          fontSize: 13, // Reduced font size slightly
+                                                          fontWeight: FontWeight.w600,
+                                                          color: Colors.white,
+                                                        ),
+                                                        overflow: TextOverflow.ellipsis, // Handle overflow
+                                                      ),
+                                                    ),
+                                                  ],
                                                 ),
                                               ),
                                             ),
@@ -895,7 +945,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
         children: [
           _buildInfoRow(
             Icons.schedule_rounded,
-            'Your laundry will be picked up as scheduled',
+            'Your items will be picked up as scheduled',
           ),
           const SizedBox(height: 12),
           _buildInfoRow(
