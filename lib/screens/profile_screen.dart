@@ -13,6 +13,7 @@ import 'support_screen.dart';
 import 'address_book_screen.dart';
 import '../widgets/custom_bottom_nav.dart';
 import 'order_history_screen.dart';
+import 'notifications_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   final bool openOrderHistory;
@@ -35,14 +36,14 @@ class _ProfileScreenState extends State<ProfileScreen>
   bool isUploadingImage = false;
   double uploadProgress = 0.0;
   bool _disposed = false;
-  bool _isPersonalInfoExpanded = false; // New state for expansion
+  bool _isPersonalInfoExpanded = false;
 
   late AnimationController _fadeController;
   late AnimationController _scaleController;
-  late AnimationController _expansionController; // New controller for expansion
+  late AnimationController _expansionController;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
-  late Animation<double> _expansionAnimation; // New animation for expansion
+  late Animation<double> _expansionAnimation;
 
   @override
   void initState() {
@@ -50,7 +51,6 @@ class _ProfileScreenState extends State<ProfileScreen>
     _initAnimations();
     _loadProfileData();
 
-    // Open order history if requested
     if (widget.openOrderHistory) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _navigateToOrderHistory();
@@ -108,37 +108,30 @@ class _ProfileScreenState extends State<ProfileScreen>
     try {
       _safeSetState(() => isLoading = true);
 
-      // Get profile data
       final profileResponse = await supabase
           .from('user_profiles')
           .select()
           .eq('user_id', user.id)
           .maybeSingle();
 
-      // Auto-fill data based on login method
       Map<String, dynamic> profileData = profileResponse ?? {'user_id': user.id};
 
-      // If profile doesn't exist or missing data, try to auto-fill from auth
       if (profileResponse == null || profileData['phone_number'] == null) {
-        // Check if user logged in with phone (phone will be in user.phone)
         if (user.phone != null && user.phone!.isNotEmpty) {
           profileData['phone_number'] = user.phone;
         }
 
-        // Try to extract name from email or user metadata
         if (profileData['first_name'] == null || profileData['first_name'].toString().isEmpty) {
           if (user.userMetadata?['full_name'] != null) {
             List<String> nameParts = user.userMetadata!['full_name'].toString().split(' ');
             profileData['first_name'] = nameParts.isNotEmpty ? nameParts.first : '';
             profileData['last_name'] = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
           } else if (user.email != null) {
-            // Extract name from email (before @)
             String emailName = user.email!.split('@').first;
             profileData['first_name'] = emailName.replaceAll('.', ' ').replaceAll('_', ' ');
           }
         }
 
-        // Auto-save the profile if we have new data
         if (user.phone != null || user.userMetadata?['full_name'] != null) {
           try {
             await supabase.from('user_profiles').upsert({
@@ -154,90 +147,143 @@ class _ProfileScreenState extends State<ProfileScreen>
         }
       }
 
-      // Calculate order stats with proper data handling
-      Map<String, dynamic> orderStatsData = {'total_orders': 0, 'completed_orders': 0, 'total_spent': 0.0, 'total_saved': 0.0};
+      // ✅ FIXED: Calculate order stats showing all orders but excluding cancelled from spent calculation
+      Map<String, dynamic> orderStatsData = await _calculateOrderStats(user.id);
 
-      try {
-        print('Calculating order stats for user: ${user.id}');
+      final addressResponse = await supabase
+          .from('user_addresses')
+          .select('id')
+          .eq('user_id', user.id);
 
-        // Get all orders for the user
-        final ordersResponse = await supabase
-            .from('orders')
-            .select('id, status, total_amount, discount_amount, created_at')
-            .eq('user_id', user.id);
+      _safeSetState(() {
+        userProfile = profileData;
+        orderStats = orderStatsData;
+        userAddresses = List<Map<String, dynamic>>.from(addressResponse ?? []);
+        isLoading = false;
+      });
 
-        print('Found ${ordersResponse.length} orders for stats calculation');
+    } catch (e) {
+      print('Error loading profile data: $e');
+      _safeSetState(() {
+        userProfile = {'user_id': user.id};
+        orderStats = {'total_orders': 0, 'completed_orders': 0, 'total_spent': 0.0, 'total_saved': 0.0};
+        userAddresses = [];
+        isLoading = false;
+      });
+    }
+  }
 
-        if (ordersResponse.isNotEmpty) {
-          orderStatsData['total_orders'] = ordersResponse.length;
+  // ✅ FIXED: Show all orders but exclude cancelled from money calculations only
+  Future<Map<String, dynamic>> _calculateOrderStats(String userId) async {
+    Map<String, dynamic> orderStatsData = {
+      'total_orders': 0,
+      'completed_orders': 0,
+      'total_spent': 0.0,
+      'total_saved': 0.0,
+    };
 
-          int completedCount = 0;
-          double totalSpent = 0.0;
-          double totalSaved = 0.0;
+    try {
+      print('Calculating order stats for user: $userId');
 
-          for (var order in ordersResponse) {
-            print('Processing order: ${order['id']} - Status: ${order['status']} - Amount: ${order['total_amount']} - Discount: ${order['discount_amount']}');
+      // Get all orders for the user
+      final ordersResponse = await supabase
+          .from('orders')
+          .select('id, status, order_status, total_amount, discount_amount, created_at, cancelled_at')
+          .eq('user_id', userId);
 
-            // Count completed/delivered orders
-            final status = order['status']?.toString().toLowerCase() ?? '';
-            if (status == 'delivered' || status == 'completed') {
-              completedCount++;
-            }
+      print('Found ${ordersResponse.length} orders for stats calculation');
 
-            // Sum total amount - handle different data types
-            final totalAmountRaw = order['total_amount'];
-            double orderAmount = 0.0;
+      if (ordersResponse.isEmpty) return orderStatsData;
 
-            if (totalAmountRaw != null) {
-              if (totalAmountRaw is String) {
-                orderAmount = double.tryParse(totalAmountRaw) ?? 0.0;
-              } else if (totalAmountRaw is int) {
-                orderAmount = totalAmountRaw.toDouble();
-              } else if (totalAmountRaw is double) {
-                orderAmount = totalAmountRaw;
-              } else if (totalAmountRaw is num) {
-                orderAmount = totalAmountRaw.toDouble();
-              }
-            }
+      int totalOrdersCount = ordersResponse.length; // ✅ Count ALL orders including cancelled
+      int completedCount = 0;
+      double totalSpent = 0.0;
+      double totalSaved = 0.0;
 
-            totalSpent += orderAmount;
-            print('Order amount: $orderAmount, Running total: $totalSpent');
+      for (var order in ordersResponse) {
+        final orderId = order['id'];
+        final status = (order['status'] ?? order['order_status'] ?? '').toString().toLowerCase();
+        final cancelledAt = order['cancelled_at'];
 
-            // Sum total savings from discount_amount
-            final discountAmountRaw = order['discount_amount'];
-            double discountAmount = 0.0;
+        print('Processing order: $orderId - Status: $status - Cancelled: $cancelledAt');
 
-            if (discountAmountRaw != null) {
-              if (discountAmountRaw is String) {
-                discountAmount = double.tryParse(discountAmountRaw) ?? 0.0;
-              } else if (discountAmountRaw is int) {
-                discountAmount = discountAmountRaw.toDouble();
-              } else if (discountAmountRaw is double) {
-                discountAmount = discountAmountRaw;
-              } else if (discountAmountRaw is num) {
-                discountAmount = discountAmountRaw.toDouble();
-              }
-            }
+        // ✅ Check if order is cancelled
+        bool isCancelled = cancelledAt != null ||
+            status.contains('cancel') ||
+            status == 'cancelled';
 
-            totalSaved += discountAmount;
-            print('Discount amount: $discountAmount, Running total saved: $totalSaved');
-          }
-
-          orderStatsData['completed_orders'] = completedCount;
-          orderStatsData['total_spent'] = totalSpent;
-          orderStatsData['total_saved'] = totalSaved;
-
-          print('Final calculated stats: $orderStatsData');
+        // Count completed orders (non-cancelled only)
+        if (!isCancelled && (status == 'delivered' || status == 'completed')) {
+          completedCount++;
         }
 
-        // Alternative: Try to get from order_billing_details table for more accurate data
-        if (ordersResponse.isNotEmpty) {
-          try {
-            final orderIds = ordersResponse.map((order) => order['id']).toList();
+        // ✅ Only exclude cancelled orders from money calculations
+        if (isCancelled) {
+          print('Order $orderId is cancelled - excluding from money calculations only');
+          continue; // Skip cancelled orders from money calculations only
+        }
+
+        // Calculate spent amount (only for non-cancelled orders)
+        final totalAmountRaw = order['total_amount'];
+        double orderAmount = 0.0;
+
+        if (totalAmountRaw != null) {
+          if (totalAmountRaw is String) {
+            orderAmount = double.tryParse(totalAmountRaw) ?? 0.0;
+          } else if (totalAmountRaw is int) {
+            orderAmount = totalAmountRaw.toDouble();
+          } else if (totalAmountRaw is double) {
+            orderAmount = totalAmountRaw;
+          } else if (totalAmountRaw is num) {
+            orderAmount = totalAmountRaw.toDouble();
+          }
+        }
+
+        totalSpent += orderAmount;
+        print('Order amount: $orderAmount, Running total: $totalSpent');
+
+        // Calculate savings (only for non-cancelled orders)
+        final discountAmountRaw = order['discount_amount'];
+        double discountAmount = 0.0;
+
+        if (discountAmountRaw != null) {
+          if (discountAmountRaw is String) {
+            discountAmount = double.tryParse(discountAmountRaw) ?? 0.0;
+          } else if (discountAmountRaw is int) {
+            discountAmount = discountAmountRaw.toDouble();
+          } else if (discountAmountRaw is double) {
+            discountAmount = discountAmountRaw;
+          } else if (discountAmountRaw is num) {
+            discountAmount = discountAmountRaw.toDouble();
+          }
+        }
+
+        totalSaved += discountAmount;
+        print('Discount amount: $discountAmount, Running total saved: $totalSaved');
+      }
+
+      orderStatsData['total_orders'] = totalOrdersCount; // ✅ Shows ALL orders
+      orderStatsData['completed_orders'] = completedCount;
+      orderStatsData['total_spent'] = totalSpent; // ✅ Excludes cancelled orders
+      orderStatsData['total_saved'] = totalSaved; // ✅ Excludes cancelled orders
+
+      print('Final calculated stats: $orderStatsData');
+
+      // ✅ Try to get more accurate data from billing details (excluding cancelled orders)
+      if (totalOrdersCount > 0) {
+        try {
+          final nonCancelledOrderIds = ordersResponse
+              .where((order) =>
+          order['cancelled_at'] == null &&
+              !(order['status'] ?? order['order_status'] ?? '').toString().toLowerCase().contains('cancel'))
+              .map((order) => order['id'])
+              .toList();
+
+          if (nonCancelledOrderIds.isNotEmpty) {
             final billingResponse = await supabase
                 .from('order_billing_details')
                 .select('total_amount, discount_amount, order_id')
-                .inFilter('order_id', orderIds);
+                .inFilter('order_id', nonCancelledOrderIds);
 
             if (billingResponse.isNotEmpty) {
               double billingTotalSpent = 0.0;
@@ -269,50 +315,25 @@ class _ProfileScreenState extends State<ProfileScreen>
                 }
               }
 
-              // Use billing data if it seems more accurate (has more data)
+              // Use billing data if it has more accurate information
               if (billingTotalSpent > 0 || billingTotalSaved > 0) {
                 orderStatsData['total_spent'] = billingTotalSpent;
                 orderStatsData['total_saved'] = billingTotalSaved;
                 print('Using billing data - Spent: $billingTotalSpent, Saved: $billingTotalSaved');
               }
             }
-          } catch (e) {
-            print('Could not fetch from billing details: $e');
           }
+        } catch (e) {
+          print('Could not fetch from billing details: $e');
         }
-
-      } catch (e) {
-        print('Error calculating order stats: $e');
-        // Set default values on error
-        orderStatsData = {'total_orders': 0, 'completed_orders': 0, 'total_spent': 0.0, 'total_saved': 0.0};
       }
 
-      final addressResponse = await supabase
-          .from('user_addresses')
-          .select('id')
-          .eq('user_id', user.id);
-
-      _safeSetState(() {
-        userProfile = profileData;
-        orderStats = orderStatsData;
-        userAddresses = List<Map<String, dynamic>>.from(addressResponse ?? []);
-        isLoading = false;
-      });
-
-      print('Final profile data loaded:');
-      print('Profile: $profileData');
-      print('Stats: $orderStatsData');
-      print('Addresses: ${userAddresses.length}');
-
     } catch (e) {
-      print('Error loading profile data: $e');
-      _safeSetState(() {
-        userProfile = {'user_id': user.id};
-        orderStats = {'total_orders': 0, 'completed_orders': 0, 'total_spent': 0.0, 'total_saved': 0.0};
-        userAddresses = [];
-        isLoading = false;
-      });
+      print('Error calculating order stats: $e');
+      return {'total_orders': 0, 'completed_orders': 0, 'total_spent': 0.0, 'total_saved': 0.0};
     }
+
+    return orderStatsData;
   }
 
   Future<void> _pickAndUploadImage() async {
@@ -322,7 +343,6 @@ class _ProfileScreenState extends State<ProfileScreen>
       return;
     }
 
-    // Haptic feedback for better UX
     HapticFeedback.lightImpact();
 
     final ImageSource? source = await showModalBottomSheet<ImageSource>(
@@ -410,10 +430,6 @@ class _ProfileScreenState extends State<ProfileScreen>
         uploadProgress = 0.0;
       });
 
-      print('📸 Starting upload process...');
-      print('📁 File path: ${pickedFile.path}');
-
-      // Simulate smooth progress for better UX
       _simulateUploadProgress();
 
       final file = File(pickedFile.path);
@@ -422,7 +438,6 @@ class _ProfileScreenState extends State<ProfileScreen>
       }
 
       final fileSize = await file.length();
-      print('📊 File size: ${(fileSize / 1024 / 1024).toStringAsFixed(2)}MB');
 
       if (fileSize > 5 * 1024 * 1024) {
         throw Exception('File size too large (max 5MB)');
@@ -435,17 +450,12 @@ class _ProfileScreenState extends State<ProfileScreen>
 
       final fileName = '${user.id}_${DateTime.now().millisecondsSinceEpoch}$fileExt';
 
-      print(' Uploading to avatars bucket with filename: $fileName');
-
-      // Check if avatars bucket exists
       try {
         await supabase.storage.from('avatars').list();
       } catch (e) {
-        print('⚠️ Avatars bucket might not exist or RLS policy issue');
         throw Exception('Storage bucket "avatars" not accessible. Please check bucket exists and RLS policies.');
       }
 
-      // Upload file to Supabase Storage
       final uploadResponse = await supabase.storage
           .from('avatars')
           .upload(
@@ -457,19 +467,12 @@ class _ProfileScreenState extends State<ProfileScreen>
         ),
       );
 
-      print('✅ Upload response: $uploadResponse');
-
-      // Get public URL
       final publicUrl = supabase.storage
           .from('avatars')
           .getPublicUrl(fileName);
 
-      print('🔗 Public URL generated: $publicUrl');
-
       _safeSetState(() => uploadProgress = 1.0);
 
-      // Update user profile in database
-      print('💾 Updating user profile with avatar URL...');
       await supabase
           .from('user_profiles')
           .upsert({
@@ -478,8 +481,6 @@ class _ProfileScreenState extends State<ProfileScreen>
         'updated_at': DateTime.now().toIso8601String(),
       }, onConflict: 'user_id');
 
-      print('✅ Profile updated successfully');
-
       await Future.delayed(const Duration(milliseconds: 300));
       await _loadProfileData();
 
@@ -487,7 +488,6 @@ class _ProfileScreenState extends State<ProfileScreen>
       _showSuccessSnackBar('Profile picture updated successfully!');
 
     } catch (e) {
-      print('❌ Upload error: $e');
       _showErrorSnackBar(_getErrorMessage(e.toString()));
     } finally {
       _safeSetState(() {
@@ -654,7 +654,6 @@ class _ProfileScreenState extends State<ProfileScreen>
         completed++;
       }
     }
-    // Also count email as it's always available from auth
     if (supabase.auth.currentUser?.email != null) {
       completed++;
     }
@@ -904,7 +903,6 @@ class _ProfileScreenState extends State<ProfileScreen>
       ),
       child: Column(
         children: [
-          // Profile Completion Header with Dropdown Arrow - MADE SMALLER
           GestureDetector(
             onTap: () {
               HapticFeedback.lightImpact();
@@ -918,7 +916,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               });
             },
             child: Container(
-              padding: const EdgeInsets.all(12), // Reduced from 16
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: profileCompleteness < 50
@@ -935,7 +933,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               child: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(8), // Reduced from 10
+                    padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: profileCompleteness < 50
@@ -952,9 +950,9 @@ class _ProfileScreenState extends State<ProfileScreen>
                         ),
                       ],
                     ),
-                    child: Icon(Icons.trending_up_rounded, color: Colors.white, size: 18), // Reduced from 20
+                    child: Icon(Icons.trending_up_rounded, color: Colors.white, size: 18),
                   ),
-                  const SizedBox(width: 12), // Reduced from 16
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -964,7 +962,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                             const Text(
                               'Profile Completion',
                               style: TextStyle(
-                                fontSize: 14, // Reduced from 16
+                                fontSize: 14,
                                 fontWeight: FontWeight.w700,
                                 color: Colors.black87,
                               ),
@@ -976,7 +974,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                               child: Icon(
                                 Icons.keyboard_arrow_down_rounded,
                                 color: Colors.grey.shade600,
-                                size: 18, // Reduced from 20
+                                size: 18,
                               ),
                             ),
                           ],
@@ -987,7 +985,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                               ? 'Tap to collapse personal info'
                               : 'Tap to view personal info',
                           style: TextStyle(
-                            fontSize: 11, // Reduced from 12
+                            fontSize: 11,
                             color: Colors.grey.shade600,
                             fontWeight: FontWeight.w500,
                           ),
@@ -996,7 +994,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), // Reduced
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: profileCompleteness < 50
@@ -1018,7 +1016,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,
-                        fontSize: 12, // Reduced from 14
+                        fontSize: 12,
                       ),
                     ),
                   ),
@@ -1027,9 +1025,8 @@ class _ProfileScreenState extends State<ProfileScreen>
             ),
           ),
 
-          const SizedBox(height: 16), // Reduced from 20
+          const SizedBox(height: 16),
 
-          // Progress Bar - MADE SMALLER
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
             child: LinearProgressIndicator(
@@ -1038,11 +1035,10 @@ class _ProfileScreenState extends State<ProfileScreen>
               valueColor: AlwaysStoppedAnimation<Color>(
                 profileCompleteness < 50 ? Colors.orange : kPrimaryColor,
               ),
-              minHeight: 6, // Reduced from 8
+              minHeight: 6,
             ),
           ),
 
-          // Expanded Personal Information Section
           AnimatedBuilder(
             animation: _expansionAnimation,
             builder: (context, child) {
@@ -1056,9 +1052,8 @@ class _ProfileScreenState extends State<ProfileScreen>
             child: Column(
               children: [
                 const SizedBox(height: 20),
-                // Personal Information Section
                 Container(
-                  padding: const EdgeInsets.all(18), // Reduced from 20
+                  padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
@@ -1084,7 +1079,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                               ),
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: Icon(Icons.person_rounded, color: kPrimaryColor, size: 18), // Reduced from 20
+                            child: Icon(Icons.person_rounded, color: kPrimaryColor, size: 18),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -1094,7 +1089,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                                 const Text(
                                   'Personal Information',
                                   style: TextStyle(
-                                    fontSize: 15, // Reduced from 16
+                                    fontSize: 15,
                                     fontWeight: FontWeight.w800,
                                     color: Colors.black87,
                                   ),
@@ -1102,7 +1097,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                                 TextButton(
                                   onPressed: _showEditDialog,
                                   style: TextButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5), // Reduced
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                                     backgroundColor: kPrimaryColor.withOpacity(0.1),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(8),
@@ -1113,7 +1108,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                                     style: TextStyle(
                                       color: kPrimaryColor,
                                       fontWeight: FontWeight.w600,
-                                      fontSize: 11, // Reduced from 12
+                                      fontSize: 11,
                                     ),
                                   ),
                                 ),
@@ -1122,7 +1117,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                           ),
                         ],
                       ),
-                      const SizedBox(height: 16), // Reduced from 20
+                      const SizedBox(height: 16),
                       _buildEnhancedInfoRow(Icons.person_rounded, 'Name',
                           '${userProfile?['first_name'] ?? ''} ${userProfile?['last_name'] ?? ''}'.trim().isEmpty
                               ? 'Not set'
@@ -1143,58 +1138,12 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildInfoRow(IconData icon, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [kPrimaryColor.withOpacity(0.1), kPrimaryColor.withOpacity(0.05)],
-              ),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, size: 20, color: kPrimaryColor),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    color: Colors.black87,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildEnhancedInfoRow(IconData icon, String label, String value) {
     bool hasValue = value != 'Not set' && value.isNotEmpty;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 14), // Reduced from 16
-      padding: const EdgeInsets.all(14), // Reduced from 16
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: hasValue ? Colors.white : Colors.grey.shade50,
         borderRadius: BorderRadius.circular(12),
@@ -1212,7 +1161,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(8), // Reduced from 10
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: hasValue
@@ -1223,11 +1172,11 @@ class _ProfileScreenState extends State<ProfileScreen>
             ),
             child: Icon(
               icon,
-              size: 18, // Reduced from 20
+              size: 18,
               color: hasValue ? kPrimaryColor : Colors.grey.shade500,
             ),
           ),
-          const SizedBox(width: 14), // Reduced from 16
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1235,7 +1184,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 Text(
                   label,
                   style: TextStyle(
-                    fontSize: 11, // Reduced from 12
+                    fontSize: 11,
                     color: Colors.grey.shade600,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 0.5,
@@ -1245,7 +1194,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 Text(
                   value,
                   style: TextStyle(
-                    fontSize: 14, // Reduced from 15
+                    fontSize: 14,
                     color: hasValue ? Colors.black87 : Colors.grey.shade500,
                     fontWeight: hasValue ? FontWeight.w700 : FontWeight.w500,
                   ),
@@ -1255,7 +1204,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           ),
           if (!hasValue)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3), // Reduced
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
               decoration: BoxDecoration(
                 color: Colors.orange.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(6),
@@ -1263,7 +1212,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               child: Text(
                 'Add',
                 style: TextStyle(
-                  fontSize: 10, // Reduced from 11
+                  fontSize: 10,
                   color: Colors.orange.shade700,
                   fontWeight: FontWeight.w600,
                 ),
@@ -1272,7 +1221,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           if (hasValue)
             Icon(
               Icons.check_circle_rounded,
-              size: 16, // Reduced from 18
+              size: 16,
               color: Colors.green.shade600,
             ),
         ],
@@ -1280,6 +1229,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
+  // ✅ FIXED: Quick stats without cancelled orders notification and same color for all cards
   Widget _buildQuickStats() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -1299,6 +1249,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               '₹${(orderStats?['total_saved'] ?? 0.0).toStringAsFixed(0)}',
               'Total Saved',
               Icons.local_offer_rounded,
+              // ✅ FIXED: Changed from green to primary color like others
               [kPrimaryColor.withOpacity(0.8), kPrimaryColor.withOpacity(0.6)],
             ),
           ),
@@ -1308,12 +1259,13 @@ class _ProfileScreenState extends State<ProfileScreen>
               '₹${(orderStats?['total_spent'] ?? 0.0).toStringAsFixed(0)}',
               'Total Spent',
               Icons.currency_rupee_rounded,
-              [kPrimaryColor.withOpacity(0.6), kPrimaryColor.withOpacity(0.4)],
+              [kPrimaryColor.withOpacity(0.7), kPrimaryColor.withOpacity(0.5)],
             ),
           ),
         ],
       ),
     );
+    // ✅ REMOVED: The cancelled orders notification section is completely removed
   }
 
   Widget _buildStatCard(String count, String label, IconData icon, List<Color> gradient) {
@@ -1528,10 +1480,10 @@ class _ProfileScreenState extends State<ProfileScreen>
           },
           borderRadius: BorderRadius.circular(16),
           child: Container(
-            padding: const EdgeInsets.all(16), // Reduced from 20
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFFDC2626), // Solid red color
-              borderRadius: BorderRadius.circular(16), // Reduced from 25
+              color: const Color(0xFFDC2626),
+              borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
                   color: const Color(0xFFDC2626).withOpacity(0.3),
@@ -1543,14 +1495,14 @@ class _ProfileScreenState extends State<ProfileScreen>
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10), // Reduced from 14
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(12), // Reduced from 18
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(Icons.logout_rounded, color: Colors.white, size: 20), // Reduced from 26
+                  child: const Icon(Icons.logout_rounded, color: Colors.white, size: 20),
                 ),
-                const SizedBox(width: 16), // Reduced from 20
+                const SizedBox(width: 16),
                 const Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1558,7 +1510,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       Text(
                         'Logout',
                         style: TextStyle(
-                          fontSize: 16, // Reduced from 20
+                          fontSize: 16,
                           fontWeight: FontWeight.w800,
                           color: Colors.white,
                           letterSpacing: 0.5,
@@ -1568,7 +1520,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       Text(
                         'Sign out of your account securely',
                         style: TextStyle(
-                          fontSize: 12, // Reduced from 14
+                          fontSize: 12,
                           color: Colors.white70,
                           fontWeight: FontWeight.w500,
                         ),
@@ -1577,14 +1529,14 @@ class _ProfileScreenState extends State<ProfileScreen>
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.all(8), // Reduced from 10
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(10), // Reduced from 12
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(
                     Icons.arrow_forward_ios_rounded,
-                    size: 14, // Reduced from 16
+                    size: 14,
                     color: Colors.white,
                   ),
                 ),
@@ -1596,7 +1548,6 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  // Navigation methods remain the same...
   void _navigateToOrderHistory() {
     Navigator.push(
       context,
@@ -1620,7 +1571,7 @@ class _ProfileScreenState extends State<ProfileScreen>
   void _navigateToNotifications() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const _NotificationSettingsScreen()),
+      MaterialPageRoute(builder: (context) => const NotificationsScreen()),
     );
   }
 
@@ -1666,27 +1617,29 @@ class _ProfileScreenState extends State<ProfileScreen>
     }
   }
 
+  // ✅ FIXED: Complete gender selection dialog with proper state management
   void _showEditDialog() {
     final firstNameController = TextEditingController(text: userProfile?['first_name'] ?? '');
     final lastNameController = TextEditingController(text: userProfile?['last_name'] ?? '');
     final phoneController = TextEditingController(text: userProfile?['phone_number'] ?? '');
     final dobController = TextEditingController(text: userProfile?['date_of_birth'] ?? '');
 
+    // ✅ FIXED: Initialize gender outside of StatefulBuilder to maintain state
+    String selectedGender = userProfile?['gender'] ?? '';
+
     showDialog(
       context: context,
       barrierColor: Colors.black.withOpacity(0.7),
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
-          String selectedGender = userProfile?['gender'] ?? '';
-
           return Dialog(
             backgroundColor: Colors.transparent,
-            insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 60), // Increased top/bottom padding
+            insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 60),
             child: Container(
               width: double.infinity,
-              constraints: const BoxConstraints(maxHeight: 600), // Reduced from 700
+              constraints: const BoxConstraints(maxHeight: 600),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20), // Reduced from 28
+                borderRadius: BorderRadius.circular(20),
                 color: Colors.white,
                 boxShadow: [
                   BoxShadow(
@@ -1701,9 +1654,9 @@ class _ProfileScreenState extends State<ProfileScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Compact Header
+                    // Header
                     Container(
-                      padding: const EdgeInsets.all(16), // Reduced from 24
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
@@ -1712,18 +1665,18 @@ class _ProfileScreenState extends State<ProfileScreen>
                       child: Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.all(8), // Reduced from 12
+                            padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(10), // Reduced from 16
+                              borderRadius: BorderRadius.circular(10),
                             ),
                             child: const Icon(
                                 Icons.edit_rounded,
                                 color: Colors.white,
-                                size: 20 // Reduced from 24
+                                size: 20
                             ),
                           ),
-                          const SizedBox(width: 12), // Reduced from 16
+                          const SizedBox(width: 12),
                           const Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1731,7 +1684,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                                 Text(
                                   'Edit Profile',
                                   style: TextStyle(
-                                    fontSize: 18, // Reduced from 22
+                                    fontSize: 18,
                                     fontWeight: FontWeight.w800,
                                     color: Colors.white,
                                   ),
@@ -1740,7 +1693,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                                 Text(
                                   'Update your personal information',
                                   style: TextStyle(
-                                    fontSize: 12, // Reduced from 14
+                                    fontSize: 12,
                                     color: Colors.white70,
                                     fontWeight: FontWeight.w500,
                                   ),
@@ -1775,7 +1728,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     // Form Content
                     Flexible(
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(16), // Reduced from 24
+                        padding: const EdgeInsets.all(16),
                         child: Column(
                           children: [
                             // Name Row
@@ -1849,13 +1802,13 @@ class _ProfileScreenState extends State<ProfileScreen>
                             ),
                             const SizedBox(height: 16),
 
-                            // Gender Selection - Compact Design
+                            // ✅ FIXED GENDER SELECTION with proper state management
                             Container(
                               width: double.infinity,
-                              padding: const EdgeInsets.all(16), // Reduced from 20
+                              padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
                                 color: Colors.grey.shade50,
-                                borderRadius: BorderRadius.circular(12), // Reduced from 20
+                                borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
                                   color: kPrimaryColor.withOpacity(0.2),
                                   width: 1,
@@ -1877,14 +1830,14 @@ class _ProfileScreenState extends State<ProfileScreen>
                                         child: Icon(
                                             Icons.person_outline_rounded,
                                             color: kPrimaryColor,
-                                            size: 16 // Reduced from 20
+                                            size: 16
                                         ),
                                       ),
                                       const SizedBox(width: 8),
                                       const Text(
                                         'Gender',
                                         style: TextStyle(
-                                          fontSize: 14, // Reduced from 16
+                                          fontSize: 14,
                                           fontWeight: FontWeight.w700,
                                           color: Colors.black87,
                                         ),
@@ -1893,32 +1846,130 @@ class _ProfileScreenState extends State<ProfileScreen>
                                   ),
                                   const SizedBox(height: 12),
 
-                                  // Gender Options
+                                  // Gender Options with fixed state management
                                   Row(
                                     children: [
                                       Expanded(
-                                        child: _buildCompactGenderOption(
-                                          'Male',
-                                          Icons.male_rounded,
-                                          selectedGender == 'Male',
-                                              () {
+                                        child: GestureDetector(
+                                          onTap: () {
+                                            HapticFeedback.lightImpact();
                                             setDialogState(() {
                                               selectedGender = 'Male';
                                             });
                                           },
+                                          child: AnimatedContainer(
+                                            duration: const Duration(milliseconds: 200),
+                                            padding: const EdgeInsets.all(12),
+                                            decoration: BoxDecoration(
+                                              gradient: selectedGender == 'Male'
+                                                  ? LinearGradient(
+                                                colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+                                              )
+                                                  : LinearGradient(
+                                                colors: [Colors.white, Colors.grey.shade50],
+                                              ),
+                                              borderRadius: BorderRadius.circular(12),
+                                              border: Border.all(
+                                                color: selectedGender == 'Male' ? kPrimaryColor : Colors.grey.shade300,
+                                                width: selectedGender == 'Male' ? 2 : 1,
+                                              ),
+                                              boxShadow: selectedGender == 'Male'
+                                                  ? [
+                                                BoxShadow(
+                                                  color: kPrimaryColor.withOpacity(0.25),
+                                                  blurRadius: 8,
+                                                  offset: const Offset(0, 4),
+                                                ),
+                                              ]
+                                                  : [
+                                                BoxShadow(
+                                                  color: Colors.grey.withOpacity(0.1),
+                                                  blurRadius: 4,
+                                                  offset: const Offset(0, 2),
+                                                ),
+                                              ],
+                                            ),
+                                            child: Column(
+                                              children: [
+                                                Icon(
+                                                  Icons.male_rounded,
+                                                  color: selectedGender == 'Male' ? Colors.white : kPrimaryColor,
+                                                  size: 24,
+                                                ),
+                                                const SizedBox(height: 6),
+                                                Text(
+                                                  'Male',
+                                                  style: TextStyle(
+                                                    color: selectedGender == 'Male' ? Colors.white : Colors.black87,
+                                                    fontWeight: FontWeight.w600,
+                                                    fontSize: 13,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
                                         ),
                                       ),
                                       const SizedBox(width: 10),
                                       Expanded(
-                                        child: _buildCompactGenderOption(
-                                          'Female',
-                                          Icons.female_rounded,
-                                          selectedGender == 'Female',
-                                              () {
+                                        child: GestureDetector(
+                                          onTap: () {
+                                            HapticFeedback.lightImpact();
                                             setDialogState(() {
                                               selectedGender = 'Female';
                                             });
                                           },
+                                          child: AnimatedContainer(
+                                            duration: const Duration(milliseconds: 200),
+                                            padding: const EdgeInsets.all(12),
+                                            decoration: BoxDecoration(
+                                              gradient: selectedGender == 'Female'
+                                                  ? LinearGradient(
+                                                colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+                                              )
+                                                  : LinearGradient(
+                                                colors: [Colors.white, Colors.grey.shade50],
+                                              ),
+                                              borderRadius: BorderRadius.circular(12),
+                                              border: Border.all(
+                                                color: selectedGender == 'Female' ? kPrimaryColor : Colors.grey.shade300,
+                                                width: selectedGender == 'Female' ? 2 : 1,
+                                              ),
+                                              boxShadow: selectedGender == 'Female'
+                                                  ? [
+                                                BoxShadow(
+                                                  color: kPrimaryColor.withOpacity(0.25),
+                                                  blurRadius: 8,
+                                                  offset: const Offset(0, 4),
+                                                ),
+                                              ]
+                                                  : [
+                                                BoxShadow(
+                                                  color: Colors.grey.withOpacity(0.1),
+                                                  blurRadius: 4,
+                                                  offset: const Offset(0, 2),
+                                                ),
+                                              ],
+                                            ),
+                                            child: Column(
+                                              children: [
+                                                Icon(
+                                                  Icons.female_rounded,
+                                                  color: selectedGender == 'Female' ? Colors.white : kPrimaryColor,
+                                                  size: 24,
+                                                ),
+                                                const SizedBox(height: 6),
+                                                Text(
+                                                  'Female',
+                                                  style: TextStyle(
+                                                    color: selectedGender == 'Female' ? Colors.white : Colors.black87,
+                                                    fontWeight: FontWeight.w600,
+                                                    fontSize: 13,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
                                         ),
                                       ),
                                     ],
@@ -1934,7 +1985,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                               children: [
                                 Expanded(
                                   child: Container(
-                                    height: 44, // Reduced from 56
+                                    height: 44,
                                     decoration: BoxDecoration(
                                       color: Colors.grey.shade100,
                                       borderRadius: BorderRadius.circular(12),
@@ -1959,7 +2010,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                                       child: Text(
                                         'Cancel',
                                         style: TextStyle(
-                                          fontSize: 14, // Reduced from 16
+                                          fontSize: 14,
                                           fontWeight: FontWeight.w600,
                                           color: Colors.grey.shade700,
                                         ),
@@ -1971,7 +2022,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                                 Expanded(
                                   flex: 2,
                                   child: Container(
-                                    height: 44, // Reduced from 56
+                                    height: 44,
                                     decoration: BoxDecoration(
                                       gradient: LinearGradient(
                                         colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
@@ -2021,12 +2072,12 @@ class _ProfileScreenState extends State<ProfileScreen>
                                       child: const Row(
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
-                                          Icon(Icons.save_rounded, size: 16), // Reduced from 20
+                                          Icon(Icons.save_rounded, size: 16),
                                           SizedBox(width: 6),
                                           Text(
                                             'Save Changes',
                                             style: TextStyle(
-                                              fontSize: 14, // Reduced from 16
+                                              fontSize: 14,
                                               fontWeight: FontWeight.w700,
                                             ),
                                           ),
@@ -2073,7 +2124,7 @@ class _ProfileScreenState extends State<ProfileScreen>
         controller: controller,
         keyboardType: keyboardType,
         style: const TextStyle(
-          fontSize: 14, // Reduced from 15
+          fontSize: 14,
           fontWeight: FontWeight.w600,
           color: Colors.black87,
         ),
@@ -2083,14 +2134,14 @@ class _ProfileScreenState extends State<ProfileScreen>
           labelStyle: TextStyle(
             color: kPrimaryColor.withOpacity(0.7),
             fontWeight: FontWeight.w600,
-            fontSize: 12, // Reduced from 14
+            fontSize: 12,
           ),
           hintStyle: TextStyle(
             color: Colors.grey.shade500,
             fontSize: 12,
           ),
           prefixIcon: Container(
-            margin: const EdgeInsets.all(8), // Reduced from 12
+            margin: const EdgeInsets.all(8),
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -2098,7 +2149,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               ),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(icon, color: kPrimaryColor, size: 16), // Reduced from 20
+            child: Icon(icon, color: kPrimaryColor, size: 16),
           ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
@@ -2114,98 +2165,8 @@ class _ProfileScreenState extends State<ProfileScreen>
           ),
           filled: true,
           fillColor: Colors.transparent,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12), // Reduced from 16
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         ),
-      ),
-    );
-  }
-
-  Widget _buildCompactGenderOption(String gender, IconData icon, bool isSelected, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.lightImpact();
-        onTap();
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(12), // Reduced from 16
-        decoration: BoxDecoration(
-          gradient: isSelected
-              ? LinearGradient(
-            colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
-          )
-              : LinearGradient(
-            colors: [Colors.white, Colors.grey.shade50],
-          ),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? kPrimaryColor : Colors.grey.shade300,
-            width: isSelected ? 1.5 : 1,
-          ),
-          boxShadow: isSelected
-              ? [
-            BoxShadow(
-              color: kPrimaryColor.withOpacity(0.25),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
-          ]
-              : [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.1),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? Colors.white : kPrimaryColor,
-              size: 24, // Reduced from 28
-            ),
-            const SizedBox(height: 6), // Reduced from 8
-            Text(
-              gender,
-              style: TextStyle(
-                color: isSelected ? Colors.white : Colors.black87,
-                fontWeight: FontWeight.w600,
-                fontSize: 13, // Reduced from 14
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEditField(TextEditingController controller, String label, IconData icon, [TextInputType? keyboardType, String? hintText]) {
-    return TextField(
-      controller: controller,
-      keyboardType: keyboardType,
-      decoration: InputDecoration(
-        labelText: label,
-        hintText: hintText,
-        prefixIcon: Container(
-          margin: const EdgeInsets.all(12),
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [kPrimaryColor.withOpacity(0.1), kPrimaryColor.withOpacity(0.05)]),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(icon, color: kPrimaryColor, size: 20),
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.grey.shade300),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: kPrimaryColor, width: 2),
-        ),
-        filled: true,
-        fillColor: Colors.grey.shade50,
       ),
     );
   }
@@ -2215,7 +2176,6 @@ class _ProfileScreenState extends State<ProfileScreen>
     if (user == null) return;
 
     try {
-      // Clean up the updates - remove null or empty values
       Map<String, dynamic> cleanUpdates = {};
       updates.forEach((key, value) {
         if (value != null && value.toString().isNotEmpty) {
@@ -2334,89 +2294,6 @@ class _ProfileScreenState extends State<ProfileScreen>
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-// ========================================
-// NOTIFICATION SETTINGS SCREEN
-// ========================================
-
-class _NotificationSettingsScreen extends StatelessWidget {
-  const _NotificationSettingsScreen();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: const Text(
-          'Notification Settings',
-          style: TextStyle(fontWeight: FontWeight.w800),
-        ),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
-        leading: IconButton(
-          onPressed: () => Navigator.pop(context),
-          icon: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: kPrimaryColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(Icons.arrow_back_ios_rounded, color: kPrimaryColor, size: 16),
-          ),
-        ),
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(32),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [kPrimaryColor.withOpacity(0.1), kPrimaryColor.withOpacity(0.05)],
-                ),
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Icon(
-                Icons.notifications_rounded,
-                size: 80,
-                color: kPrimaryColor,
-              ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'Notification Settings',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Coming Soon!',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'We\'re working on bringing you\npersonalized notification preferences.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade500,
-                height: 1.4,
-              ),
-            ),
-          ],
         ),
       ),
     );

@@ -1,4 +1,4 @@
-// ✅ UPDATED APP WRAPPER - ELECTRIC IRON THEME + FIXED SERVICE CHECK
+// ✅ UPDATED APP WRAPPER - ELECTRIC IRON THEME + FIXED SERVICE CHECK + SUPABASE INITIALIZATION FIX
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -17,7 +17,9 @@ class AppWrapper extends StatefulWidget {
 }
 
 class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
-  final supabase = Supabase.instance.client;
+  // ✅ FIXED: Safe Supabase initialization
+  SupabaseClient? supabase;
+  bool isSupabaseReady = false;
 
   // App state
   bool _isCheckingSession = true;
@@ -45,18 +47,59 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
   late Animation<double> _scaleAnimation;
 
   // Auth subscription
-  late StreamSubscription<AuthState> _authSubscription;
+  StreamSubscription<AuthState>? _authSubscription;
 
   @override
   void initState() {
     super.initState();
     _initializeAnimations();
-    _setupAuthListener();
-    _checkInitialSession();
+    _initializeSupabase();
+  }
+
+  // ✅ FIXED: Safe Supabase initialization with retry logic
+  Future<void> _initializeSupabase() async {
+    try {
+      int attempts = 0;
+      while (!isSupabaseReady && attempts < 10 && mounted) {
+        try {
+          supabase = Supabase.instance.client;
+          isSupabaseReady = true;
+          print('✅ Supabase ready in AppWrapper');
+
+          if (mounted) {
+            _setupAuthListener();
+            _checkInitialSession();
+          }
+          break;
+        } catch (e) {
+          attempts++;
+          print('⚠️ Supabase not ready yet, attempt $attempts: $e');
+          await Future.delayed(const Duration(milliseconds: 500));
+        }
+      }
+
+      if (!isSupabaseReady) {
+        print('❌ Failed to initialize Supabase in AppWrapper after 10 attempts');
+        if (mounted) {
+          setState(() {
+            _isCheckingSession = false;
+          });
+        }
+      }
+    } catch (e) {
+      print('❌ Error initializing Supabase in AppWrapper: $e');
+      if (mounted) {
+        setState(() {
+          _isCheckingSession = false;
+        });
+      }
+    }
   }
 
   void _setupAuthListener() {
-    _authSubscription = supabase.auth.onAuthStateChange.listen((data) {
+    if (supabase == null) return;
+
+    _authSubscription = supabase!.auth.onAuthStateChange.listen((data) {
       final AuthChangeEvent event = data.event;
       final Session? session = data.session;
 
@@ -67,20 +110,31 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
         _handleUserLoggedIn();
       } else if (event == AuthChangeEvent.signedOut) {
         print('❌ User signed out, showing login');
-        setState(() {
-          _isCheckingSession = false;
-          _isLocationStep = false;
-          _hasLocationChecked = false;
-          _locationVerifiedSuccessfully = false;
-        });
+        if (mounted) {
+          setState(() {
+            _isCheckingSession = false;
+            _isLocationStep = false;
+            _hasLocationChecked = false;
+            _locationVerifiedSuccessfully = false;
+          });
+        }
       }
     });
   }
 
   Future<void> _checkInitialSession() async {
+    if (supabase == null) {
+      if (mounted) {
+        setState(() {
+          _isCheckingSession = false;
+        });
+      }
+      return;
+    }
+
     print('🔍 Checking initial session...');
     try {
-      final session = supabase.auth.currentSession;
+      final session = supabase!.auth.currentSession;
       print('Current session: ${session != null ? "exists" : "null"}');
 
       if (session != null) {
@@ -108,22 +162,24 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
 
   void _handleUserLoggedIn() {
     print('🚀 Starting location verification process...');
-    setState(() {
-      _isCheckingSession = false;
-      _isLocationStep = true;
-      _hasLocationChecked = false;
-      _locationVerifiedSuccessfully = false;
-      _showMap = false;
-      _isLocationLoading = false;
-    });
+    if (mounted) {
+      setState(() {
+        _isCheckingSession = false;
+        _isLocationStep = true;
+        _hasLocationChecked = false;
+        _locationVerifiedSuccessfully = false;
+        _showMap = false;
+        _isLocationLoading = false;
+      });
 
-    _scaleController.forward();
+      _scaleController.forward();
 
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (mounted) {
-        _startLocationVerification();
-      }
-    });
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) {
+          _startLocationVerification();
+        }
+      });
+    }
   }
 
   void _initializeAnimations() {
@@ -173,13 +229,15 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
   }
 
   Future<void> _checkLocationAndService() async {
-    setState(() {
-      _isLocationLoading = true;
-      _currentLocation = 'Detecting your  area...';
-      _hasLocationChecked = false;
-      _showMap = false;
-      _locationVerifiedSuccessfully = false;
-    });
+    if (mounted) {
+      setState(() {
+        _isLocationLoading = true;
+        _currentLocation = 'Detecting your  area...';
+        _hasLocationChecked = false;
+        _showMap = false;
+        _locationVerifiedSuccessfully = false;
+      });
+    }
 
     _pulseController.repeat(reverse: true);
 
@@ -204,9 +262,11 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
         return;
       }
 
-      setState(() {
-        _currentLocation = 'Getting your location...';
-      });
+      if (mounted) {
+        setState(() {
+          _currentLocation = 'Getting your location...';
+        });
+      }
 
       _currentPosition = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
@@ -224,20 +284,22 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
         final place = placemarks[0];
         final address = '${place.name ?? place.subLocality ?? ''}, ${place.locality ?? ''}, ${place.postalCode ?? ''}';
 
-        setState(() {
-          _currentLocation = address;
-          _selectedLocation = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
-          _selectedAddress = address;
-          _isLocationLoading = false;
-          _showMap = true;
-          _markers = {
-            Marker(
-              markerId: const MarkerId('selected_location'),
-              position: _selectedLocation!,
-              infoWindow: InfoWindow(title: 'Your Location', snippet: address),
-            ),
-          };
-        });
+        if (mounted) {
+          setState(() {
+            _currentLocation = address;
+            _selectedLocation = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
+            _selectedAddress = address;
+            _isLocationLoading = false;
+            _showMap = true;
+            _markers = {
+              Marker(
+                markerId: const MarkerId('selected_location'),
+                position: _selectedLocation!,
+                infoWindow: InfoWindow(title: 'Your Location', snippet: address),
+              ),
+            };
+          });
+        }
 
         _pulseController.stop();
         print('✅ Location detected: $address');
@@ -253,22 +315,31 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
 
   // ✅ FIXED: Bulletproof service confirmation
   Future<void> _confirmLocationAndCheckService() async {
+    if (supabase == null) {
+      print('❌ Supabase not ready');
+      return;
+    }
+
     print('🔥 CONFIRM BUTTON PRESSED - Checking ironXpress  availability');
     print('📍 Selected location: $_selectedLocation');
     print('📍 Selected address: $_selectedAddress');
 
     if (_selectedLocation == null) {
       print('❌ No location selected');
-      setState(() {
-        _currentLocation = 'Please select your location on the map';
-      });
+      if (mounted) {
+        setState(() {
+          _currentLocation = 'Please select your location on the map';
+        });
+      }
       return;
     }
 
-    setState(() {
-      _isLocationLoading = true;
-      _currentLocation = 'Checking ironXpress availability...';
-    });
+    if (mounted) {
+      setState(() {
+        _isLocationLoading = true;
+        _currentLocation = 'Checking ironXpress availability...';
+      });
+    }
 
     try {
       print('🔍 Checking if we provide ironXpress in this area...');
@@ -296,19 +367,23 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
         print('⚠️ Save location error but continuing: $e');
       }
 
-      setState(() {
-        _isServiceAvailable = serviceAvailable;
-        _isLocationLoading = false;
-        _hasLocationChecked = true;
-        _showMap = false;
-        _locationVerifiedSuccessfully = serviceAvailable;
-      });
+      if (mounted) {
+        setState(() {
+          _isServiceAvailable = serviceAvailable;
+          _isLocationLoading = false;
+          _hasLocationChecked = true;
+          _showMap = false;
+          _locationVerifiedSuccessfully = serviceAvailable;
+        });
+      }
 
       if (serviceAvailable) {
         print('✅ IronXpress available, navigating to home');
-        setState(() {
-          _currentLocation = 'Welcome to ironXpress';
-        });
+        if (mounted) {
+          setState(() {
+            _currentLocation = 'Welcome to ironXpress';
+          });
+        }
         await Future.delayed(const Duration(milliseconds: 1500));
         _navigateToHome();
       } else {
@@ -318,18 +393,22 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
 
     } catch (e) {
       print('❌ Critical error in ironXpress check: $e');
-      setState(() {
-        _isServiceAvailable = false;
-        _isLocationLoading = false;
-        _hasLocationChecked = true;
-        _showMap = false;
-        _locationVerifiedSuccessfully = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isServiceAvailable = false;
+          _isLocationLoading = false;
+          _hasLocationChecked = true;
+          _showMap = false;
+          _locationVerifiedSuccessfully = false;
+        });
+      }
       _bounceController.forward();
     }
   }
 
   Future<bool> _checkIronServiceAvailability(double latitude, double longitude) async {
+    if (supabase == null) return false;
+
     try {
       print('🔍 Getting area details for your service...');
 
@@ -355,7 +434,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
       print('🔍 Checking ironXpress for pincode: $pincode (cleaned: $cleanPincode)');
 
       // Check if we provide iron services in this pincode
-      final response = await supabase
+      final response = await supabase!
           .from('service_areas')
           .select()
           .or('pincode.eq.$pincode,pincode.eq.$cleanPincode')
@@ -379,7 +458,12 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
   }
 
   Future<void> _saveLocationToProfile() async {
-    final user = supabase.auth.currentUser;
+    if (supabase == null) {
+      print('❌ Supabase not ready for saving location');
+      return;
+    }
+
+    final user = supabase!.auth.currentUser;
     if (user == null || _selectedLocation == null) return;
 
     try {
@@ -398,7 +482,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
       print('📍 Coordinates: ${_selectedLocation!.latitude}, ${_selectedLocation!.longitude}');
       print('📍 Pincode: $pincode');
 
-      await supabase.from('profiles').upsert({
+      await supabase!.from('profiles').upsert({
         'id': user.id,
         'location': _selectedAddress,
         'latitude': _selectedLocation!.latitude,
@@ -415,16 +499,18 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
   }
 
   Future<void> _onMapTap(LatLng location) async {
-    setState(() {
-      _selectedLocation = location;
-      _markers = {
-        Marker(
-          markerId: const MarkerId('selected_location'),
-          position: location,
-          infoWindow: const InfoWindow(title: 'Selected Location'),
-        ),
-      };
-    });
+    if (mounted) {
+      setState(() {
+        _selectedLocation = location;
+        _markers = {
+          Marker(
+            markerId: const MarkerId('selected_location'),
+            position: location,
+            infoWindow: const InfoWindow(title: 'Selected Location'),
+          ),
+        };
+      });
+    }
 
     try {
       List<Placemark> placemarks = await placemarkFromCoordinates(
@@ -435,37 +521,45 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
       if (placemarks.isNotEmpty) {
         final place = placemarks[0];
         final address = '${place.name ?? place.subLocality ?? ''}, ${place.locality ?? ''}, ${place.postalCode ?? ''}';
-        setState(() {
-          _selectedAddress = address;
-          _markers = {
-            Marker(
-              markerId: const MarkerId('selected_location'),
-              position: location,
-              infoWindow: InfoWindow(title: 'Selected Location', snippet: address),
-            ),
-          };
-        });
+        if (mounted) {
+          setState(() {
+            _selectedAddress = address;
+            _markers = {
+              Marker(
+                markerId: const MarkerId('selected_location'),
+                position: location,
+                infoWindow: InfoWindow(title: 'Selected Location', snippet: address),
+              ),
+            };
+          });
+        }
       }
     } catch (e) {
-      setState(() {
-        _selectedAddress = 'Selected location';
-      });
+      if (mounted) {
+        setState(() {
+          _selectedAddress = 'Selected location';
+        });
+      }
     }
   }
 
   Future<void> _handleLocationError(String errorMessage) async {
-    setState(() {
-      _currentLocation = errorMessage;
-      _isLocationLoading = false;
-      _isServiceAvailable = false;
-      _hasLocationChecked = true;
-      _locationVerifiedSuccessfully = false;
-      _showMap = false;
-    });
+    if (mounted) {
+      setState(() {
+        _currentLocation = errorMessage;
+        _isLocationLoading = false;
+        _isServiceAvailable = false;
+        _hasLocationChecked = true;
+        _locationVerifiedSuccessfully = false;
+        _showMap = false;
+      });
+    }
     _bounceController.forward();
   }
 
   void _navigateToHome() {
+    if (!mounted) return;
+
     print('🏠 Navigating to Home Screen');
     Navigator.pushReplacement(
       context,
@@ -496,12 +590,38 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
     _bounceController.dispose();
     _scaleController.dispose();
     _mapController?.dispose();
-    _authSubscription.cancel();
+    _authSubscription?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    // ✅ SHOW LOADING WHILE SUPABASE INITIALIZES
+    if (!isSupabaseReady) {
+      return Scaffold(
+        body: Container(
+          decoration: _buildIronBackgroundGradient(),
+          child: const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(color: kPrimaryColor),
+                SizedBox(height: 20),
+                Text(
+                  'Setting up ironXpress...',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.black54,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     // ✅ CHECKING SESSION STATE
     if (_isCheckingSession) {
       return Scaffold(

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "265041703661",
+    "project_id": "ironxpress-v1",
+    "storage_bucket": "ironxpress-v1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:265041703661:android:0741dec1999507f0a112e4",
+        "android_client_info": {
+          "package_name": "com.yuknow.ironly"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCVn1Aw1-Wt9ym5CZgyazygUThA-7g6Txc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
