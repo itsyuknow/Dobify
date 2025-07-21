@@ -138,28 +138,102 @@ class NotificationService {
     }
   }
 
-  // ✅ Save FCM token to Supabase (now with proper upsert conflict handling)
+  // ✅ Save FCM token to Supabase - IMPROVED with better error handling
   Future<void> _saveFCMTokenToDatabase() async {
     if (_fcmToken == null) return;
 
     final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      print('⚠️ No authenticated user, skipping FCM token save');
+      return;
+    }
 
     try {
+      // First, deactivate old tokens for this user on this device
+      await Supabase.instance.client
+          .from('user_fcm_tokens')
+          .update({'is_active': false})
+          .eq('user_id', user.id)
+          .eq('device_type', Platform.isIOS ? 'ios' : Platform.isAndroid ? 'android' : 'unknown');
+
+      // Then insert/update the new token
       await Supabase.instance.client.from('user_fcm_tokens').upsert(
         {
           'user_id': user.id,
           'fcm_token': _fcmToken,
           'device_type': Platform.isIOS ? 'ios' : Platform.isAndroid ? 'android' : 'unknown',
           'is_active': true,
+          'created_at': DateTime.now().toIso8601String(),
           'updated_at': DateTime.now().toIso8601String(),
         },
-        onConflict: 'user_id,fcm_token', // THE FIX!
+        onConflict: 'user_id,fcm_token',
       );
+
       print('✅ FCM token saved to database');
     } catch (e) {
       print('❌ Error saving FCM token: $e');
+      // Don't rethrow - this shouldn't break the app
     }
+  }
+
+  // 🆕 NEW: Send notification via your Edge Function
+  Future<bool> sendNotificationViaEdgeFunction({
+    String? userId,
+    String? fcmToken,
+    required String title,
+    required String body,
+    Map<String, dynamic>? data,
+    String? imageUrl,
+  }) async {
+    try {
+      print('📤 Sending notification via Edge Function...');
+
+      final payload = {
+        if (userId != null) 'user_id': userId,
+        if (fcmToken != null) 'fcm_token': fcmToken,
+        'title': title,
+        'body': body,
+        if (data != null) 'data': data,
+        if (imageUrl != null) 'image': imageUrl,
+      };
+
+      final response = await Supabase.instance.client.functions.invoke(
+        'send-push-notification',
+        body: payload,
+      );
+
+      if (response.data != null && response.data['success'] == true) {
+        print('✅ Notification sent successfully via Edge Function');
+        print('📊 Response: ${response.data}');
+        return true;
+      } else {
+        print('❌ Edge Function returned error: ${response.data}');
+        return false;
+      }
+    } catch (e) {
+      print('❌ Error sending notification via Edge Function: $e');
+      return false;
+    }
+  }
+
+  // 🆕 NEW: Send test notification via Edge Function
+  Future<void> sendTestNotificationViaEdgeFunction() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      print('⚠️ No authenticated user for test notification');
+      return;
+    }
+
+    await sendNotificationViaEdgeFunction(
+      userId: user.id,
+      title: 'Test from IronXpress! 🧽',
+      body: 'Your Edge Function is working perfectly! This is a test notification.',
+      data: {
+        'type': 'test',
+        'timestamp': DateTime.now().toIso8601String(),
+        'action': 'open_app',
+      },
+    );
   }
 
   // ✅ Setup Firebase message handlers
@@ -178,18 +252,24 @@ class NotificationService {
     print('✅ Message handlers setup complete');
   }
 
-  // ✅ Handle foreground messages
+  // ✅ Handle foreground messages - IMPROVED with better error handling
   Future<void> _handleForegroundMessage(RemoteMessage message) async {
     print('📱 Foreground message received: ${message.messageId}');
     print('📱 Title: ${message.notification?.title}');
     print('📱 Body: ${message.notification?.body}');
     print('📱 Data: ${message.data}');
 
-    // Store in database
-    await _storeNotificationInDatabase(message);
+    try {
+      // Store in database (don't let this fail the notification display)
+      await _storeNotificationInDatabase(message).catchError((e) {
+        print('⚠️ Failed to store notification in database: $e');
+      });
 
-    // Show local notification
-    await _showLocalNotification(message);
+      // Show local notification
+      await _showLocalNotification(message);
+    } catch (e) {
+      print('❌ Error handling foreground message: $e');
+    }
   }
 
   // ✅ Handle notification tap
@@ -198,36 +278,49 @@ class NotificationService {
 
     print('📱 Notification tapped: ${message.messageId}');
 
-    // Mark as read in database
-    await _markNotificationAsRead(message.messageId);
+    try {
+      // Mark as read in database
+      await _markNotificationAsRead(message.messageId);
 
-    // Handle navigation based on notification data
-    _handleNotificationNavigation(message.data);
+      // Handle navigation based on notification data
+      _handleNotificationNavigation(message.data);
+    } catch (e) {
+      print('❌ Error handling notification tap: $e');
+    }
   }
 
-  // ✅ Show local notification for foreground messages
+  // ✅ Show local notification for foreground messages - FIXED
   Future<void> _showLocalNotification(RemoteMessage message) async {
     try {
-      const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-        'ironxpress_notifications',
-        'IronXpress Notifications',
-        channelDescription: 'Notifications for iron services',
+      // Determine channel based on notification type
+      final notificationType = message.data['type'] ?? 'general';
+      final channelId = _getChannelIdForType(notificationType);
+
+      // Get appropriate channel name based on type
+      final channelName = _getChannelNameForType(notificationType);
+      final channelDescription = _getChannelDescriptionForType(notificationType);
+
+      final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+        channelId, // Use the dynamic channel ID here
+        channelName,
+        channelDescription: channelDescription,
         importance: Importance.high,
         priority: Priority.high,
         icon: '@mipmap/ic_launcher',
         showWhen: true,
-        when: null,
         enableVibration: true,
         playSound: true,
+        styleInformation: BigTextStyleInformation(''), // Better for long text
       );
 
       const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
         presentSound: true,
+        categoryIdentifier: 'ironxpress_notification',
       );
 
-      const NotificationDetails details = NotificationDetails(
+      final NotificationDetails details = NotificationDetails(
         android: androidDetails,
         iOS: iosDetails,
       );
@@ -246,7 +339,49 @@ class NotificationService {
     }
   }
 
-  // ✅ Store notification in Supabase database
+  // 🆕 NEW: Get channel ID based on notification type
+  String _getChannelIdForType(String type) {
+    switch (type) {
+      case 'order_update':
+        return 'ironxpress_orders';
+      case 'promotion':
+        return 'ironxpress_promotions';
+      case 'system':
+        return 'ironxpress_system';
+      default:
+        return 'ironxpress_notifications';
+    }
+  }
+
+  // 🆕 NEW: Get channel name based on notification type
+  String _getChannelNameForType(String type) {
+    switch (type) {
+      case 'order_update':
+        return 'Order Updates';
+      case 'promotion':
+        return 'Promotions & Offers';
+      case 'system':
+        return 'System Notifications';
+      default:
+        return 'IronXpress Notifications';
+    }
+  }
+
+  // 🆕 NEW: Get channel description based on notification type
+  String _getChannelDescriptionForType(String type) {
+    switch (type) {
+      case 'order_update':
+        return 'Notifications about order status changes';
+      case 'promotion':
+        return 'Special offers, discounts and promotions';
+      case 'system':
+        return 'Important system notifications and updates';
+      default:
+        return 'General notifications for IronXpress';
+    }
+  }
+
+  // ✅ Store notification in Supabase database - IMPROVED
   Future<void> _storeNotificationInDatabase(RemoteMessage message) async {
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) return;
@@ -254,10 +389,9 @@ class NotificationService {
     try {
       await Supabase.instance.client.from('notifications').insert({
         'user_id': user.id,
-        'message_id': message.messageId,
         'title': message.notification?.title ?? 'IronXpress',
         'body': message.notification?.body ?? '',
-        'data': message.data,
+        'data': message.data.isNotEmpty ? message.data : null,
         'type': message.data['type'] ?? 'general',
         'is_read': false,
         'created_at': DateTime.now().toIso8601String(),
@@ -265,10 +399,11 @@ class NotificationService {
       print('✅ Notification stored in database');
     } catch (e) {
       print('❌ Error storing notification: $e');
+      // Don't rethrow - this shouldn't break notification display
     }
   }
 
-  // ✅ Mark notification as read
+  // ✅ Mark notification as read - IMPROVED
   Future<void> _markNotificationAsRead(String? messageId) async {
     if (messageId == null) return;
 
@@ -278,34 +413,53 @@ class NotificationService {
     try {
       await Supabase.instance.client
           .from('notifications')
-          .update({'is_read': true})
-          .eq('message_id', messageId)
-          .eq('user_id', user.id);
+          .update({
+        'is_read': true,
+        'read_at': DateTime.now().toIso8601String(),
+      })
+          .eq('user_id', user.id)
+          .eq('is_read', false); // Only update unread notifications
+
       print('✅ Notification marked as read');
     } catch (e) {
       print('❌ Error marking notification as read: $e');
     }
   }
 
-  // ✅ Handle notification navigation
+  // ✅ Handle notification navigation - ENHANCED
   void _handleNotificationNavigation(Map<String, dynamic> data) {
     final type = data['type'] ?? 'general';
+    final action = data['action'] ?? '';
+
+    print('🔄 Handling navigation for type: $type, action: $action');
 
     switch (type) {
       case 'order_update':
-        print('🔄 Navigate to order: ${data['order_id']}');
-        // TODO: Navigate to order details screen
+        final orderId = data['order_id'];
+        if (orderId != null) {
+          print('🔄 Navigate to order: $orderId');
+          // TODO: Navigate to order details screen
+          // NavigationService.instance.navigateToOrder(orderId);
+        }
         break;
       case 'promotion':
-        print('🎁 Navigate to promotions');
+        final couponCode = data['coupon_code'];
+        print('🎁 Navigate to promotions${couponCode != null ? ' with code: $couponCode' : ''}');
         // TODO: Navigate to promotions screen
+        // NavigationService.instance.navigateToPromotions(couponCode);
         break;
       case 'system':
         print('⚙️ Navigate to system notifications');
         // TODO: Navigate to notifications screen
+        // NavigationService.instance.navigateToNotifications();
+        break;
+      case 'test':
+        print('🧪 Test notification - no navigation needed');
         break;
       default:
         print('📱 General notification handled');
+    // TODO: Navigate to default screen (maybe notifications list)
+    // NavigationService.instance.navigateToNotifications();
     }
   }
 
@@ -318,26 +472,34 @@ class NotificationService {
         AndroidNotificationChannel(
           'ironxpress_notifications',
           'IronXpress Notifications',
-          description: 'General notifications for ironXpress',
+          description: 'General notifications for IronXpress',
           importance: Importance.high,
+          enableVibration: true,
+          playSound: true,
         ),
         AndroidNotificationChannel(
           'ironxpress_orders',
           'Order Updates',
-          description: 'Notifications about order status',
+          description: 'Notifications about order status changes',
           importance: Importance.high,
+          enableVibration: true,
+          playSound: true,
         ),
         AndroidNotificationChannel(
           'ironxpress_promotions',
-          'Promotions',
-          description: 'Special offers and promotions',
+          'Promotions & Offers',
+          description: 'Special offers, discounts and promotions',
           importance: Importance.defaultImportance,
+          enableVibration: false,
+          playSound: true,
         ),
         AndroidNotificationChannel(
           'ironxpress_system',
           'System Notifications',
-          description: 'Important system notifications',
+          description: 'Important system notifications and updates',
           importance: Importance.high,
+          enableVibration: true,
+          playSound: true,
         ),
       ];
 
@@ -356,7 +518,11 @@ class NotificationService {
   // ✅ Handle local notification tap
   void _onNotificationTapped(NotificationResponse response) {
     print('📱 Local notification tapped: ${response.payload}');
-    // Handle local notification tap if needed
+
+    // Mark the notification as read if we have the payload (message ID)
+    if (response.payload != null) {
+      _markNotificationAsRead(response.payload);
+    }
   }
 
   // ✅ Subscribe to topics for targeted notifications
@@ -388,7 +554,7 @@ class NotificationService {
     }
   }
 
-  // ✅ Send a test notification (for debugging)
+  // ✅ Send a test notification (local only)
   Future<void> sendTestNotification() async {
     try {
       const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
@@ -413,12 +579,12 @@ class NotificationService {
 
       await _localNotifications.show(
         999,
-        'IronXpress Test',
-        'This is a test notification from IronXpress! 🔥',
+        'IronXpress Local Test',
+        'This is a local test notification! 🧪',
         details,
       );
 
-      print('✅ Test notification sent');
+      print('✅ Local test notification sent');
     } catch (e) {
       print('❌ Error sending test notification: $e');
     }
@@ -474,7 +640,10 @@ class NotificationService {
     try {
       await Supabase.instance.client
           .from('notifications')
-          .update({'is_read': true})
+          .update({
+        'is_read': true,
+        'read_at': DateTime.now().toIso8601String(),
+      })
           .eq('user_id', user.id)
           .eq('is_read', false);
       print('✅ All notifications marked as read');
