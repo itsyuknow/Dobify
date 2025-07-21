@@ -1,4 +1,3 @@
-// widgets/notification_service.dart - COMPLETE PRODUCTION-READY NOTIFICATION SERVICE
 import 'dart:io';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -139,7 +138,7 @@ class NotificationService {
     }
   }
 
-  // ✅ Save FCM token to Supabase
+  // ✅ Save FCM token to Supabase (now with proper upsert conflict handling)
   Future<void> _saveFCMTokenToDatabase() async {
     if (_fcmToken == null) return;
 
@@ -147,13 +146,16 @@ class NotificationService {
     if (user == null) return;
 
     try {
-      await Supabase.instance.client.from('user_fcm_tokens').upsert({
-        'user_id': user.id,
-        'fcm_token': _fcmToken,
-        'platform': Platform.isIOS ? 'ios' : 'android',
-        'is_active': true,
-        'updated_at': DateTime.now().toIso8601String(),
-      });
+      await Supabase.instance.client.from('user_fcm_tokens').upsert(
+        {
+          'user_id': user.id,
+          'fcm_token': _fcmToken,
+          'device_type': Platform.isIOS ? 'ios' : Platform.isAndroid ? 'android' : 'unknown',
+          'is_active': true,
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+        onConflict: 'user_id,fcm_token', // THE FIX!
+      );
       print('✅ FCM token saved to database');
     } catch (e) {
       print('❌ Error saving FCM token: $e');
