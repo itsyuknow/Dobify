@@ -14,7 +14,12 @@ class AiChatScreen extends StatefulWidget {
 class _ChatMessage {
   final String role; // 'user' or 'assistant'
   final String content;
-  _ChatMessage({required this.role, required this.content});
+  final DateTime timestamp;
+  _ChatMessage({
+    required this.role,
+    required this.content,
+    DateTime? timestamp,
+  }) : timestamp = timestamp ?? DateTime.now();
 }
 
 class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMixin {
@@ -26,11 +31,57 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
   late String conversationId;
   String? supportPhone;
 
+  // ✅ PREMIUM ANIMATIONS
+  late AnimationController _fadeController;
+  late AnimationController _slideController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+
   @override
   void initState() {
     super.initState();
     conversationId = _generateConversationId();
     fetchSupportPhone();
+    _initializeAnimations();
+    _addWelcomeMessage();
+  }
+
+  void _initializeAnimations() {
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    _slideController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _fadeController, curve: Curves.easeOut),
+    );
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.3),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _slideController,
+      curve: Curves.easeOutCubic,
+    ));
+
+    _fadeController.forward();
+    _slideController.forward();
+  }
+
+  void _addWelcomeMessage() {
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) {
+        setState(() {
+          _messages.add(_ChatMessage(
+            role: 'assistant',
+            content: "👋 Hello! I'm IronBot, your AI assistant. How can I help you with your laundry services today?",
+          ));
+        });
+      }
+    });
   }
 
   String _generateConversationId() {
@@ -38,199 +89,293 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
   }
 
   Future<void> fetchSupportPhone() async {
-    final response = await http.get(
-      Uri.parse('https://qehtglgjhzdlqcjujpp.supabase.co/rest/v1/ui_contacts?key=eq.support'),
-      headers: {
-        'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
-        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
-      },
-    );
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      if (data is List && data.isNotEmpty) {
-        setState(() {
-          supportPhone = data[0]['value'];
-        });
+    try {
+      final response = await http.get(
+        Uri.parse('https://qehtglgjhzdlqcjujpp.supabase.co/rest/v1/ui_contacts?key=eq.support'),
+        headers: {
+          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
+          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
+        },
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is List && data.isNotEmpty) {
+          setState(() {
+            supportPhone = data[0]['value'];
+          });
+        }
       }
+    } catch (e) {
+      print('Error fetching support phone: $e');
     }
   }
 
   Future<void> _sendMessage(String userMessage) async {
     if (userMessage.trim().isEmpty) return;
+
     setState(() {
       _messages.add(_ChatMessage(role: 'user', content: userMessage.trim()));
       _isLoading = true;
     });
     _controller.clear();
+
+    // ✅ SMOOTH SCROLL TO BOTTOM
+    Future.delayed(const Duration(milliseconds: 100), () {
+      _scrollToBottom();
+    });
+
     try {
       final response = await http.post(
         Uri.parse('https://tszgyfzkymgyyvmktmqd.supabase.co/functions/v1/chat'),
-        headers: { 'Content-Type': 'application/json' },
+        headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           "message": userMessage.trim(),
           "conversation_id": conversationId,
         }),
       );
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         setState(() {
-          _messages.add(_ChatMessage(role: 'assistant', content: (data['response'] ?? '').trim()));
+          _messages.add(_ChatMessage(
+            role: 'assistant',
+            content: (data['response'] ?? 'Sorry, I could not process your request.').trim(),
+          ));
         });
-        await Future.delayed(const Duration(milliseconds: 110));
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent + 80,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
+        _scrollToBottom();
       } else {
-        throw Exception('API Error');
+        throw Exception('API Error: ${response.statusCode}');
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to get response from IronBot!')),
-      );
+      setState(() {
+        _messages.add(_ChatMessage(
+          role: 'assistant',
+          content: "I'm sorry, I'm having trouble connecting right now. Please try again or contact our support team.",
+        ));
+      });
+      _showErrorSnackBar('Failed to get response from IronBot!');
     }
+
     setState(() => _isLoading = false);
+    _scrollToBottom();
   }
 
-  Widget _buildBubble(_ChatMessage message, bool isUser) {
-    return Padding(
-      padding: EdgeInsets.only(
-        top: 12,
-        left: isUser ? 60 : 10,
-        right: isUser ? 10 : 60,
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      Future.delayed(const Duration(milliseconds: 100), () {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent + 100,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeOutCubic,
+        );
+      });
+    }
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.error_outline, color: Colors.white, size: 20),
+            const SizedBox(width: 12),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: Colors.red.shade600,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
+  // ✅ PREMIUM MESSAGE BUBBLE
+  Widget _buildBubble(_ChatMessage message, bool isUser, int index) {
+    return Container(
+      margin: EdgeInsets.only(
+        top: index == 0 ? 16 : 8,
+        left: isUser ? 60 : 16,
+        right: isUser ? 16 : 60,
         bottom: 4,
       ),
       child: Row(
         mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          if (!isUser)
-            CircleAvatar(
-              backgroundColor: Colors.white,
-              child: Icon(Icons.smart_toy_rounded, color: kPrimaryColor, size: 23),
-              radius: 17,
-            ),
-          if (!isUser) const SizedBox(width: 10),
+          if (!isUser) _buildAvatarBot(),
+          if (!isUser) const SizedBox(width: 12),
           Flexible(
             child: Column(
               crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
               children: [
                 AnimatedContainer(
-                  duration: const Duration(milliseconds: 260),
+                  duration: const Duration(milliseconds: 300),
                   constraints: BoxConstraints(
                     maxWidth: MediaQuery.of(context).size.width * 0.75,
                   ),
                   decoration: BoxDecoration(
-                    color: isUser ? kPrimaryColor : Colors.white,
                     gradient: isUser
-                        ? LinearGradient(colors: [
-                      kPrimaryColor.withOpacity(0.95), kPrimaryColor,
-                    ])
-                        : null,
+                        ? LinearGradient(
+                      colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    )
+                        : LinearGradient(
+                      colors: [Colors.white, Colors.grey.shade50],
+                    ),
                     borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(22),
-                      topRight: const Radius.circular(22),
-                      bottomRight: Radius.circular(isUser ? 7 : 22),
-                      bottomLeft: Radius.circular(isUser ? 22 : 7),
+                      topLeft: const Radius.circular(20),
+                      topRight: const Radius.circular(20),
+                      bottomRight: Radius.circular(isUser ? 4 : 20),
+                      bottomLeft: Radius.circular(isUser ? 20 : 4),
                     ),
                     boxShadow: [
                       BoxShadow(
                         color: isUser
-                            ? kPrimaryColor.withOpacity(0.17)
-                            : kPrimaryColor.withOpacity(0.08),
+                            ? kPrimaryColor.withOpacity(0.2)
+                            : Colors.black.withOpacity(0.08),
                         blurRadius: 12,
                         offset: const Offset(0, 4),
+                        spreadRadius: 1,
                       ),
                     ],
+                    border: !isUser ? Border.all(
+                      color: Colors.grey.shade200,
+                      width: 1,
+                    ) : null,
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     child: SelectableText(
                       message.content,
                       style: TextStyle(
                         color: isUser ? Colors.white : Colors.black87,
-                        fontSize: 17,
+                        fontSize: 15,
                         fontWeight: FontWeight.w500,
-                        height: 1.22,
+                        height: 1.4,
                       ),
+                    ),
+                  ),
+                ),
+                // ✅ TIMESTAMP
+                Padding(
+                  padding: const EdgeInsets.only(top: 4, left: 8, right: 8),
+                  child: Text(
+                    _formatTime(message.timestamp),
+                    style: TextStyle(
+                      color: Colors.grey.shade500,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ),
               ],
             ),
           ),
-          if (isUser) const SizedBox(width: 7),
-          if (isUser)
-            CircleAvatar(
-              backgroundColor: Colors.white,
-              child: Icon(Icons.person, color: kPrimaryColor, size: 22),
-              radius: 17,
-            ),
+          if (isUser) const SizedBox(width: 12),
+          if (isUser) _buildAvatarUser(),
         ],
       ),
     );
   }
 
+  // ✅ PREMIUM BOT AVATAR
+  Widget _buildAvatarBot() {
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [kPrimaryColor.withOpacity(0.1), kPrimaryColor.withOpacity(0.05)],
+        ),
+        shape: BoxShape.circle,
+        border: Border.all(color: kPrimaryColor.withOpacity(0.2), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: kPrimaryColor.withOpacity(0.15),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Icon(
+        Icons.smart_toy_rounded,
+        color: kPrimaryColor,
+        size: 20,
+      ),
+    );
+  }
+
+  // ✅ PREMIUM USER AVATAR
+  Widget _buildAvatarUser() {
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.grey.shade200, Colors.grey.shade100],
+        ),
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.grey.shade300, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Icon(
+        Icons.person_rounded,
+        color: Colors.grey.shade600,
+        size: 20,
+      ),
+    );
+  }
+
+  // ✅ PREMIUM TYPING INDICATOR
   Widget _buildTypingIndicator() {
-    return Padding(
-      padding: const EdgeInsets.only(left: 10, top: 13, bottom: 9),
+    return Container(
+      margin: const EdgeInsets.only(left: 16, top: 8, bottom: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          CircleAvatar(
-            backgroundColor: Colors.white,
-            child: Icon(Icons.smart_toy_rounded, color: kPrimaryColor, size: 18),
-            radius: 15,
-          ),
-          const SizedBox(width: 9),
-          Expanded(
+          _buildAvatarBot(),
+          const SizedBox(width: 12),
+          Flexible(
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
+                gradient: LinearGradient(
+                  colors: [Colors.white, Colors.grey.shade50],
+                ),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(20),
+                  topRight: Radius.circular(20),
+                  bottomRight: Radius.circular(20),
+                  bottomLeft: Radius.circular(4),
+                ),
+                border: Border.all(color: Colors.grey.shade200, width: 1),
                 boxShadow: [
                   BoxShadow(
-                    color: kPrimaryColor.withOpacity(0.10),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
                   ),
                 ],
               ),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
-                mainAxisSize: MainAxisSize.max,
-                crossAxisAlignment: CrossAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  SizedBox(
-                    width: 28,
-                    height: 12,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: List.generate(3, (i) {
-                        return AnimatedContainer(
-                          duration: Duration(milliseconds: 470 + i * 100),
-                          curve: Curves.easeInOut,
-                          margin: const EdgeInsets.symmetric(horizontal: 2),
-                          width: 7,
-                          height: 7,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: kPrimaryColor.withOpacity(0.7 - i * 0.2),
-                          ),
-                        );
-                      }),
-                    ),
-                  ),
-                  const SizedBox(width: 11),
-                  // Prevent overflow forever:
-                  Expanded(
-                    child: Text(
-                      "IronBot is typing...",
-                      style: const TextStyle(fontSize: 15, color: Colors.black87),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
-                      softWrap: false,
+                  _buildTypingDots(),
+                  const SizedBox(width: 8),
+                  Text(
+                    "IronBot is typing...",
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
@@ -242,207 +387,312 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
     );
   }
 
-  Widget _inputBar() {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(10, 0, 10, 14),
-        child: Material(
-          color: Colors.transparent,
-          elevation: 0,
-          child: IntrinsicHeight(
+  // ✅ ANIMATED TYPING DOTS
+  Widget _buildTypingDots() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(3, (index) {
+        return AnimatedContainer(
+          duration: Duration(milliseconds: 500 + (index * 200)),
+          curve: Curves.easeInOut,
+          margin: const EdgeInsets.symmetric(horizontal: 1.5),
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: kPrimaryColor.withOpacity(0.6 - (index * 0.15)),
+          ),
+        );
+      }),
+    );
+  }
+
+  // ✅ PREMIUM INPUT BAR
+  Widget _buildInputBar() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: kPrimaryColor.withOpacity(0.15), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: kPrimaryColor.withOpacity(0.1),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+            spreadRadius: 2,
+          ),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // ✅ EMOJI BUTTON
+          Container(
+            margin: const EdgeInsets.only(left: 4),
+            decoration: BoxDecoration(
+              color: kPrimaryColor.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: IconButton(
+              icon: Icon(Icons.emoji_emotions_outlined, color: kPrimaryColor, size: 20),
+              onPressed: () {},
+              tooltip: "Add emoji",
+            ),
+          ),
+
+          // ✅ TEXT FIELD
+          Expanded(
             child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.97),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: kPrimaryColor.withOpacity(0.12), width: 1),
-                boxShadow: [
-                  BoxShadow(
-                    color: kPrimaryColor.withOpacity(0.10),
-                    blurRadius: 15,
-                    offset: const Offset(0, 3),
+              constraints: const BoxConstraints(maxHeight: 120),
+              child: TextField(
+                controller: _controller,
+                minLines: 1,
+                maxLines: 4,
+                enabled: !_isLoading,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Ask me anything about laundry...',
+                  hintStyle: TextStyle(
+                    color: Colors.grey.shade500,
+                    fontWeight: FontWeight.w400,
                   ),
-                ],
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  IconButton(
-                    icon: Icon(Icons.emoji_emotions, color: kPrimaryColor.withOpacity(0.67)),
-                    onPressed: () {},
-                    splashRadius: 24,
-                    tooltip: "Send Emoji",
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
                   ),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6.0),
-                      child: TextField(
-                        controller: _controller,
-                        minLines: 1,
-                        maxLines: 5,
-                        enabled: !_isLoading,
-                        style: const TextStyle(fontSize: 16.5),
-                        decoration: const InputDecoration(
-                          hintText: 'Type your message…',
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 5, vertical: 9),
-                          isDense: true,
-                        ),
-                        onSubmitted: _isLoading ? null : _sendMessage,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.attach_file, color: kPrimaryColor.withOpacity(0.60)),
-                    onPressed: () {},
-                    splashRadius: 23,
-                    tooltip: "Attach file or image (coming soon)",
-                  ),
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 180),
-                    transitionBuilder: (child, animation) =>
-                        ScaleTransition(scale: animation, child: child),
-                    child: IconButton(
-                      key: ValueKey(_isLoading),
-                      icon: Icon(Icons.send_rounded,
-                          color: _isLoading ? Colors.grey : kPrimaryColor,
-                          size: 28),
-                      onPressed: _isLoading
-                          ? null
-                          : () {
-                        final text = _controller.text.trim();
-                        if (text.isNotEmpty) {
-                          _sendMessage(text);
-                        }
-                      },
-                      splashRadius: 24,
-                    ),
-                  ),
-                ],
+                ),
+                onSubmitted: _isLoading ? null : _sendMessage,
               ),
             ),
           ),
-        ),
+
+          // ✅ ATTACH BUTTON
+          Container(
+            margin: const EdgeInsets.only(right: 4),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              shape: BoxShape.circle,
+            ),
+            child: IconButton(
+              icon: Icon(Icons.attach_file_rounded, color: Colors.grey.shade600, size: 20),
+              onPressed: () {},
+              tooltip: "Attach file (coming soon)",
+            ),
+          ),
+
+          // ✅ SEND BUTTON
+          Container(
+            margin: const EdgeInsets.only(right: 4),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)]),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: kPrimaryColor.withOpacity(0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: IconButton(
+              icon: _isLoading
+                  ? SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2,
+                ),
+              )
+                  : Icon(Icons.send_rounded, color: Colors.white, size: 20),
+              onPressed: _isLoading ? null : () {
+                final text = _controller.text.trim();
+                if (text.isNotEmpty) {
+                  _sendMessage(text);
+                }
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _quickActionFAB() {
-    return supportPhone == null
-        ? SizedBox.shrink()
-        : FloatingActionButton.extended(
-      backgroundColor: kPrimaryColor,
-      onPressed: () async {
-        final telUrl = 'tel:$supportPhone';
-        if (await canLaunchUrl(Uri.parse(telUrl))) {
-          await launchUrl(Uri.parse(telUrl));
-        }
-      },
-      icon: const Icon(Icons.phone_forwarded, color: Colors.white),
-      label: const Text(
-        "Call Support",
-        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+  // ✅ PREMIUM FLOATING ACTION BUTTON
+  Widget _buildCallSupportFAB() {
+    if (supportPhone == null) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 80),
+      child: FloatingActionButton.extended(
+        backgroundColor: Colors.green.shade600,
+        onPressed: () async {
+          final telUrl = 'tel:$supportPhone';
+          if (await canLaunchUrl(Uri.parse(telUrl))) {
+            await launchUrl(Uri.parse(telUrl));
+          }
+        },
+        icon: const Icon(Icons.phone_rounded, color: Colors.white, size: 20),
+        label: const Text(
+          "Call Support",
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: Colors.white,
+            fontSize: 14,
+          ),
+        ),
+        elevation: 8,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
-      elevation: 4,
     );
+  }
+
+  // ✅ PREMIUM APP BAR
+  PreferredSizeWidget _buildPremiumAppBar() {
+    return AppBar(
+      title: Row(
+        children: [
+          _buildAvatarBot(),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                "IronBot",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 18,
+                ),
+              ),
+              Text(
+                "AI Assistant • Online",
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.8),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+      backgroundColor: Colors.transparent,
+      foregroundColor: Colors.white,
+      elevation: 0,
+      flexibleSpace: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: const BorderRadius.vertical(
+            bottom: Radius.circular(24),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: kPrimaryColor.withOpacity(0.3),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+      ),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
+      ),
+      actions: [
+        if (supportPhone != null)
+          Container(
+            margin: const EdgeInsets.only(right: 12),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
+            child: IconButton(
+              icon: Icon(Icons.phone_rounded, color: Colors.green.shade600, size: 20),
+              tooltip: 'Call Support',
+              onPressed: () async {
+                final telUrl = 'tel:$supportPhone';
+                if (await canLaunchUrl(Uri.parse(telUrl))) {
+                  await launchUrl(Uri.parse(telUrl));
+                }
+              },
+            ),
+          ),
+      ],
+    );
+  }
+
+  String _formatTime(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+
+    if (difference.inMinutes < 1) {
+      return 'now';
+    } else if (difference.inHours < 1) {
+      return '${difference.inMinutes}m';
+    } else if (difference.inDays < 1) {
+      return '${difference.inHours}h';
+    } else {
+      return '${dateTime.day}/${dateTime.month}';
+    }
   }
 
   @override
   void dispose() {
     _controller.dispose();
     _scrollController.dispose();
+    _fadeController.dispose();
+    _slideController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      floatingActionButton: _quickActionFAB(),
-      backgroundColor: Colors.white,
-      appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(70),
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [kPrimaryColor, Colors.white],
-              begin: Alignment.bottomLeft,
-              end: Alignment.topRight,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: kPrimaryColor.withOpacity(0.18),
-                blurRadius: 9,
-                offset: const Offset(0, 4),
+      backgroundColor: Colors.grey.shade50,
+      appBar: _buildPremiumAppBar(),
+      floatingActionButton: _buildCallSupportFAB(),
+      body: FadeTransition(
+        opacity: _fadeAnimation,
+        child: SlideTransition(
+          position: _slideAnimation,
+          child: Column(
+            children: [
+              // ✅ CHAT MESSAGES
+              Expanded(
+                child: ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.only(bottom: 16),
+                  itemCount: _messages.length + (_isLoading ? 1 : 0),
+                  itemBuilder: (context, index) {
+                    if (_isLoading && index == _messages.length) {
+                      return _buildTypingIndicator();
+                    }
+                    final msg = _messages[index];
+                    final isUser = msg.role == 'user';
+                    return _buildBubble(msg, isUser, index);
+                  },
+                ),
               ),
-            ],
-          ),
-          child: AppBar(
-            elevation: 0,
-            backgroundColor: Colors.transparent,
-            titleSpacing: 0,
-            centerTitle: false,
-            shape: const RoundedRectangleBorder(
-                borderRadius: BorderRadius.vertical(bottom: Radius.circular(22))),
-            title: Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: Colors.white,
-                  child: Icon(Icons.smart_toy_rounded, color: kPrimaryColor, size: 23),
-                  radius: 18,
-                ),
-                const SizedBox(width: 10),
-                const Text(
-                  "IronBot Support",
-                  style: TextStyle(
-                    color: Colors.black87,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 22,
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              if (supportPhone != null)
-                Padding(
-                  padding: const EdgeInsets.only(right: 10.0),
-                  child: CircleAvatar(
-                    backgroundColor: Colors.white,
-                    child: IconButton(
-                      icon: const Icon(Icons.phone, color: Color(0xFF1977D5), size: 21),
-                      tooltip: 'Call Support',
-                      onPressed: () async {
-                        final telUrl = 'tel:$supportPhone';
-                        if (await canLaunchUrl(Uri.parse(telUrl))) {
-                          await launchUrl(Uri.parse(telUrl));
-                        }
-                      },
-                    ),
-                    radius: 18,
-                  ),
-                ),
+
+              // ✅ INPUT BAR
+              SafeArea(child: _buildInputBar()),
             ],
           ),
         ),
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.only(top: 12, bottom: 8),
-              itemCount: _messages.length + (_isLoading ? 1 : 0),
-              itemBuilder: (context, index) {
-                if (_isLoading && index == _messages.length) {
-                  return _buildTypingIndicator();
-                }
-                final msg = _messages[index];
-                final isUser = msg.role == 'user';
-                return _buildBubble(msg, isUser);
-              },
-            ),
-          ),
-          _inputBar(),
-        ],
       ),
     );
   }

@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'colors.dart';
 
-class ForgotPasswordScreen extends StatefulWidget {
-  const ForgotPasswordScreen({super.key});
+class PhoneLoginScreen extends StatefulWidget {
+  const PhoneLoginScreen({super.key});
 
   @override
-  State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
+  State<PhoneLoginScreen> createState() => _PhoneLoginScreenState();
 }
 
-class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with TickerProviderStateMixin {
-  final emailController = TextEditingController();
+class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProviderStateMixin {
+  final phoneController = TextEditingController();
+  final otpController = TextEditingController();
   final supabase = Supabase.instance.client;
 
   late AnimationController _fadeController;
@@ -19,7 +21,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
   late Animation<Offset> _slideAnimation;
 
   bool _isLoading = false;
-  bool _emailSent = false;
+  bool _otpSent = false;
+  String _verificationId = '';
 
   @override
   void initState() {
@@ -53,9 +56,23 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
     _slideController.forward();
   }
 
-  Future<void> _resetPassword() async {
-    if (emailController.text.trim().isEmpty) {
-      _showMessage('Please enter your email address', isError: true);
+  Future<void> _sendOTP() async {
+    if (phoneController.text.trim().isEmpty) {
+      _showMessage('Please enter your phone number', isError: true);
+      return;
+    }
+
+    // ✅ PROPER PHONE NUMBER FORMATTING
+    String phoneNumber = phoneController.text.trim();
+
+    // Add +91 if not present and ensure it's 10 digits
+    if (!phoneNumber.startsWith('+91')) {
+      phoneNumber = '+91$phoneNumber';
+    }
+
+    // Validate Indian phone number (should be +91 followed by 10 digits)
+    if (!RegExp(r'^\+91[6-9]\d{9}$').hasMatch(phoneNumber)) {
+      _showMessage('Please enter a valid Indian phone number (10 digits starting with 6-9)', isError: true);
       return;
     }
 
@@ -64,22 +81,54 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
     });
 
     try {
-      await supabase.auth.resetPasswordForEmail(
-        emailController.text.trim(),
-        redirectTo: 'your-app://reset-password', // Configure this URL
+      await supabase.auth.signInWithOtp(
+        phone: phoneNumber,
       );
 
       setState(() {
         _isLoading = false;
-        _emailSent = true;
+        _otpSent = true;
       });
 
-      _showMessage('Password reset email sent! Check your inbox.', isError: false);
+      _showMessage('OTP sent to $phoneNumber!', isError: false);
     } catch (e) {
       setState(() {
         _isLoading = false;
       });
-      _showMessage('Error: ${e.toString()}', isError: true);
+      _showMessage('Failed to send OTP: ${e.toString()}', isError: true);
+    }
+  }
+
+  Future<void> _verifyOTP() async {
+    if (otpController.text.trim().isEmpty) {
+      _showMessage('Please enter the OTP', isError: true);
+      return;
+    }
+
+    // ✅ PROPER PHONE NUMBER FORMATTING FOR VERIFICATION
+    String phoneNumber = phoneController.text.trim();
+    if (!phoneNumber.startsWith('+91')) {
+      phoneNumber = '+91$phoneNumber';
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      await supabase.auth.verifyOTP(
+        phone: phoneNumber,
+        token: otpController.text.trim(),
+        type: OtpType.sms,
+      );
+
+      _showMessage('Login successful!', isError: false);
+      // AppWrapper will handle the rest
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      _showMessage('Invalid OTP: ${e.toString()}', isError: true);
     }
   }
 
@@ -93,7 +142,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
               color: Colors.white,
               size: 20,
             ),
-            const SizedBox(width: 12),
             Expanded(child: Text(message)),
           ],
         ),
@@ -107,7 +155,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
 
   @override
   void dispose() {
-    emailController.dispose();
+    phoneController.dispose();
+    otpController.dispose();
     _fadeController.dispose();
     _slideController.dispose();
     super.dispose();
@@ -165,37 +214,38 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
                         _buildBackButton(),
                         const SizedBox(height: 20),
 
-                        // ✅ PREMIUM ICON
-                        _buildPremiumIcon(),
+                        // ✅ PREMIUM LOGO
+                        _buildPremiumLogo(),
                         const SizedBox(height: 28),
 
-                        // ✅ TITLE AND DESCRIPTION
+                        // ✅ TITLE SECTION
                         _buildTitleSection(),
                         const SizedBox(height: 32),
 
-                        if (!_emailSent) ...[
-                          // ✅ EMAIL FIELD
-                          _buildEmailField(),
+                        if (!_otpSent) ...[
+                          // ✅ PHONE NUMBER FIELD
+                          _buildPhoneField(),
                           const SizedBox(height: 32),
 
-                          // ✅ RESET BUTTON
-                          _buildResetButton(),
-                          const SizedBox(height: 24),
-
-                          // ✅ BACK TO LOGIN
-                          _buildBackToLoginLink(),
+                          // ✅ SEND OTP BUTTON
+                          _buildSendOTPButton(),
                         ] else ...[
-                          // ✅ SUCCESS MESSAGE
-                          _buildSuccessMessage(),
-                          const SizedBox(height: 32),
-
-                          // ✅ RESEND EMAIL BUTTON
-                          _buildResendButton(),
+                          // ✅ OTP FIELD
+                          _buildOTPField(),
                           const SizedBox(height: 24),
 
-                          // ✅ BACK TO LOGIN
-                          _buildBackToLoginLink(),
+                          // ✅ RESEND OTP LINK
+                          _buildResendOTPLink(),
+                          const SizedBox(height: 32),
+
+                          // ✅ VERIFY OTP BUTTON
+                          _buildVerifyOTPButton(),
                         ],
+
+                        const SizedBox(height: 32),
+
+                        // ✅ BACK TO EMAIL LOGIN
+                        _buildBackToEmailLogin(),
                       ],
                     ),
                   ),
@@ -225,30 +275,28 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
     );
   }
 
-  // ✅ PREMIUM ICON
-  Widget _buildPremiumIcon() {
+  // ✅ PREMIUM LOGO
+  Widget _buildPremiumLogo() {
     return Container(
       width: 80,
       height: 80,
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: _emailSent
-              ? [Colors.green, Colors.green.shade700]
-              : [kPrimaryColor, kPrimaryColor.withOpacity(0.7)],
+          colors: [Colors.green, Colors.green.shade700],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
-            color: (_emailSent ? Colors.green : kPrimaryColor).withOpacity(0.3),
+            color: Colors.green.withOpacity(0.3),
             blurRadius: 25,
             offset: const Offset(0, 10),
           ),
         ],
       ),
-      child: Icon(
-        _emailSent ? Icons.mark_email_read_rounded : Icons.lock_reset_rounded,
+      child: const Icon(
+        Icons.phone_android_rounded,
         color: Colors.white,
         size: 40,
       ),
@@ -261,12 +309,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
       children: [
         ShaderMask(
           shaderCallback: (bounds) => LinearGradient(
-            colors: _emailSent
-                ? [Colors.green, Colors.green.shade700]
-                : [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+            colors: [Colors.green, Colors.green.shade700],
           ).createShader(bounds),
           child: Text(
-            _emailSent ? 'Email Sent!' : 'Forgot Password?',
+            _otpSent ? 'Verify OTP' : 'Phone Login',
             style: const TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.w900,
@@ -277,9 +323,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
         ),
         const SizedBox(height: 12),
         Text(
-          _emailSent
-              ? 'We\'ve sent password reset instructions to your email. Please check your inbox and follow the link to reset your password.'
-              : 'Don\'t worry! Enter your email address and we\'ll send you instructions to reset your password.',
+          _otpSent
+              ? 'Enter the 6-digit code sent to\n${phoneController.text.trim()}'
+              : 'Enter your phone number to receive a verification code',
           style: TextStyle(
             color: Colors.grey.shade600,
             fontSize: 15,
@@ -292,8 +338,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
     );
   }
 
-  // ✅ EMAIL FIELD
-  Widget _buildEmailField() {
+  // ✅ PHONE FIELD
+  Widget _buildPhoneField() {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
@@ -306,14 +352,20 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
         ],
       ),
       child: TextFormField(
-        controller: emailController,
-        keyboardType: TextInputType.emailAddress,
+        controller: phoneController,
+        keyboardType: TextInputType.phone,
+        inputFormatters: [
+          FilteringTextInputFormatter.digitsOnly,
+          LengthLimitingTextInputFormatter(10),
+          FilteringTextInputFormatter.allow(RegExp(r'^[6-9][0-9]*')),
+        ],
         style: const TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.w500,
         ),
         decoration: InputDecoration(
-          labelText: 'Email Address',
+          labelText: 'Phone Number',
+          hintText: 'Enter 10-digit phone number',
           labelStyle: TextStyle(
             color: Colors.grey.shade600,
             fontSize: 16,
@@ -323,13 +375,89 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [kPrimaryColor.withOpacity(0.1), kPrimaryColor.withOpacity(0.05)],
+                colors: [Colors.green.withOpacity(0.1), Colors.green.withOpacity(0.05)],
               ),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
-              Icons.email_outlined,
-              color: kPrimaryColor,
+              Icons.phone_android_rounded,
+              color: Colors.green,
+              size: 20,
+            ),
+          ),
+          prefix: Text(
+            '+91 ',
+            style: TextStyle(
+              color: Colors.grey.shade700,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(color: Colors.grey.shade200),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(color: Colors.grey.shade200),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(color: Colors.green, width: 2),
+          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+        ),
+      ),
+    );
+  }
+
+  // ✅ OTP FIELD
+  Widget _buildOTPField() {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: TextFormField(
+        controller: otpController,
+        keyboardType: TextInputType.number,
+        inputFormatters: [
+          FilteringTextInputFormatter.digitsOnly,
+          LengthLimitingTextInputFormatter(6),
+        ],
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 8,
+        ),
+        decoration: InputDecoration(
+          labelText: 'Enter OTP',
+          hintText: '000000',
+          labelStyle: TextStyle(
+            color: Colors.grey.shade600,
+            fontSize: 16,
+          ),
+          prefixIcon: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.green.withOpacity(0.1), Colors.green.withOpacity(0.05)],
+              ),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              Icons.security_rounded,
+              color: Colors.green,
               size: 20,
             ),
           ),
@@ -345,7 +473,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(color: kPrimaryColor, width: 2),
+            borderSide: BorderSide(color: Colors.green, width: 2),
           ),
           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
         ),
@@ -353,28 +481,28 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
     );
   }
 
-  // ✅ RESET BUTTON
-  Widget _buildResetButton() {
+  // ✅ SEND OTP BUTTON
+  Widget _buildSendOTPButton() {
     return Container(
       width: double.infinity,
       height: 56,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
         gradient: LinearGradient(
-          colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+          colors: [Colors.green, Colors.green.shade700],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         boxShadow: [
           BoxShadow(
-            color: kPrimaryColor.withOpacity(0.3),
+            color: Colors.green.withOpacity(0.3),
             blurRadius: 15,
             offset: const Offset(0, 8),
           ),
         ],
       ),
       child: ElevatedButton(
-        onPressed: _isLoading ? null : _resetPassword,
+        onPressed: _isLoading ? null : _sendOTP,
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.transparent,
           shadowColor: Colors.transparent,
@@ -393,7 +521,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
           ),
         )
             : const Text(
-          'Send Reset Email',
+          'Send OTP',
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w800,
@@ -405,96 +533,93 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
     );
   }
 
-  // ✅ SUCCESS MESSAGE
-  Widget _buildSuccessMessage() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.green.withOpacity(0.1), Colors.green.withOpacity(0.05)],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.green.withOpacity(0.2)),
-      ),
-      child: Column(
-        children: [
-          Icon(
-            Icons.email_outlined,
-            color: Colors.green,
-            size: 48,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Check Your Email',
-            style: TextStyle(
-              color: Colors.green.shade700,
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            emailController.text.trim(),
-            style: TextStyle(
-              color: Colors.green.shade600,
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ✅ RESEND BUTTON
-  Widget _buildResendButton() {
+  // ✅ VERIFY OTP BUTTON
+  Widget _buildVerifyOTPButton() {
     return Container(
       width: double.infinity,
-      height: 52,
+      height: 56,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: kPrimaryColor.withOpacity(0.2), width: 1.5),
+        borderRadius: BorderRadius.circular(18),
+        gradient: LinearGradient(
+          colors: [Colors.green, Colors.green.shade700],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         boxShadow: [
           BoxShadow(
-            color: kPrimaryColor.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.green.withOpacity(0.3),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
-      child: ElevatedButton.icon(
-        onPressed: () {
-          setState(() {
-            _emailSent = false;
-          });
-        },
-        icon: Icon(Icons.refresh_rounded, color: kPrimaryColor, size: 20),
-        label: Text(
-          'Resend Email',
-          style: TextStyle(
-            color: kPrimaryColor,
-            fontWeight: FontWeight.w700,
-            fontSize: 16,
-          ),
-        ),
+      child: ElevatedButton(
+        onPressed: _isLoading ? null : _verifyOTP,
         style: ElevatedButton.styleFrom(
-          backgroundColor: kPrimaryColor.withOpacity(0.05),
+          backgroundColor: Colors.transparent,
+          shadowColor: Colors.transparent,
           elevation: 0,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
+        child: _isLoading
+            ? const SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(
+            color: Colors.white,
+            strokeWidth: 2,
+          ),
+        )
+            : const Text(
+          'Verify & Login',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: Colors.white,
+            letterSpacing: 0.5,
           ),
         ),
       ),
     );
   }
 
-  // ✅ BACK TO LOGIN LINK
-  Widget _buildBackToLoginLink() {
+  // ✅ RESEND OTP LINK
+  Widget _buildResendOTPLink() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Text(
-          "Remember your password? ",
+          "Didn't receive the code? ",
+          style: TextStyle(
+            color: Colors.grey.shade600,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        GestureDetector(
+          onTap: _sendOTP,
+          child: Text(
+            'Resend',
+            style: TextStyle(
+              color: Colors.green,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ✅ BACK TO EMAIL LOGIN
+  Widget _buildBackToEmailLogin() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          "Prefer email login? ",
           style: TextStyle(
             color: Colors.grey.shade600,
             fontSize: 16,
@@ -504,7 +629,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
         GestureDetector(
           onTap: () => Navigator.pop(context),
           child: Text(
-            'Sign In',
+            'Use Email',
             style: TextStyle(
               color: kPrimaryColor,
               fontSize: 16,

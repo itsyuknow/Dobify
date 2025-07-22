@@ -11,21 +11,25 @@ android {
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
-        sourceCompatibility = JavaVersion.VERSION_11  // ✅ Updated to Java 11
-        targetCompatibility = JavaVersion.VERSION_11  // ✅ Updated to Java 11
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
 
     kotlinOptions {
-        jvmTarget = "11"  // ✅ Updated to match Java 11
+        jvmTarget = "11"
     }
 
     defaultConfig {
         applicationId = "com.yuknow.ironly"
-        minSdk = flutter.minSdkVersion.toInt()
+        minSdk = 23  // Updated to 23 to fix Firebase Auth minSdkVersion error
         targetSdk = flutter.targetSdkVersion.toInt()
         versionCode = flutter.versionCode.toInt()
         versionName = flutter.versionName
         multiDexEnabled = true
+
+        // ✅ FIXED KOTLIN SYNTAX
+        resourceConfigurations.addAll(listOf("en", "hi"))
+        vectorDrawables.useSupportLibrary = true
     }
 
     buildTypes {
@@ -39,6 +43,18 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    // ✅ FIXED PACKAGING OPTIONS - KOTLIN SYNTAX
+    packaging {
+        resources {
+            pickFirsts.addAll(listOf(
+                "**/armeabi-v7a/libc++_shared.so",
+                "**/x86_64/libc++_shared.so",
+                "**/arm64-v8a/libc++_shared.so",
+                "**/x86/libc++_shared.so"
+            ))
+        }
+    }
 }
 
 dependencies {
@@ -47,10 +63,15 @@ dependencies {
     implementation("androidx.window:window:1.2.0")
     implementation("androidx.window:window-java:1.2.0")
 
-    // ✅ Updated Firebase dependencies with latest BOM
+    // ✅ Updated Firebase dependencies
     implementation(platform("com.google.firebase:firebase-bom:33.5.1"))
     implementation("com.google.firebase:firebase-analytics-ktx")
     implementation("com.google.firebase:firebase-messaging-ktx")
+    implementation("com.google.firebase:firebase-auth-ktx")
+
+    // ✅ Google Play Services for Auth
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
+    implementation("com.google.android.gms:play-services-base:18.5.0")
 
     // ✅ Multidex support
     implementation("androidx.multidex:multidex:2.0.1")

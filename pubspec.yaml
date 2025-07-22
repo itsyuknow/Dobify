@@ -15,6 +15,7 @@ dependencies:
   google_maps_flutter: ^2.6.0
   geocoding: ^4.0.0
   geolocator: ^14.0.1
+  google_sign_in: ^6.0.0
 
   # ✅ Core dependencies (already included)
   flutter_rating_bar: ^4.0.1

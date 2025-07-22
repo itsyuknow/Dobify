@@ -1,8 +1,10 @@
-// ✅ SIMPLE LOGIN SCREEN - Only handles authentication
+// ✅ PREMIUM LOGIN SCREEN - Enhanced with multiple login options
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'signup_screen.dart';
 import 'forgot_password_screen.dart';
+import 'phone_login_screen.dart';
 import 'colors.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -23,6 +25,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   late Animation<Offset> _slideAnimation;
 
   bool _isLoggingIn = false;
+  bool _passwordVisible = false;
 
   @override
   void initState() {
@@ -58,9 +61,9 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     _slideController.forward();
   }
 
-  Future<void> login() async {
+  Future<void> _loginWithEmail() async {
     if (emailController.text.trim().isEmpty || passwordController.text.trim().isEmpty) {
-      _showMessage('Please fill in all fields');
+      _showMessage('Please fill in all fields', isError: true);
       return;
     }
 
@@ -75,25 +78,43 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       );
 
       if (res.user != null) {
-        // Login successful - AppWrapper will handle the rest
-        // No need to navigate here, AppWrapper will detect the session change
+        _showMessage('Welcome back!', isError: false);
         print('✅ Login successful, AppWrapper will handle location verification');
       }
     } catch (e) {
       setState(() {
         _isLoggingIn = false;
       });
-      _showMessage('Login failed: ${e.toString()}');
+      _showMessage('Login failed: ${e.toString()}', isError: true);
     }
   }
 
-  void _showMessage(String message) {
+  Future<void> _loginWithGoogle() async {
+    try {
+      await supabase.auth.signInWithOAuth(OAuthProvider.google);
+    } catch (e) {
+      _showMessage('Google login failed: ${e.toString()}', isError: true);
+    }
+  }
+
+  void _showMessage(String message, {required bool isError}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
-        backgroundColor: kPrimaryColor,
+        content: Row(
+          children: [
+            Icon(
+              isError ? Icons.error_outline : Icons.check_circle_outline,
+              color: Colors.white,
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: isError ? Colors.red.shade600 : Colors.green.shade600,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
       ),
     );
   }
@@ -136,7 +157,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                     padding: const EdgeInsets.all(32),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(28),
                       boxShadow: [
                         BoxShadow(
                           color: kPrimaryColor.withOpacity(0.1),
@@ -155,58 +176,11 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Logo/Brand Section
-                        Container(
-                          width: 80,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.7)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: kPrimaryColor.withOpacity(0.3),
-                                blurRadius: 20,
-                                offset: const Offset(0, 8),
-                              ),
-                            ],
-                          ),
-                          child: const Icon(
-                            Icons.delivery_dining,
-                            color: Colors.white,
-                            size: 40,
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-
-                        // Welcome Text
-                        ShaderMask(
-                          shaderCallback: (bounds) => LinearGradient(
-                            colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
-                          ).createShader(bounds),
-                          child: const Text(
-                            'Welcome!',
-                            style: TextStyle(
-                              fontSize: 32,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Sign in to continue your journey',
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 16,
-                          ),
-                        ),
+                        // ✅ WELCOME TEXT (No logo above)
+                        _buildWelcomeText(),
                         const SizedBox(height: 40),
 
-                        // Email Field
+                        // ✅ EMAIL FIELD
                         _buildPremiumTextField(
                           controller: emailController,
                           label: 'Email Address',
@@ -215,88 +189,28 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                         ),
                         const SizedBox(height: 20),
 
-                        // Password Field
-                        _buildPremiumTextField(
-                          controller: passwordController,
-                          label: 'Password',
-                          icon: Icons.lock_outline,
-                          isPassword: true,
-                        ),
+                        // ✅ PASSWORD FIELD WITH EYE BUTTON
+                        _buildPasswordField(),
                         const SizedBox(height: 16),
 
-                        // Forgot Password
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
-                              );
-                            },
-                            child: Text(
-                              'Forgot Password?',
-                              style: TextStyle(
-                                color: kPrimaryColor,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ),
+                        // ✅ FORGOT PASSWORD
+                        _buildForgotPassword(),
+                        const SizedBox(height: 32),
+
+                        // ✅ LOGIN BUTTON
+                        _buildLoginButton(),
                         const SizedBox(height: 24),
 
-                        // Login Button
-                        _buildPremiumButton(
-                          onPressed: _isLoggingIn ? null : login,
-                          child: _isLoggingIn
-                              ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
-                          )
-                              : const Text(
-                            'Sign In',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
+                        // ✅ OR DIVIDER
+                        _buildOrDivider(),
                         const SizedBox(height: 24),
 
-                        // Sign Up Link
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              "Don't have an account? ",
-                              style: TextStyle(
-                                color: Colors.grey.shade600,
-                                fontSize: 16,
-                              ),
-                            ),
-                            GestureDetector(
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (_) => const SignUpScreen()),
-                                );
-                              },
-                              child: Text(
-                                'Sign Up',
-                                style: TextStyle(
-                                  color: kPrimaryColor,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                        // ✅ SOCIAL LOGIN BUTTONS
+                        _buildSocialLoginButtons(),
+                        const SizedBox(height: 32),
+
+                        // ✅ SIGN UP LINK
+                        _buildSignUpLink(),
                       ],
                     ),
                   ),
@@ -309,6 +223,339 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     );
   }
 
+  // ✅ PREMIUM LOGO
+  Widget _buildPremiumLogo() {
+    return Container(
+      width: 90,
+      height: 90,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.7)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: kPrimaryColor.withOpacity(0.3),
+            blurRadius: 25,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: const Icon(
+        Icons.local_laundry_service_rounded,
+        color: Colors.white,
+        size: 45,
+      ),
+    );
+  }
+
+  // ✅ WELCOME TEXT
+  Widget _buildWelcomeText() {
+    return Column(
+      children: [
+        ShaderMask(
+          shaderCallback: (bounds) => LinearGradient(
+            colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+          ).createShader(bounds),
+          child: const Text(
+            'Welcome to ironXpress',
+            style: TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.w900,
+              color: Colors.white,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Sign in to continue your laundry journey',
+          style: TextStyle(
+            color: Colors.grey.shade600,
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ✅ PASSWORD FIELD WITH EYE BUTTON
+  Widget _buildPasswordField() {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: TextFormField(
+        controller: passwordController,
+        obscureText: !_passwordVisible,
+        style: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w500,
+        ),
+        decoration: InputDecoration(
+          labelText: 'Password',
+          labelStyle: TextStyle(
+            color: Colors.grey.shade600,
+            fontSize: 16,
+          ),
+          prefixIcon: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [kPrimaryColor.withOpacity(0.1), kPrimaryColor.withOpacity(0.05)],
+              ),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              Icons.lock_outline,
+              color: kPrimaryColor,
+              size: 20,
+            ),
+          ),
+          suffixIcon: IconButton(
+            icon: Icon(
+              _passwordVisible ? Icons.visibility_off : Icons.visibility,
+              color: Colors.grey.shade600,
+            ),
+            onPressed: () {
+              setState(() {
+                _passwordVisible = !_passwordVisible;
+              });
+            },
+          ),
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(color: Colors.grey.shade200),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(color: Colors.grey.shade200),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(color: kPrimaryColor, width: 2),
+          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+        ),
+      ),
+    );
+  }
+
+  // ✅ FORGOT PASSWORD
+  Widget _buildForgotPassword() {
+    return Align(
+      alignment: Alignment.centerRight,
+      child: TextButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
+          );
+        },
+        child: Text(
+          'Forgot Password?',
+          style: TextStyle(
+            color: kPrimaryColor,
+            fontWeight: FontWeight.w700,
+            fontSize: 15,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ✅ LOGIN BUTTON
+  Widget _buildLoginButton() {
+    return Container(
+      width: double.infinity,
+      height: 56,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: LinearGradient(
+          colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: kPrimaryColor.withOpacity(0.3),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: ElevatedButton(
+        onPressed: _isLoggingIn ? null : _loginWithEmail,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
+        child: _isLoggingIn
+            ? const SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(
+            color: Colors.white,
+            strokeWidth: 2,
+          ),
+        )
+            : const Text(
+          'Sign In',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: Colors.white,
+            letterSpacing: 0.5,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ✅ OR DIVIDER
+  Widget _buildOrDivider() {
+    return Row(
+      children: [
+        Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Text(
+            'OR',
+            style: TextStyle(
+              color: Colors.grey.shade600,
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
+      ],
+    );
+  }
+
+  // ✅ SOCIAL LOGIN BUTTONS
+  Widget _buildSocialLoginButtons() {
+    return Column(
+      children: [
+        // Google Login
+        _buildSocialButton(
+          onPressed: _loginWithGoogle,
+          icon: Icons.g_mobiledata,
+          label: 'Continue with Google',
+          color: Colors.red,
+        ),
+        const SizedBox(height: 12),
+
+        // Phone Login
+        _buildSocialButton(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const PhoneLoginScreen()),
+            );
+          },
+          icon: Icons.phone_android_rounded,
+          label: 'Continue with Phone',
+          color: Colors.green,
+        ),
+      ],
+    );
+  }
+
+  // ✅ SOCIAL BUTTON
+  Widget _buildSocialButton({
+    required VoidCallback onPressed,
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    return Container(
+      width: double.infinity,
+      height: 52,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.2), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ElevatedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, color: color, size: 24),
+        label: Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontWeight: FontWeight.w700,
+            fontSize: 16,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color.withOpacity(0.05),
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ✅ SIGN UP LINK
+  Widget _buildSignUpLink() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          "Don't have an account? ",
+          style: TextStyle(
+            color: Colors.grey.shade600,
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SignUpScreen()),
+            );
+          },
+          child: Text(
+            'Sign Up',
+            style: TextStyle(
+              color: kPrimaryColor,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ✅ PREMIUM TEXT FIELD (for email)
   Widget _buildPremiumTextField({
     required TextEditingController controller,
     required String label,
@@ -318,11 +565,11 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   }) {
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
+            blurRadius: 12,
             offset: const Offset(0, 4),
           ),
         ],
@@ -359,53 +606,19 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           filled: true,
           fillColor: Colors.white,
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(18),
             borderSide: BorderSide(color: Colors.grey.shade200),
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(18),
             borderSide: BorderSide(color: Colors.grey.shade200),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(18),
             borderSide: BorderSide(color: kPrimaryColor, width: 2),
           ),
           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
         ),
-      ),
-    );
-  }
-
-  Widget _buildPremiumButton({
-    required VoidCallback? onPressed,
-    required Widget child,
-  }) {
-    return Container(
-      width: double.infinity,
-      height: 56,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: onPressed != null
-            ? [
-          BoxShadow(
-            color: kPrimaryColor.withOpacity(0.3),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
-          ),
-        ]
-            : null,
-      ),
-      child: ElevatedButton(
-        onPressed: onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: onPressed != null ? kPrimaryColor : Colors.grey.shade300,
-          foregroundColor: Colors.white,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-        child: child,
       ),
     );
   }
