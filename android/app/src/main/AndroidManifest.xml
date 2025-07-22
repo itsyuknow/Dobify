@@ -91,13 +91,21 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
-            <!-- ✅ ADD URL SCHEME HANDLING (for OAuth redirects) -->
+            <!-- ✅ SUPABASE AUTH REDIRECT - Using your actual Supabase URL -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https"
                     android:host="qehtgcgjhzdlqcjujpp.supabase.co" />
+            </intent-filter>
+
+            <!-- ✅ CUSTOM URL SCHEME FOR SUPABASE AUTH -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.yuknow.ironly" />
             </intent-filter>
         </activity>
 

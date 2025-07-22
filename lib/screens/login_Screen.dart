@@ -25,12 +25,14 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   late Animation<Offset> _slideAnimation;
 
   bool _isLoggingIn = false;
+  bool _isGoogleLoggingIn = false;
   bool _passwordVisible = false;
 
   @override
   void initState() {
     super.initState();
     _initializeAnimations();
+    _setupAuthListener();
   }
 
   void _initializeAnimations() {
@@ -61,6 +63,27 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     _slideController.forward();
   }
 
+  void _setupAuthListener() {
+    supabase.auth.onAuthStateChange.listen((data) {
+      final AuthChangeEvent event = data.event;
+      final Session? session = data.session;
+
+      if (event == AuthChangeEvent.signedIn && session != null) {
+        setState(() {
+          _isLoggingIn = false;
+          _isGoogleLoggingIn = false;
+        });
+        _showMessage('Welcome back!', isError: false);
+        print('✅ Login successful, AppWrapper will handle location verification');
+      } else if (event == AuthChangeEvent.signedOut) {
+        setState(() {
+          _isLoggingIn = false;
+          _isGoogleLoggingIn = false;
+        });
+      }
+    });
+  }
+
   Future<void> _loginWithEmail() async {
     if (emailController.text.trim().isEmpty || passwordController.text.trim().isEmpty) {
       _showMessage('Please fill in all fields', isError: true);
@@ -78,8 +101,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       );
 
       if (res.user != null) {
-        _showMessage('Welcome back!', isError: false);
-        print('✅ Login successful, AppWrapper will handle location verification');
+        // Success will be handled by auth listener
       }
     } catch (e) {
       setState(() {
@@ -90,10 +112,22 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   }
 
   Future<void> _loginWithGoogle() async {
+    setState(() {
+      _isGoogleLoggingIn = true;
+    });
+
     try {
-      await supabase.auth.signInWithOAuth(OAuthProvider.google);
+      await supabase.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: 'com.yuknow.ironly://auth-callback',
+        authScreenLaunchMode: LaunchMode.externalApplication,
+      );
     } catch (e) {
+      setState(() {
+        _isGoogleLoggingIn = false;
+      });
       _showMessage('Google login failed: ${e.toString()}', isError: true);
+      print('Google login error: $e');
     }
   }
 
@@ -116,7 +150,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           margin: const EdgeInsets.all(16),
         ));
-    }
+  }
 
   @override
   void dispose() {
@@ -484,10 +518,11 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       children: [
         // Google Login
         _buildSocialButton(
-          onPressed: _loginWithGoogle,
+          onPressed: _isGoogleLoggingIn ? null : _loginWithGoogle,
           icon: Icons.g_mobiledata,
           label: 'Continue with Google',
           color: Colors.red,
+          isLoading: _isGoogleLoggingIn,
         ),
         const SizedBox(height: 12),
 
@@ -502,6 +537,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           icon: Icons.phone_android_rounded,
           label: 'Continue with Phone',
           color: Colors.green,
+          isLoading: false,
         ),
       ],
     );
@@ -509,10 +545,11 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
 
   // ✅ SOCIAL BUTTON
   Widget _buildSocialButton({
-    required VoidCallback onPressed,
+    required VoidCallback? onPressed,
     required IconData icon,
     required String label,
     required Color color,
+    required bool isLoading,
   }) {
     return Container(
       width: double.infinity,
@@ -528,23 +565,38 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           ),
         ],
       ),
-      child: ElevatedButton.icon(
+      child: ElevatedButton(
         onPressed: onPressed,
-        icon: Icon(icon, color: color, size: 24),
-        label: Text(
-          label,
-          style: TextStyle(
-            color: color,
-            fontWeight: FontWeight.w700,
-            fontSize: 16,
-          ),
-        ),
         style: ElevatedButton.styleFrom(
           backgroundColor: color.withOpacity(0.05),
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
+        ),
+        child: isLoading
+            ? SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(
+            color: color,
+            strokeWidth: 2,
+          ),
+        )
+            : Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: color, size: 24),
+            const SizedBox(width: 12),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w700,
+                fontSize: 16,
+              ),
+            ),
+          ],
         ),
       ),
     );

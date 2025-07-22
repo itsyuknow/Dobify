@@ -69,12 +69,16 @@ dependencies {
     implementation("com.google.firebase:firebase-messaging-ktx")
     implementation("com.google.firebase:firebase-auth-ktx")
 
-    // ✅ Google Play Services for Auth
+    // ✅ Google Play Services for Auth (Updated versions)
     implementation("com.google.android.gms:play-services-auth:21.2.0")
     implementation("com.google.android.gms:play-services-base:18.5.0")
 
     // ✅ Multidex support
     implementation("androidx.multidex:multidex:2.0.1")
+
+    // ✅ ADD THESE FOR SUPABASE AUTH
+    implementation("androidx.browser:browser:1.8.0")
+    implementation("androidx.activity:activity-ktx:1.9.2")
 }
 
 flutter {
