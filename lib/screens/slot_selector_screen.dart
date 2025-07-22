@@ -832,6 +832,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
         await supabase.from('order_items').insert({
           'order_id': orderId,
           'product_name': item['product_name'],
+          'product_image': item['product_image'],
           'product_price': item['product_price'],
           'service_type': item['service_type'],
           'service_price': item['service_price'],

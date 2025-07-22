@@ -77,10 +77,10 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
         Map<String, dynamic> orderWithDetails = Map<String, dynamic>.from(order);
 
         try {
-          // Get order items with product details
+          // ✅ FIXED: Get order items with product_image directly
           final orderItemsResponse = await supabase
               .from('order_items')
-              .select('*')
+              .select('*, product_image') // ✅ Include product_image from order_items
               .eq('order_id', order['id']);
 
           print('Found ${orderItemsResponse.length} items for order ${order['id']}');
@@ -90,7 +90,10 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
           for (var item in orderItemsResponse) {
             Map<String, dynamic> processedItem = Map<String, dynamic>.from(item);
 
-            // Get product details if product_id exists
+            // ✅ FIXED: Use product_image from order_items first, then fallback to products table
+            String? productImageUrl = item['product_image']; // From order_items
+
+            // Get additional product details if product_id exists
             if (item['product_id'] != null) {
               try {
                 final productResponse = await supabase
@@ -103,7 +106,8 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                   processedItem['products'] = {
                     'id': productResponse['id'],
                     'name': productResponse['product_name'],
-                    'image_url': productResponse['image_url'],
+                    // ✅ FIXED: Use order_items image first, then products table image
+                    'image_url': productImageUrl ?? productResponse['image_url'],
                     'price': productResponse['product_price'],
                     'category_id': productResponse['category_id'],
                   };
@@ -112,7 +116,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                   processedItem['products'] = {
                     'id': item['product_id'],
                     'name': item['product_name'] ?? 'Product ${item['product_id']}',
-                    'image_url': null,
+                    'image_url': productImageUrl, // ✅ Use from order_items
                     'price': item['product_price'] ?? 0.0,
                     'category_id': null,
                   };
@@ -123,7 +127,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                 processedItem['products'] = {
                   'id': item['product_id'],
                   'name': item['product_name'] ?? 'Unknown Product',
-                  'image_url': null,
+                  'image_url': productImageUrl, // ✅ Use from order_items
                   'price': item['product_price'] ?? 0.0,
                   'category_id': null,
                 };
@@ -133,7 +137,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
               processedItem['products'] = {
                 'id': null,
                 'name': item['product_name'] ?? 'Unknown Product',
-                'image_url': null,
+                'image_url': productImageUrl, // ✅ Use from order_items
                 'price': item['product_price'] ?? 0.0,
                 'category_id': null,
               };
@@ -212,6 +216,108 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
           isLoading = false;
         });
       }
+    }
+  }
+
+  Future<void> _reorderItems(Map<String, dynamic> order) async {
+    final user = supabase.auth.currentUser;
+    if (user == null) {
+      _showErrorSnackBar('Please login to reorder');
+      return;
+    }
+
+    try {
+      // Show loading overlay
+      _showLoadingDialog('Adding items to cart...');
+
+      final orderItems = order['order_items'] as List<dynamic>? ?? [];
+      int addedItems = 0;
+
+      // First, clear any existing cart for fresh reorder
+      await supabase
+          .from('cart')
+          .delete()
+          .eq('user_id', user.id);
+
+      for (var item in orderItems) {
+        final product = item['products'];
+        if (product != null) {
+          try {
+            // Check if product is still available (if product_id exists)
+            if (product['id'] != null) {
+              final productCheck = await supabase
+                  .from('products')
+                  .select('id, product_name, product_price, image_url, is_enabled, category_id')
+                  .eq('id', product['id'])
+                  .eq('is_enabled', true)
+                  .maybeSingle();
+
+              if (productCheck != null) {
+                // ✅ FIXED: Use product image from order first, then from products table
+                final imageUrl = product['image_url'] ?? productCheck['image_url'];
+
+                // Add item to cart with same service type
+                await supabase.from('cart').insert({
+                  'user_id': user.id,
+                  'product_name': productCheck['product_name'],
+                  'product_image': imageUrl, // ✅ Use correct image URL
+                  'product_price': productCheck['product_price'],
+                  'service_type': item['service_type'] ?? 'Standard',
+                  'service_price': item['service_price'] ?? 0.0,
+                  'product_quantity': item['quantity'] ?? 1,
+                  'total_price': (productCheck['product_price'] ?? 0.0) * (item['quantity'] ?? 1),
+                  'category': product['category_id'],
+                  'created_at': DateTime.now().toIso8601String(),
+                  'updated_at': DateTime.now().toIso8601String(),
+                });
+                addedItems++;
+              }
+            } else {
+              // For products without product_id, add based on name
+              await supabase.from('cart').insert({
+                'user_id': user.id,
+                'product_name': product['name'] ?? item['product_name'],
+                'product_image': product['image_url'], // ✅ Use image from order
+                'product_price': product['price'] ?? item['product_price'],
+                'service_type': item['service_type'] ?? 'Standard',
+                'service_price': item['service_price'] ?? 0.0,
+                'product_quantity': item['quantity'] ?? 1,
+                'total_price': (product['price'] ?? item['product_price'] ?? 0.0) * (item['quantity'] ?? 1),
+                'category': product['category_id'],
+                'created_at': DateTime.now().toIso8601String(),
+                'updated_at': DateTime.now().toIso8601String(),
+              });
+              addedItems++;
+            }
+          } catch (e) {
+            print('Error adding item ${product['name']} to cart: $e');
+          }
+        }
+      }
+
+      // Close loading dialog
+      if (mounted) Navigator.pop(context);
+
+      if (addedItems > 0) {
+        // Show success message and navigate to cart
+        _showSuccessSnackBar('$addedItems items added to cart!');
+
+        // Navigate to cart screen
+        Future.delayed(const Duration(milliseconds: 1000), () {
+          if (mounted) {
+            Navigator.of(context).pushNamed('/cart');
+          }
+        });
+      } else {
+        _showErrorSnackBar('No items could be added. Products may be unavailable.');
+      }
+
+    } catch (e) {
+      // Close loading dialog
+      if (mounted) Navigator.pop(context);
+
+      print('Error during reorder: $e');
+      _showErrorSnackBar('Failed to reorder items');
     }
   }
 
@@ -451,105 +557,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     }
   }
 
-  Future<void> _reorderItems(Map<String, dynamic> order) async {
-    final user = supabase.auth.currentUser;
-    if (user == null) {
-      _showErrorSnackBar('Please login to reorder');
-      return;
-    }
-
-    try {
-      // Show loading overlay
-      _showLoadingDialog('Adding items to cart...');
-
-      final orderItems = order['order_items'] as List<dynamic>? ?? [];
-      int addedItems = 0;
-
-      // First, clear any existing cart for fresh reorder
-      await supabase
-          .from('cart')
-          .delete()
-          .eq('user_id', user.id);
-
-      for (var item in orderItems) {
-        final product = item['products'];
-        if (product != null) {
-          try {
-            // Check if product is still available (if product_id exists)
-            if (product['id'] != null) {
-              final productCheck = await supabase
-                  .from('products')
-                  .select('id, product_name, product_price, image_url, is_enabled, category_id')
-                  .eq('id', product['id'])
-                  .eq('is_enabled', true)
-                  .maybeSingle();
-
-              if (productCheck != null) {
-                // Add item to cart with same service type
-                await supabase.from('cart').insert({
-                  'user_id': user.id,
-                  'product_name': productCheck['product_name'],
-                  'product_image': productCheck['image_url'],
-                  'product_price': productCheck['product_price'],
-                  'service_type': item['service_type'] ?? 'Standard',
-                  'service_price': item['service_price'] ?? 0.0,
-                  'product_quantity': item['quantity'] ?? 1,
-                  'total_price': (productCheck['product_price'] ?? 0.0) * (item['quantity'] ?? 1),
-                  'category': product['category_id'],
-                  'created_at': DateTime.now().toIso8601String(),
-                  'updated_at': DateTime.now().toIso8601String(),
-                });
-                addedItems++;
-              }
-            } else {
-              // For products without product_id, add based on name
-              await supabase.from('cart').insert({
-                'user_id': user.id,
-                'product_name': product['name'] ?? item['product_name'],
-                'product_image': product['image_url'],
-                'product_price': product['price'] ?? item['product_price'],
-                'service_type': item['service_type'] ?? 'Standard',
-                'service_price': item['service_price'] ?? 0.0,
-                'product_quantity': item['quantity'] ?? 1,
-                'total_price': (product['price'] ?? item['product_price'] ?? 0.0) * (item['quantity'] ?? 1),
-                'category': product['category_id'],
-                'created_at': DateTime.now().toIso8601String(),
-                'updated_at': DateTime.now().toIso8601String(),
-              });
-              addedItems++;
-            }
-          } catch (e) {
-            print('Error adding item ${product['name']} to cart: $e');
-          }
-        }
-      }
-
-      // Close loading dialog
-      if (mounted) Navigator.pop(context);
-
-      if (addedItems > 0) {
-        // Show success message and navigate to cart
-        _showSuccessSnackBar('$addedItems items added to cart!');
-
-        // Navigate to cart screen
-        Future.delayed(const Duration(milliseconds: 1000), () {
-          if (mounted) {
-            Navigator.of(context).pushNamed('/cart');
-          }
-        });
-      } else {
-        _showErrorSnackBar('No items could be added. Products may be unavailable.');
-      }
-
-    } catch (e) {
-      // Close loading dialog
-      if (mounted) Navigator.pop(context);
-
-      print('Error during reorder: $e');
-      _showErrorSnackBar('Failed to reorder items');
-    }
-  }
-
   Future<void> _generateInvoice(Map<String, dynamic> order) async {
     try {
       // Show loading overlay
@@ -583,7 +590,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                         crossAxisAlignment: pw.CrossAxisAlignment.start,
                         children: [
                           pw.Text(
-                            'INVOICE',
+                            'IronXpress',
                             style: pw.TextStyle(
                               fontSize: 24,
                               fontWeight: pw.FontWeight.bold,
@@ -592,7 +599,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                           ),
                           pw.SizedBox(height: 5),
                           pw.Text(
-                            'Your Laundry Service',
+                            'At Your Service',
                             style: pw.TextStyle(fontSize: 16),
                           ),
                         ],
@@ -675,11 +682,11 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                         ),
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text('₹${item['product_price'] ?? '0.00'}'),
+                          child: pw.Text('Rs ${item['product_price'] ?? '0.00'}'),
                         ),
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text('₹${item['total_price'] ?? '0.00'}'),
+                          child: pw.Text('Rs ${item['total_price'] ?? '0.00'}'),
                         ),
                       ],
                     )).toList(),
@@ -707,21 +714,21 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                   child: pw.Column(
                     children: [
                       if (billingDetails != null) ...[
-                        _buildPdfBillRow('Subtotal', '₹${billingDetails['subtotal'] ?? '0.00'}'),
+                        _buildPdfBillRow('Subtotal', 'Rs ${billingDetails['subtotal'] ?? '0.00'}'),
                         if ((billingDetails['minimum_cart_fee'] ?? 0) > 0)
-                          _buildPdfBillRow('Minimum Cart Fee', '₹${billingDetails['minimum_cart_fee']}'),
+                          _buildPdfBillRow('Minimum Cart Fee', 'Rs ${billingDetails['minimum_cart_fee']}'),
                         if ((billingDetails['platform_fee'] ?? 0) > 0)
-                          _buildPdfBillRow('Platform Fee', '₹${billingDetails['platform_fee']}'),
+                          _buildPdfBillRow('Platform Fee', 'Rs ${billingDetails['platform_fee']}'),
                         if ((billingDetails['service_tax'] ?? 0) > 0)
-                          _buildPdfBillRow('Service Tax', '₹${billingDetails['service_tax']}'),
+                          _buildPdfBillRow('Service Tax', 'Rs ${billingDetails['service_tax']}'),
                         if ((billingDetails['delivery_fee'] ?? 0) > 0)
-                          _buildPdfBillRow('Delivery Fee', '₹${billingDetails['delivery_fee']}'),
+                          _buildPdfBillRow('Delivery Fee', 'Rs ${billingDetails['delivery_fee']}'),
                         if ((billingDetails['discount_amount'] ?? 0) > 0)
-                          _buildPdfBillRow('Discount', '-₹${billingDetails['discount_amount']}'),
+                          _buildPdfBillRow('Discount', '-Rs ${billingDetails['discount_amount']}'),
                         pw.Divider(),
-                        _buildPdfBillRow('Total Amount', '₹${billingDetails['total_amount'] ?? order['total_amount'] ?? '0.00'}', isTotal: true),
+                        _buildPdfBillRow('Total Amount', 'Rs ${billingDetails['total_amount'] ?? order['total_amount'] ?? '0.00'}', isTotal: true),
                       ] else ...[
-                        _buildPdfBillRow('Total Amount', '₹${order['total_amount'] ?? '0.00'}', isTotal: true),
+                        _buildPdfBillRow('Total Amount', 'Rs ${order['total_amount'] ?? '0.00'}', isTotal: true),
                       ],
                       pw.SizedBox(height: 10),
                       pw.Row(
@@ -747,7 +754,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                   child: pw.Column(
                     children: [
                       pw.Text(
-                        'Thank you for choosing our service!',
+                        'Thank you for choosing our IronXpress!',
                         style: pw.TextStyle(
                           fontSize: 16,
                           fontWeight: pw.FontWeight.bold,
@@ -755,7 +762,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                       ),
                       pw.SizedBox(height: 5),
                       pw.Text(
-                        'For any queries, contact us at support@yourlaundry.com',
+                        'For any queries, contact us at info@ironxpress.in',
                         style: pw.TextStyle(fontSize: 12),
                       ),
                     ],
@@ -1267,7 +1274,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
                 const SizedBox(height: 16),
 
-                // Action Buttons Row
+                // Action Buttons Row - FIXED CANCEL BUTTON LOGIC
                 Row(
                   children: [
                     // View Details Button
@@ -1298,50 +1305,35 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                     ),
                     const SizedBox(width: 12),
 
-                    // Cancel Order or Reorder Button
+                    // Cancel Order or Reorder Button - FIXED LOGIC
                     Expanded(
                       child: Container(
                         height: 48,
                         child: canCancel
-                            ? (remainingTime > 0
                             ? ElevatedButton.icon(
-                          onPressed: () => _cancelOrder(order),
-                          icon: const Icon(Icons.cancel_outlined, size: 18, color: Colors.white),
-                          label: const Text(
-                            'Cancel Order',
+                          // Button is enabled only when there's remaining time
+                          onPressed: remainingTime > 0 ? () => _cancelOrder(order) : null,
+                          icon: Icon(
+                            remainingTime > 0 ? Icons.cancel_outlined : Icons.block,
+                            size: 18,
+                            color: remainingTime > 0 ? Colors.white : Colors.grey.shade500,
+                          ),
+                          label: Text(
+                            remainingTime > 0 ? 'Cancel Order' : 'Cannot Cancel',
                             style: TextStyle(
-                              color: Colors.white,
+                              color: remainingTime > 0 ? Colors.white : Colors.grey.shade600,
                               fontWeight: FontWeight.w700,
                               fontSize: 14,
                             ),
                           ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red.shade600,
+                            backgroundColor: remainingTime > 0 ? Colors.red.shade600 : Colors.grey.shade200,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
                           ),
                         )
-                            : ElevatedButton.icon(
-                          onPressed: null,
-                          icon: Icon(Icons.block, size: 18, color: Colors.grey.shade500),
-                          label: Text(
-                            'Cannot Cancel',
-                            style: TextStyle(
-                              color: Colors.grey.shade600,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.grey.shade200,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        ))
                             : (_canReorder(order['status'] ?? order['order_status'])
                             ? ElevatedButton.icon(
                           onPressed: () => _reorderItems(order),

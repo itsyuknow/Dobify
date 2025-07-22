@@ -204,7 +204,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     ) ?? false;
   }
 
-  // Update quantity with simplified logic
+  // Update quantity with simplified logic - NO ANIMATIONS OR SNACKBARS
   Future<void> _updateQuantity(Map<String, dynamic> item, int delta) async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
@@ -238,7 +238,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       })
           .eq('id', item['id']);
 
-      // Update local state immediately
+      // Update local state immediately - NO ANIMATIONS
       setState(() {
         final itemIndex = _cartItems.indexWhere((cartItem) => cartItem['id'] == item['id']);
         if (itemIndex != -1) {
@@ -249,7 +249,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       });
 
       await _updateGlobalCartCount();
-      _showSnackBar('Quantity updated', Colors.green);
+      // REMOVED GREEN SNACKBAR
 
     } catch (e) {
       print('❌ Error updating quantity: $e');
@@ -260,7 +260,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     }
   }
 
-  // Remove single item
+  // Remove single item - NO ANIMATIONS OR SNACKBARS
   Future<void> _removeItem(Map<String, dynamic> item) async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
@@ -271,12 +271,13 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
           .delete()
           .eq('id', item['id']);
 
+      // Remove item immediately without animation
       setState(() {
         _cartItems.removeWhere((cartItem) => cartItem['id'] == item['id']);
       });
 
       await _updateGlobalCartCount();
-      _showSnackBar('Item removed from cart', Colors.orange);
+      // REMOVED ORANGE SNACKBAR
 
     } catch (e) {
       print('❌ Error removing item: $e');
@@ -357,11 +358,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                   padding: const EdgeInsets.all(16),
                   itemCount: _cartItems.length,
                   itemBuilder: (context, index) {
-                    return AnimatedContainer(
-                      duration: Duration(milliseconds: 300 + (index * 100)),
-                      curve: Curves.easeOutCubic,
-                      child: _buildDismissibleCartItem(_cartItems[index]),
-                    );
+                    // REMOVED ANIMATION CONTAINER
+                    return _buildDismissibleCartItem(_cartItems[index]);
                   },
                 ),
               ),
@@ -575,27 +573,15 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
       ),
-      title: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(Icons.shopping_cart_outlined, color: Colors.white, size: 24),
-          ),
-          const SizedBox(width: 12),
-          const Text(
-            "My Cart",
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
-              letterSpacing: 0.5,
-            ),
-          ),
-        ],
+      // REMOVED CART ICON FROM TITLE
+      title: const Text(
+        "My Cart",
+        style: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+          color: Colors.white,
+          letterSpacing: 0.5,
+        ),
       ),
       actions: [
         // Clear cart button

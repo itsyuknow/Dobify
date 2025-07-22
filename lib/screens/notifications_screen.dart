@@ -291,7 +291,6 @@ class _NotificationsScreenState extends State<NotificationsScreen>
           position: _slideAnimation,
           child: Column(
             children: [
-              _buildStatsHeader(),
               _buildFilterTabs(),
               Expanded(child: _buildNotificationsList()),
             ],
@@ -372,92 +371,9 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     );
   }
 
-  Widget _buildStatsHeader() {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [kPrimaryColor.withOpacity(0.1), kPrimaryColor.withOpacity(0.05)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: kPrimaryColor.withOpacity(0.2)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)]),
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: kPrimaryColor.withOpacity(0.3),
-                  blurRadius: 12,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: const Icon(Icons.notifications_rounded, color: Colors.white, size: 28),
-          ),
-          const SizedBox(width: 20),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Your Notifications',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.grey.shade800,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${notifications.length} total • $unreadCount unread',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (unreadCount > 0)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: [Colors.red, Colors.red.shade700]),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.red.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Text(
-                '$unreadCount',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 14,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildFilterTabs() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
+      margin: const EdgeInsets.all(16),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
@@ -668,8 +584,36 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       margin: const EdgeInsets.only(bottom: 12),
       child: Dismissible(
         key: Key(notification['id']),
-        direction: DismissDirection.endToStart,
+        // Support both directions
+        direction: DismissDirection.horizontal,
+
+        // Background for swipe right (mark as read)
         background: Container(
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.only(left: 20),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [Colors.green, Colors.green.shade700]),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: const Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.mark_email_read_rounded, color: Colors.white, size: 28),
+              SizedBox(height: 4),
+              Text(
+                'Mark Read',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Secondary background for swipe left (delete)
+        secondaryBackground: Container(
           alignment: Alignment.centerRight,
           padding: const EdgeInsets.only(right: 20),
           decoration: BoxDecoration(
@@ -692,31 +636,50 @@ class _NotificationsScreenState extends State<NotificationsScreen>
             ],
           ),
         ),
+
         confirmDismiss: (direction) async {
-          HapticFeedback.mediumImpact();
-          return await showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: const Text('Delete Notification'),
-              content: const Text('Are you sure you want to delete this notification?'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: Text('Cancel', style: TextStyle(color: Colors.grey.shade600)),
-                ),
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                  child: const Text('Delete', style: TextStyle(color: Colors.white)),
-                ),
-              ],
-            ),
-          );
+          if (direction == DismissDirection.endToStart) {
+            // Swipe left - Delete confirmation
+            HapticFeedback.mediumImpact();
+            return await showDialog(
+              context: context,
+              builder: (context) => AlertDialog(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                title: const Text('Delete Notification'),
+                content: const Text('Are you sure you want to delete this notification?'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: Text('Cancel', style: TextStyle(color: Colors.grey.shade600)),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                    child: const Text('Delete', style: TextStyle(color: Colors.white)),
+                  ),
+                ],
+              ),
+            );
+          } else {
+            // Swipe right - Mark as read (no confirmation needed)
+            HapticFeedback.lightImpact();
+            if (!isRead) {
+              _markAsRead(notification['id'], true);
+              _showSuccessSnackBar('Notification marked as read');
+            } else {
+              _showSuccessSnackBar('Notification already read');
+            }
+            return false; // Don't actually dismiss the card
+          }
         },
+
         onDismissed: (direction) {
-          _deleteNotification(notification['id']);
+          if (direction == DismissDirection.endToStart) {
+            // Only delete on left swipe
+            _deleteNotification(notification['id']);
+          }
         },
+
         child: GestureDetector(
           onTap: () {
             if (!isRead) {

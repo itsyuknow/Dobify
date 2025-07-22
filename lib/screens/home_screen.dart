@@ -1,4 +1,4 @@
-// ✅ FIXED HOME SCREEN - Proper Integration with Auto-Loading Widget & RenderFlex Fix
+// ✅ PREMIUM HOME SCREEN - Enhanced UI with Proper Notifications & Cart Count
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -42,6 +42,9 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
   String? _backgroundUrl;
   List<Map<String, dynamic>> _contacts = [];
 
+  // ✅ NOTIFICATION COUNT STATE
+  int _notificationCount = 0;
+
   final PageController _bannerPageController = PageController(
       viewportFraction: 0.94);
 
@@ -56,6 +59,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     _bannerPageController.addListener(_onBannerPageChanged);
     _loadAllContent();
     _fetchCartCount();
+    _fetchNotificationCount(); // ✅ FETCH NOTIFICATION COUNT
   }
 
   void _initializeAnimations() {
@@ -158,12 +162,11 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
           .select('key, label, value, icon, link, color');
 
       final filtered = List<Map<String, dynamic>>.from(data).where((c) {
-        return (c['label']
-            ?.toString()
-            .isNotEmpty ?? false) &&
-            (c['value']
-                ?.toString()
-                .isNotEmpty ?? false);
+        // ✅ ONLY SHOW SPECIFIC CONTACTS
+        final key = c['key']?.toString().toLowerCase() ?? '';
+        return ['facebook', 'website', 'instagram'].contains(key) &&
+            (c['label']?.toString().isNotEmpty ?? false) &&
+            (c['value']?.toString().isNotEmpty ?? false);
       }).toList();
 
       setState(() => _contacts = filtered);
@@ -224,11 +227,58 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     super.dispose();
   }
 
+  // ✅ FIXED CART COUNT FUNCTION
   Future<void> _fetchCartCount() async {
     final userId = supabase.auth.currentUser?.id;
-    if (userId == null) return;
-    final response = await supabase.from('cart').select().eq('id', userId);
-    cartCountNotifier.value = response.length;
+    if (userId == null) {
+      cartCountNotifier.value = 0;
+      return;
+    }
+
+    try {
+      final response = await supabase
+          .from('cart')
+          .select('product_quantity')
+          .eq('user_id', userId);
+
+      final items = List<Map<String, dynamic>>.from(response);
+      final totalCount = items.fold<int>(
+        0,
+            (sum, item) => sum + (item['product_quantity'] as int? ?? 0),
+      );
+
+      cartCountNotifier.value = totalCount;
+      print('🛒 Cart count updated: $totalCount');
+    } catch (e) {
+      print('❌ Error fetching cart count: $e');
+      cartCountNotifier.value = 0;
+    }
+  }
+
+  // ✅ FETCH NOTIFICATION COUNT
+  Future<void> _fetchNotificationCount() async {
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) {
+      setState(() => _notificationCount = 0);
+      return;
+    }
+
+    try {
+      final response = await supabase
+          .from('notifications')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('is_read', false);
+
+      setState(() {
+        _notificationCount = response.length;
+      });
+
+      print('🔔 Notification count updated: $_notificationCount');
+    } catch (e) {
+      print('❌ Error fetching notification count: $e');
+      setState(() => _notificationCount = 0);
+    }
   }
 
   void _onItemTapped(int index) {
@@ -252,8 +302,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     ];
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F6FC), // Premium background
-      appBar: _buildAppBar(),
+      backgroundColor: Colors.grey.shade50, // ✅ PREMIUM BACKGROUND
+      appBar: _buildPremiumAppBar(),
       body: AnimatedSwitcher(
         duration: const Duration(milliseconds: 300),
         child: screens[_selectedIndex],
@@ -262,71 +312,250 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     );
   }
 
-  PreferredSizeWidget _buildAppBar() {
+  // ✅ PREMIUM APP BAR DESIGN WITH SMOOTH ICONS
+  PreferredSizeWidget _buildPremiumAppBar() {
     return AppBar(
       title: const Text(
-          'ironXpress',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.5,
-          )
+        'ironXpress',
+        style: TextStyle(
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.8,
+          fontSize: 22,
+        ),
       ),
-      backgroundColor: kPrimaryColor,
+      backgroundColor: Colors.transparent,
       foregroundColor: Colors.white,
       elevation: 0,
+      flexibleSpace: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: const BorderRadius.vertical(
+            bottom: Radius.circular(24),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: kPrimaryColor.withOpacity(0.3),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+      ),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
+      ),
       actions: [
-        ValueListenableBuilder<int>(
-          valueListenable: cartCountNotifier,
-          builder: (_, count, __) {
-            return Stack(
-              alignment: Alignment.topRight,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.shopping_cart_outlined),
-                  onPressed: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const CartScreen()),
-                    );
-                    _fetchCartCount();
-                  },
-                ),
-                if (count > 0)
-                  Positioned(
-                    right: 6,
-                    top: 6,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
-                        color: Colors.red,
-                        shape: BoxShape.circle,
+        // ✅ PREMIUM SMOOTH CART ICON
+        Container(
+          margin: const EdgeInsets.only(right: 6),
+          child: ValueListenableBuilder<int>(
+            valueListenable: cartCountNotifier,
+            builder: (_, count, __) {
+              return Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.15),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                          spreadRadius: 1,
+                        ),
+                        BoxShadow(
+                          color: Colors.white.withOpacity(0.8),
+                          blurRadius: 8,
+                          offset: const Offset(0, -2),
+                        ),
+                      ],
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(21),
+                        onTap: () async {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const CartScreen()),
+                          );
+                          _fetchCartCount();
+                        },
+                        child: Center(
+                          child: Icon(
+                            Icons.shopping_cart_outlined,
+                            size: 22,
+                            color: kPrimaryColor,
+                          ),
+                        ),
                       ),
-                      child: Text('$count',
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 10)),
                     ),
                   ),
+                  if (count > 0)
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Colors.red.shade600, Colors.red.shade800],
+                          ),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.red.withOpacity(0.6),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Text(
+                          count > 99 ? '99+' : '$count',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+
+        // ✅ PREMIUM SMOOTH NOTIFICATION ICON
+        Container(
+          margin: const EdgeInsets.only(right: 6),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.15),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                      spreadRadius: 1,
+                    ),
+                    BoxShadow(
+                      color: Colors.white.withOpacity(0.8),
+                      blurRadius: 8,
+                      offset: const Offset(0, -2),
+                    ),
+                  ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(21),
+                    onTap: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+                      );
+                      _fetchNotificationCount();
+                    },
+                    child: Center(
+                      child: Icon(
+                        Icons.notifications_none_rounded,
+                        size: 22,
+                        color: kPrimaryColor,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (_notificationCount > 0)
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Colors.orange.shade500, Colors.orange.shade700],
+                      ),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.orange.withOpacity(0.6),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Text(
+                      _notificationCount > 99 ? '99+' : '$_notificationCount',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+
+        // ✅ PREMIUM SMOOTH SUPPORT ICON
+        Container(
+          margin: const EdgeInsets.only(right: 12),
+          child: Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.15),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                  spreadRadius: 1,
+                ),
+                BoxShadow(
+                  color: Colors.white.withOpacity(0.8),
+                  blurRadius: 8,
+                  offset: const Offset(0, -2),
+                ),
               ],
-            );
-          },
-        ),
-        IconButton(
-          icon: const Icon(Icons.notifications_none),
-          onPressed: () =>
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(21),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SupportScreen()),
+                ),
+                child: Center(
+                  child: Icon(
+                    Icons.headset_mic_outlined,
+                    size: 22,
+                    color: kPrimaryColor,
+                  ),
+                ),
               ),
+            ),
+          ),
         ),
-        IconButton(
-          icon: const Icon(Icons.headset_mic_outlined),
-          onPressed: () =>
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SupportScreen()),
-              ),
-        ),
-        const SizedBox(width: 8),
       ],
     );
   }
@@ -346,7 +575,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
               ),
             ),
 
-          // ✅ FIXED SCROLLVIEW - Better space management
+          // ✅ PREMIUM SCROLLVIEW
           SingleChildScrollView(
             physics: const BouncingScrollPhysics(),
             child: Column(
@@ -354,23 +583,23 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
               children: [
                 const SizedBox(height: 16),
 
-                // ✅ FIXED DELIVERY ADDRESS WIDGET - Auto-loads & updates
+                // ✅ DELIVERY ADDRESS WIDGET
                 const DeliveryAddressWidget(),
 
                 const SizedBox(height: 24),
 
                 // Banner carousel
-                _buildBannerCarousel(),
+                _buildPremiumBannerCarousel(),
 
                 const SizedBox(height: 28),
 
                 // Categories section
-                _buildCategoriesSection(),
+                _buildPremiumCategoriesSection(),
 
                 const SizedBox(height: 28),
 
                 // Contact tiles section
-                _buildContactTilesSection(),
+                _buildPremiumContactSection(),
 
                 const SizedBox(height: 36), // Extra bottom padding
               ],
@@ -381,126 +610,162 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     );
   }
 
-  // ✅ EXTRACTED CATEGORIES SECTION - Better organization
-  Widget _buildCategoriesSection() {
+  // ✅ PREMIUM CATEGORIES SECTION
+  Widget _buildPremiumCategoriesSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          child: Text(
-            'Categories',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.2,
-              color: Colors.black87,
-            ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [kPrimaryColor.withOpacity(0.2), kPrimaryColor.withOpacity(0.1)],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.category_outlined, color: kPrimaryColor, size: 20),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Our ',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.3,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 16),
-        _buildCategoryGrid(),
+        _buildPremiumCategoryGrid(),
       ],
     );
   }
 
-  Widget _buildBannerCarousel() {
-    return SizedBox(
-      height: 250,
-      child: _carouselImages.isEmpty
-          ? Center(
-        child: Container(
-          width: 60,
-          height: 60,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: CircularProgressIndicator(
-            color: kPrimaryColor,
-            strokeWidth: 3,
-          ),
-        ),
-      )
-          : Column(
-        children: [
-          Expanded(
-            child: PageView.builder(
-              controller: _bannerPageController,
-              itemCount: _carouselImages.length,
-              itemBuilder: (context, index) {
-                final isVideo = _videoControllers[index] != null;
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: isVideo
-                        ? VideoPlayer(_videoControllers[index]!)
-                        : CachedNetworkImage(
-                      imageUrl: _carouselImages[index],
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      placeholder: (context, url) =>
-                          Container(
-                            color: Colors.grey.shade100,
-                            child: Center(
-                              child: CircularProgressIndicator(
-                                color: kPrimaryColor,
-                                strokeWidth: 2,
-                              ),
-                            ),
-                          ),
-                      errorWidget: (context, url, error) =>
-                          Container(
-                            color: Colors.grey.shade100,
-                            child: const Icon(
-                              Icons.broken_image,
-                              color: Colors.grey,
-                              size: 50,
-                            ),
-                          ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(
-              _carouselImages.length,
-                  (index) =>
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    margin: const EdgeInsets.symmetric(horizontal: 3),
-                    height: 8,
-                    width: _currentBannerIndex == index ? 24 : 8,
-                    decoration: BoxDecoration(
-                      color: _currentBannerIndex == index
-                          ? kPrimaryColor
-                          : Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-            ),
+  Widget _buildPremiumBannerCarousel() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
           ),
         ],
+      ),
+      child: SizedBox(
+        height: 250,
+        child: _carouselImages.isEmpty
+            ? Center(
+          child: Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: CircularProgressIndicator(
+              color: kPrimaryColor,
+              strokeWidth: 3,
+            ),
+          ),
+        )
+            : Column(
+          children: [
+            Expanded(
+              child: PageView.builder(
+                controller: _bannerPageController,
+                itemCount: _carouselImages.length,
+                itemBuilder: (context, index) {
+                  final isVideo = _videoControllers[index] != null;
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: isVideo
+                          ? VideoPlayer(_videoControllers[index]!)
+                          : CachedNetworkImage(
+                        imageUrl: _carouselImages[index],
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        placeholder: (context, url) =>
+                            Container(
+                              color: Colors.grey.shade100,
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  color: kPrimaryColor,
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            ),
+                        errorWidget: (context, url, error) =>
+                            Container(
+                              color: Colors.grey.shade100,
+                              child: const Icon(
+                                Icons.broken_image,
+                                color: Colors.grey,
+                                size: 50,
+                              ),
+                            ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(
+                _carouselImages.length,
+                    (index) =>
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      height: 8,
+                      width: _currentBannerIndex == index ? 32 : 8,
+                      decoration: BoxDecoration(
+                        gradient: _currentBannerIndex == index
+                            ? LinearGradient(colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.7)])
+                            : LinearGradient(colors: [Colors.grey.shade300, Colors.grey.shade300]),
+                        borderRadius: BorderRadius.circular(4),
+                        boxShadow: _currentBannerIndex == index ? [
+                          BoxShadow(
+                            color: kPrimaryColor.withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ] : [],
+                      ),
+                    ),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }
 
-  // ✅ FIXED CATEGORY GRID - Better responsive design
-  Widget _buildCategoryGrid() {
+  // ✅ PREMIUM CATEGORY GRID
+  Widget _buildPremiumCategoryGrid() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: _isCategoriesLoading
           ? Center(
         child: Container(
@@ -529,9 +794,9 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
         physics: const NeverScrollableScrollPhysics(),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 2,
-          crossAxisSpacing: 14,
+          crossAxisSpacing: 16,
           mainAxisSpacing: 20,
-          childAspectRatio: 0.76, // ✅ Fixed aspect ratio
+          childAspectRatio: 0.85,
         ),
         itemCount: _categories.length,
         itemBuilder: (context, index) {
@@ -547,7 +812,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
             return const SizedBox.shrink();
           }
 
-          return _buildWideCategoryCard(
+          return _buildPremiumCategoryCard(
             title,
             imageUrl,
             isNetwork: true,
@@ -558,126 +823,159 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     );
   }
 
-  // ✅ FIXED CONTACT TILES - Better responsive design
-  Widget _buildContactTilesSection() {
+  // ✅ PREMIUM CONTACT SECTION
+  Widget _buildPremiumContactSection() {
     if (_contacts.isEmpty) return const SizedBox.shrink();
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          child: Text(
-            'Contact Us',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.2,
-              color: Colors.black87,
-            ),
-          ),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.white,
+            Colors.grey.shade50,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        const SizedBox(height: 16),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: GridView.builder(
-            itemCount: _contacts.length,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 4,
-              mainAxisSpacing: 20,
-              crossAxisSpacing: 14,
-              childAspectRatio: 0.8, // ✅ Fixed aspect ratio
-            ),
-            itemBuilder: (context, index) {
-              final c = _contacts[index];
-              final color = _getColor(c['key'], c['color']);
-              final icon = _getIcon(c['key']);
-
-              return GestureDetector(
-                onTap: () => _launchUrl(c['link']),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min, // ✅ Prevents overflow
-                  children: [
-                    Container(
-                      width: 50,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            color.withOpacity(0.2),
-                            color.withOpacity(0.05),
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: color.withOpacity(0.2)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: color.withOpacity(0.1),
-                            blurRadius: 8,
-                            offset: const Offset(2, 4),
-                          )
-                        ],
-                      ),
-                      child: Icon(icon, color: color, size: 24),
-                    ),
-                    const SizedBox(height: 8),
-                    // ✅ FLEXIBLE TEXT - Prevents overflow
-                    Flexible(
-                      child: Text(
-                        c['label'] ?? '',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black87,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [kPrimaryColor.withOpacity(0.2), kPrimaryColor.withOpacity(0.1)],
+                  ),
+                  borderRadius: BorderRadius.circular(14),
                 ),
-              );
-            },
+                child: Icon(Icons.connect_without_contact, color: kPrimaryColor, size: 22),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Connect With Us',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.3,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
           ),
-        ),
-      ],
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: _contacts.map((contact) => _buildPremiumContactTile(contact)).toList(),
+          ),
+        ],
+      ),
     );
   }
 
-  IconData _getIcon(String key) {
+  // ✅ PREMIUM CONTACT TILE - CONSISTENT DESIGN FOR ALL ICONS
+  Widget _buildPremiumContactTile(Map<String, dynamic> contact) {
+    final key = contact['key']?.toString().toLowerCase() ?? '';
+    final color = _getPremiumColor(key);
+    final icon = _getPremiumIcon(key);
+
+    return GestureDetector(
+      onTap: () => _launchUrl(contact['link']),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 70,
+            height: 70,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: color.withOpacity(0.2),
+                width: 2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: color.withOpacity(0.2),
+                  blurRadius: 15,
+                  offset: const Offset(0, 6),
+                ),
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      color.withOpacity(0.1),
+                      color.withOpacity(0.05),
+                    ],
+                  ),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: color, size: 28),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            contact['label'] ?? '',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _getPremiumIcon(String key) {
     switch (key) {
       case 'website':
-        return Icons.language;
-      case 'mail':
-        return Icons.email_outlined;
-      case 'support':
-        return Icons.phone;
-      case 'whatsapp':
-        return Icons.chat_bubble_outline;
+        return Icons.language_rounded;
       case 'instagram':
-        return Icons.camera_alt_outlined;
+        return Icons.camera_alt_rounded; // ✅ PREMIUM INSTAGRAM ICON
       case 'facebook':
-        return Icons.facebook;
+        return Icons.facebook_rounded;
       default:
-        return Icons.info_outline;
+        return Icons.link_rounded;
     }
   }
 
-  Color _getColor(String key, String? colorStr) {
-    if (key == 'instagram') return const Color(0xFFE1306C);
-    if (key == 'facebook') return const Color(0xFF1877f3);
-    if (key == 'whatsapp') return const Color(0xFF25D366);
-    if (colorStr != null && colorStr.isNotEmpty) {
-      try {
-        return Color(int.parse(colorStr.replaceAll('#', '0xff')));
-      } catch (_) {}
+  Color _getPremiumColor(String key) {
+    switch (key) {
+      case 'instagram':
+        return const Color(0xFFE1306C);
+      case 'facebook':
+        return const Color(0xFF1877f3);
+      case 'website':
+        return const Color(0xFF6366f1);
+      default:
+        return kPrimaryColor;
     }
-    return kPrimaryColor;
   }
 
   void _launchUrl(String? url) async {
@@ -690,8 +988,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     }
   }
 
-  // ✅ FIXED CATEGORY CARD - Better space management
-  Widget _buildWideCategoryCard(String title, String imagePath,
+  // ✅ PREMIUM CATEGORY CARD
+  Widget _buildPremiumCategoryCard(String title, String imagePath,
       {bool isNetwork = false, String? label}) {
     return InkWell(
       onTap: () {
@@ -700,44 +998,68 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
           MaterialPageRoute(builder: (_) => OrdersScreen(category: title)),
         );
       },
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(24),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
+          gradient: LinearGradient(
+            colors: [
+              Colors.white,
+              Colors.grey.shade50,
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: kPrimaryColor.withOpacity(0.1),
+            width: 1,
+          ),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.08),
-              blurRadius: 15,
-              offset: const Offset(0, 6),
-              spreadRadius: 1,
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+              spreadRadius: 2,
             ),
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min, // ✅ Prevents overflow
+            mainAxisSize: MainAxisSize.min,
             children: [
-              // ✅ FLEXIBLE IMAGE CONTAINER
+              // ✅ PREMIUM IMAGE CONTAINER
               Flexible(
                 flex: 3,
                 child: Container(
                   width: double.infinity,
                   constraints: const BoxConstraints(
                     minHeight: 80,
-                    maxHeight: 120,
+                    maxHeight: 100,
                   ),
-                  child: ClipRRect(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        kPrimaryColor.withOpacity(0.05),
+                        kPrimaryColor.withOpacity(0.02),
+                      ],
+                    ),
                     borderRadius: BorderRadius.circular(16),
+                  ),
+                  padding: const EdgeInsets.all(8),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
                     child: isNetwork
                         ? CachedNetworkImage(
                       imageUrl: imagePath,
                       fit: BoxFit.contain,
                       placeholder: (context, url) =>
                           Container(
-                            color: Colors.grey.shade100,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                             child: Center(
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
@@ -747,7 +1069,10 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                           ),
                       errorWidget: (context, url, error) =>
                           Container(
-                            color: Colors.grey.shade100,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                             child: const Icon(
                               Icons.image,
                               size: 40,
@@ -765,15 +1090,16 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
 
               const SizedBox(height: 12),
 
-              // ✅ FLEXIBLE TITLE
+              // ✅ PREMIUM TITLE
               Flexible(
                 flex: 1,
                 child: Text(
                   title,
                   style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15.5,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
                     color: Colors.black87,
+                    letterSpacing: 0.2,
                   ),
                   textAlign: TextAlign.center,
                   maxLines: 2,
@@ -781,21 +1107,31 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                 ),
               ),
 
-              // ✅ OPTIONAL LABEL
+              // ✅ PREMIUM LABEL
               if (label != null && label.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.redAccent,
-                    borderRadius: BorderRadius.circular(8),
+                    gradient: LinearGradient(
+                      colors: [Colors.red, Colors.red.shade700],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.red.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
                   child: Text(
                     label,
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 10,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.5,
                     ),
                   ),
                 ),
