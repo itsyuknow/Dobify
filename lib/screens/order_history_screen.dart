@@ -1319,7 +1319,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                             color: remainingTime > 0 ? Colors.white : Colors.grey.shade500,
                           ),
                           label: Text(
-                            remainingTime > 0 ? 'Cancel Order' : 'Cannot Cancel',
+                            remainingTime > 0 ? 'Cancel Order' : 'Cancel Timeout',
                             style: TextStyle(
                               color: remainingTime > 0 ? Colors.white : Colors.grey.shade600,
                               fontWeight: FontWeight.w700,

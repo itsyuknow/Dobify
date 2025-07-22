@@ -8,7 +8,7 @@ class SupportScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white, // You may use Colors.white or any neutral background
+      backgroundColor: Colors.white,
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.white,
@@ -43,23 +43,18 @@ class SupportScreen extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
+                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 36),
                 decoration: BoxDecoration(
                   color: kPrimaryColor,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: kPrimaryColor.withOpacity(0.18),
-                      blurRadius: 14,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
+                  borderRadius: BorderRadius.circular(25),
                 ),
-                child: const Padding(
-                  padding: EdgeInsets.all(18.0),
-                  child: Icon(
-                    Icons.local_laundry_service,
+                child: const Text(
+                  'IronXpress',
+                  style: TextStyle(
+                    fontSize: 25,
+                    fontWeight: FontWeight.bold,
                     color: Colors.white,
-                    size: 40,
+                    letterSpacing: 0.8,
                   ),
                 ),
               ),
@@ -75,7 +70,7 @@ class SupportScreen extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               const Text(
-                "Our AI bot is here to help you 24/7. Ask about our laundry, ironing, and other services anytime!",
+                "Our IronBot is here to help you 24/7. Ask about our services anytime!",
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 17,
@@ -98,7 +93,7 @@ class SupportScreen extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
                   ),
                   label: const Text(
-                    "Chat With AI Support",
+                    "Chat With our IronBot",
                     style: TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w600,
