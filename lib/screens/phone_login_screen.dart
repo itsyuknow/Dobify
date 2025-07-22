@@ -134,24 +134,24 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
 
   void _showMessage(String message, {required bool isError}) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              isError ? Icons.error_outline : Icons.check_circle_outline,
-              color: Colors.white,
-              size: 20,
-            ),
-            Expanded(child: Text(message)),
-          ],
-        ),
-        backgroundColor: isError ? Colors.red.shade600 : Colors.green.shade600,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(16),
-      ),
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                isError ? Icons.error_outline : Icons.check_circle_outline,
+                color: Colors.white,
+                size: 20,
+              ),
+              Expanded(child: Text(message)),
+            ],
+          ),
+          backgroundColor: isError ? Colors.red.shade600 : Colors.green.shade600,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
+        )
     );
-  }
+    }
 
   @override
   void dispose() {
@@ -282,14 +282,14 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
       height: 80,
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Colors.green, Colors.green.shade700],
+          colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.7)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
-            color: Colors.green.withOpacity(0.3),
+            color: kPrimaryColor.withOpacity(0.3),
             blurRadius: 25,
             offset: const Offset(0, 10),
           ),
@@ -309,7 +309,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
       children: [
         ShaderMask(
           shaderCallback: (bounds) => LinearGradient(
-            colors: [Colors.green, Colors.green.shade700],
+            colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.7)],
           ).createShader(bounds),
           child: Text(
             _otpSent ? 'Verify OTP' : 'Phone Login',
@@ -375,13 +375,13 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [Colors.green.withOpacity(0.1), Colors.green.withOpacity(0.05)],
+                colors: [kPrimaryColor.withOpacity(0.1), kPrimaryColor.withOpacity(0.05)],
               ),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
               Icons.phone_android_rounded,
-              color: Colors.green,
+              color: kPrimaryColor,
               size: 20,
             ),
           ),
@@ -405,7 +405,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(color: Colors.green, width: 2),
+            borderSide: BorderSide(color: kPrimaryColor, width: 2),
           ),
           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
         ),
@@ -441,7 +441,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
         ),
         decoration: InputDecoration(
           labelText: 'Enter OTP',
-          hintText: '000000',
+          hintText: 'YuKNOW',
           labelStyle: TextStyle(
             color: Colors.grey.shade600,
             fontSize: 16,
@@ -451,13 +451,13 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [Colors.green.withOpacity(0.1), Colors.green.withOpacity(0.05)],
+                colors: [kPrimaryColor.withOpacity(0.1), kPrimaryColor.withOpacity(0.05)],
               ),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
               Icons.security_rounded,
-              color: Colors.green,
+              color: kPrimaryColor,
               size: 20,
             ),
           ),
@@ -473,7 +473,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(color: Colors.green, width: 2),
+            borderSide: BorderSide(color: kPrimaryColor, width: 2),
           ),
           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
         ),
@@ -489,13 +489,13 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
         gradient: LinearGradient(
-          colors: [Colors.green, Colors.green.shade700],
+          colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.green.withOpacity(0.3),
+            color: kPrimaryColor.withOpacity(0.3),
             blurRadius: 15,
             offset: const Offset(0, 8),
           ),
@@ -541,13 +541,13 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
         gradient: LinearGradient(
-          colors: [Colors.green, Colors.green.shade700],
+          colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.green.withOpacity(0.3),
+            color: kPrimaryColor.withOpacity(0.3),
             blurRadius: 15,
             offset: const Offset(0, 8),
           ),
@@ -603,7 +603,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
           child: Text(
             'Resend',
             style: TextStyle(
-              color: Colors.green,
+              color: kPrimaryColor,
               fontSize: 14,
               fontWeight: FontWeight.w700,
             ),

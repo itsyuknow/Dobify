@@ -99,25 +99,24 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
 
   void _showMessage(String message, {required bool isError}) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              isError ? Icons.error_outline : Icons.check_circle_outline,
-              color: Colors.white,
-              size: 20,
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: Text(message)),
-          ],
-        ),
-        backgroundColor: isError ? Colors.red.shade600 : Colors.green.shade600,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(16),
-      ),
-    );
-  }
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                isError ? Icons.error_outline : Icons.check_circle_outline,
+                color: Colors.white,
+                size: 20,
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: Text(message)),
+            ],
+          ),
+          backgroundColor: isError ? Colors.red.shade600 : Colors.green.shade600,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
+        ));
+    }
 
   @override
   void dispose() {
@@ -134,15 +133,14 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
             colors: [
-              kPrimaryColor.withOpacity(0.1),
-              kPrimaryColor.withOpacity(0.05),
-              Colors.white.withOpacity(0.9),
-              kPrimaryColor.withOpacity(0.02),
+              Colors.white,
+              Colors.white,
+              kPrimaryColor.withOpacity(0.03),
             ],
-            stops: const [0.0, 0.3, 0.7, 1.0],
+            stops: const [0.0, 0.6, 1.0],
           ),
         ),
         child: SafeArea(
@@ -153,65 +151,71 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                 position: _slideAnimation,
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Container(
-                    padding: const EdgeInsets.all(32),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(28),
-                      boxShadow: [
-                        BoxShadow(
-                          color: kPrimaryColor.withOpacity(0.1),
-                          blurRadius: 30,
-                          spreadRadius: 5,
-                          offset: const Offset(0, 10),
-                        ),
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 20,
-                          spreadRadius: 0,
-                          offset: const Offset(0, 5),
-                        ),
-                      ],
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: 500,
+                      minHeight: MediaQuery.of(context).size.height * 0.8,
                     ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // ✅ WELCOME TEXT (No logo above)
-                        _buildWelcomeText(),
-                        const SizedBox(height: 40),
+                    child: Container(
+                      padding: const EdgeInsets.all(32),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(28),
+                        boxShadow: [
+                          BoxShadow(
+                            color: kPrimaryColor.withOpacity(0.1),
+                            blurRadius: 40,
+                            spreadRadius: 5,
+                            offset: const Offset(0, 15),
+                          ),
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 20,
+                            spreadRadius: 0,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // ✅ WELCOME SECTION
+                          _buildWelcomeSection(),
+                          const SizedBox(height: 40),
 
-                        // ✅ EMAIL FIELD
-                        _buildPremiumTextField(
-                          controller: emailController,
-                          label: 'Email Address',
-                          icon: Icons.email_outlined,
-                          keyboardType: TextInputType.emailAddress,
-                        ),
-                        const SizedBox(height: 20),
+                          // ✅ EMAIL FIELD
+                          _buildPremiumTextField(
+                            controller: emailController,
+                            label: 'Email Address',
+                            icon: Icons.email_outlined,
+                            keyboardType: TextInputType.emailAddress,
+                          ),
+                          const SizedBox(height: 20),
 
-                        // ✅ PASSWORD FIELD WITH EYE BUTTON
-                        _buildPasswordField(),
-                        const SizedBox(height: 16),
+                          // ✅ PASSWORD FIELD WITH EYE BUTTON
+                          _buildPasswordField(),
+                          const SizedBox(height: 16),
 
-                        // ✅ FORGOT PASSWORD
-                        _buildForgotPassword(),
-                        const SizedBox(height: 32),
+                          // ✅ FORGOT PASSWORD
+                          _buildForgotPassword(),
+                          const SizedBox(height: 32),
 
-                        // ✅ LOGIN BUTTON
-                        _buildLoginButton(),
-                        const SizedBox(height: 24),
+                          // ✅ LOGIN BUTTON
+                          _buildLoginButton(),
+                          const SizedBox(height: 24),
 
-                        // ✅ OR DIVIDER
-                        _buildOrDivider(),
-                        const SizedBox(height: 24),
+                          // ✅ OR DIVIDER
+                          _buildOrDivider(),
+                          const SizedBox(height: 24),
 
-                        // ✅ SOCIAL LOGIN BUTTONS
-                        _buildSocialLoginButtons(),
-                        const SizedBox(height: 32),
+                          // ✅ SOCIAL LOGIN BUTTONS
+                          _buildSocialLoginButtons(),
+                          const SizedBox(height: 32),
 
-                        // ✅ SIGN UP LINK
-                        _buildSignUpLink(),
-                      ],
+                          // ✅ SIGN UP LINK
+                          _buildSignUpLink(),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -223,60 +227,67 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     );
   }
 
-  // ✅ PREMIUM LOGO
-  Widget _buildPremiumLogo() {
-    return Container(
-      width: 90,
-      height: 90,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.7)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: kPrimaryColor.withOpacity(0.3),
-            blurRadius: 25,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: const Icon(
-        Icons.local_laundry_service_rounded,
-        color: Colors.white,
-        size: 45,
-      ),
-    );
-  }
-
-  // ✅ WELCOME TEXT
-  Widget _buildWelcomeText() {
+  // ✅ WELCOME SECTION
+  Widget _buildWelcomeSection() {
     return Column(
       children: [
-        ShaderMask(
-          shaderCallback: (bounds) => LinearGradient(
-            colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
-          ).createShader(bounds),
-          child: const Text(
-            'Welcome to ironXpress',
-            style: TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.w900,
-              color: Colors.white,
-              letterSpacing: 0.5,
+        // Premium logo with subtle shine effect
+        Container(
+          width: 80,
+          height: 80,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.7)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: kPrimaryColor.withOpacity(0.3),
+                blurRadius: 25,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: const Icon(
+            Icons.local_laundry_service_rounded,
+            color: Colors.white,
+            size: 40,
           ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          'Sign in to continue your laundry journey',
-          style: TextStyle(
-            color: Colors.grey.shade600,
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-          ),
+        const SizedBox(height: 24),
+
+        // Welcome text with centered alignment
+        Column(
+          children: [
+            ShaderMask(
+              shaderCallback: (bounds) => LinearGradient(
+                colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+              ).createShader(bounds),
+              child: const Text(
+                'Welcome to ironXpress',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                  letterSpacing: 0.5,
+                  height: 1.3,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Sign in to continue your laundry journey',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.grey.shade600,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -365,6 +376,10 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
             MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
           );
         },
+        style: TextButton.styleFrom(
+          padding: EdgeInsets.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
         child: Text(
           'Forgot Password?',
           style: TextStyle(
@@ -406,6 +421,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(18),
           ),
+          padding: const EdgeInsets.symmetric(vertical: 16),
         ),
         child: _isLoggingIn
             ? const SizedBox(
@@ -433,7 +449,13 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   Widget _buildOrDivider() {
     return Row(
       children: [
-        Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
+        Expanded(
+          child: Divider(
+            color: Colors.grey.shade300,
+            thickness: 1,
+            height: 1,
+          ),
+        ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Text(
@@ -445,7 +467,13 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
             ),
           ),
         ),
-        Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
+        Expanded(
+          child: Divider(
+            color: Colors.grey.shade300,
+            thickness: 1,
+            height: 1,
+          ),
+        ),
       ],
     );
   }
@@ -548,6 +576,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
               color: kPrimaryColor,
               fontSize: 16,
               fontWeight: FontWeight.w800,
+              decoration: TextDecoration.underline,
+              decorationThickness: 1.5,
             ),
           ),
         ),
