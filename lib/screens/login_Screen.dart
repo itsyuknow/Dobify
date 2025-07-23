@@ -1,7 +1,11 @@
-// ✅ PREMIUM LOGIN SCREEN - Enhanced with multiple login options
+// ✅ COMPLETE OAUTH REDIRECT FIX
+// Replace your existing login screen with this updated version
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:app_links/app_links.dart'; // Add this dependency
+import 'dart:async';
 import 'signup_screen.dart';
 import 'forgot_password_screen.dart';
 import 'phone_login_screen.dart';
@@ -28,11 +32,83 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   bool _isGoogleLoggingIn = false;
   bool _passwordVisible = false;
 
+  // ✅ NEW: App Links for handling OAuth redirects
+  late AppLinks _appLinks;
+  StreamSubscription<Uri>? _linkSubscription;
+
   @override
   void initState() {
     super.initState();
     _initializeAnimations();
     _setupAuthListener();
+    _initDeepLinks(); // ✅ NEW: Initialize deep link handling
+  }
+
+  // ✅ NEW: Setup deep link handling for OAuth
+  void _initDeepLinks() {
+    _appLinks = AppLinks();
+
+    // Listen for incoming links when app is already running
+    _linkSubscription = _appLinks.uriLinkStream.listen(
+          (Uri uri) {
+        print('📱 Deep link received: $uri');
+        _handleIncomingLink(uri);
+      },
+      onError: (err) {
+        print('❌ Deep link error: $err');
+      },
+    );
+
+    // Handle link when app is launched from terminated state
+    _appLinks.getInitialLink().then((Uri? uri) {
+      if (uri != null) {
+        print('📱 Initial deep link: $uri');
+        _handleIncomingLink(uri);
+      }
+    });
+  }
+
+  // ✅ NEW: Handle OAuth redirect links
+  void _handleIncomingLink(Uri uri) {
+    print('🔗 Processing link: ${uri.toString()}');
+
+    // Check if this is a Supabase auth callback
+    if (uri.scheme == 'com.yuknow.ironly' && uri.host == 'auth-callback') {
+      print('✅ OAuth callback detected');
+
+      // Extract the fragment which contains the auth tokens
+      final fragment = uri.fragment;
+      if (fragment.isNotEmpty) {
+        // Parse the fragment to get auth tokens
+        final params = Uri.splitQueryString(fragment);
+        final accessToken = params['access_token'];
+        final refreshToken = params['refresh_token'];
+
+        if (accessToken != null) {
+          print('✅ Access token found in callback');
+          _handleOAuthSuccess();
+        } else {
+          print('❌ No access token in callback');
+          _handleOAuthError('No access token received');
+        }
+      }
+    }
+  }
+
+  void _handleOAuthSuccess() {
+    setState(() {
+      _isGoogleLoggingIn = false;
+    });
+    _showMessage('Successfully signed in with Google!', isError: false);
+    print('✅ OAuth login successful');
+  }
+
+  void _handleOAuthError(String error) {
+    setState(() {
+      _isGoogleLoggingIn = false;
+    });
+    _showMessage('Google login failed: $error', isError: true);
+    print('❌ OAuth error: $error');
   }
 
   void _initializeAnimations() {
@@ -68,13 +144,18 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       final AuthChangeEvent event = data.event;
       final Session? session = data.session;
 
+      print('🔐 Auth event: $event');
+
       if (event == AuthChangeEvent.signedIn && session != null) {
         setState(() {
           _isLoggingIn = false;
           _isGoogleLoggingIn = false;
         });
         _showMessage('Welcome back!', isError: false);
-        print('✅ Login successful, AppWrapper will handle location verification');
+        print('✅ Login successful, user: ${session.user.email}');
+
+        // ✅ Navigate to home screen or handle successful login
+        // Navigator.pushReplacementNamed(context, '/home');
       } else if (event == AuthChangeEvent.signedOut) {
         setState(() {
           _isLoggingIn = false;
@@ -111,23 +192,32 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     }
   }
 
+  // ✅ UPDATED: Google OAuth with better redirect handling
   Future<void> _loginWithGoogle() async {
     setState(() {
       _isGoogleLoggingIn = true;
     });
 
     try {
-      await supabase.auth.signInWithOAuth(
+      print('🔐 Starting Google OAuth...');
+
+      // ✅ Use the correct redirect URL that matches your Supabase settings
+      final authResponse = await supabase.auth.signInWithOAuth(
         OAuthProvider.google,
         redirectTo: 'com.yuknow.ironly://auth-callback',
         authScreenLaunchMode: LaunchMode.externalApplication,
       );
+
+      print('🔐 OAuth initiated: ${authResponse.toString()}');
+
+      // Note: Don't set loading to false here, let the auth listener handle it
+
     } catch (e) {
       setState(() {
         _isGoogleLoggingIn = false;
       });
       _showMessage('Google login failed: ${e.toString()}', isError: true);
-      print('Google login error: $e');
+      print('❌ Google login error: $e');
     }
   }
 
@@ -158,6 +248,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     passwordController.dispose();
     _fadeController.dispose();
     _slideController.dispose();
+    _linkSubscription?.cancel(); // ✅ NEW: Cancel deep link subscription
     super.dispose();
   }
 
