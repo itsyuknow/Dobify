@@ -1,6 +1,7 @@
-// ✅ COMPLETE ELECTRIC IRON MAIN.DART - FULL FIREBASE INTEGRATION WITH NOTIFICATIONS
+// ✅ FIXED ELECTRIC IRON MAIN.DART - SAFE AREA & RESPONSIVE DESIGN
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -56,6 +57,28 @@ Future<void> _handleBackgroundMessage(RemoteMessage message) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // ✅ SET PREFERRED ORIENTATIONS AND SYSTEM UI
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+
+  // ✅ CONFIGURE SYSTEM UI OVERLAY STYLE
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarIconBrightness: Brightness.dark,
+      systemNavigationBarDividerColor: Colors.transparent,
+    ),
+  );
+
+  // ✅ ENABLE EDGE-TO-EDGE DISPLAY
+  await SystemChrome.setEnabledSystemUIMode(
+    SystemUiMode.edgeToEdge,
+  );
 
   print('🚀 Initializing ironXpress with notifications...');
 
@@ -153,6 +176,10 @@ class MyApp extends StatelessWidget {
             appBarTheme: const AppBarTheme(
               backgroundColor: kPrimaryColor,
               foregroundColor: Colors.white,
+              systemOverlayStyle: SystemUiOverlayStyle(
+                statusBarColor: Colors.transparent,
+                statusBarIconBrightness: Brightness.light,
+              ),
             ),
             inputDecorationTheme: const InputDecorationTheme(
               border: OutlineInputBorder(),
@@ -161,14 +188,50 @@ class MyApp extends StatelessWidget {
               ),
               labelStyle: TextStyle(color: kPrimaryColor),
             ),
+            // ✅ ADD BOTTOM NAVIGATION BAR THEME
+            bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+              backgroundColor: Colors.white,
+              selectedItemColor: kPrimaryColor,
+              unselectedItemColor: Colors.grey,
+              type: BottomNavigationBarType.fixed,
+              elevation: 8,
+            ),
           ),
-          // ✅ Use premium iron-themed entry point
-          home: const IronXpressPremiumEntry(),
-          // ✅ Add error handling for localization issues
+          // ✅ Use premium iron-themed entry point with SafeArea
+          home: const SafeArea(
+            child: IronXpressPremiumEntry(),
+          ),
+          // ✅ ENHANCED ERROR HANDLING & RESPONSIVE DESIGN
           builder: (context, child) {
+            // ✅ Get screen dimensions for responsive design
+            final mediaQuery = MediaQuery.of(context);
+            final screenHeight = mediaQuery.size.height;
+            final screenWidth = mediaQuery.size.width;
+            final topPadding = mediaQuery.padding.top;
+            final bottomPadding = mediaQuery.padding.bottom;
+
+            print('📱 Screen: ${screenWidth}x${screenHeight}, Padding: top=$topPadding, bottom=$bottomPadding');
+
             return MediaQuery(
-              data: MediaQuery.of(context).copyWith(textScaleFactor: 1.0),
-              child: child!,
+              data: mediaQuery.copyWith(
+                // ✅ PREVENT TEXT SCALING ISSUES
+                textScaleFactor: mediaQuery.textScaleFactor.clamp(0.8, 1.2),
+                // ✅ ENSURE PROPER PADDING CALCULATIONS
+                padding: EdgeInsets.only(
+                  top: topPadding,
+                  bottom: bottomPadding,
+                  left: mediaQuery.padding.left,
+                  right: mediaQuery.padding.right,
+                ),
+              ),
+              child: SafeArea(
+                // ✅ ENSURE SAFE AREA ON ALL SIDES
+                top: true,
+                bottom: true,
+                left: true,
+                right: true,
+                child: child!,
+              ),
             );
           },
         );
@@ -177,7 +240,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// ✅ PREMIUM IRON-THEMED ENTRY WITH 10-SECOND SPLASH + NOTIFICATION SETUP
+// ✅ PREMIUM IRON-THEMED ENTRY WITH SAFE AREA HANDLING
 class IronXpressPremiumEntry extends StatefulWidget {
   const IronXpressPremiumEntry({super.key});
 
@@ -406,7 +469,9 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry>
           Navigator.pushReplacement(
             context,
             PageRouteBuilder(
-              pageBuilder: (context, animation, secondaryAnimation) => const AppWrapper(),
+              pageBuilder: (context, animation, secondaryAnimation) => const SafeArea(
+                child: AppWrapper(),
+              ),
               transitionDuration: const Duration(milliseconds: 800),
               transitionsBuilder: (context, animation, secondaryAnimation, child) {
                 return FadeTransition(
@@ -432,7 +497,21 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry>
 
   @override
   Widget build(BuildContext context) {
+    // ✅ GET RESPONSIVE DIMENSIONS
+    final size = MediaQuery.of(context).size;
+    final isSmallScreen = size.height < 700;
+    final isLargeScreen = size.height > 900;
+
+    // ✅ RESPONSIVE SIZING
+    final ironSize = isSmallScreen ? 140.0 : (isLargeScreen ? 180.0 : 160.0);
+    final titleFontSize = isSmallScreen ? 42.0 : (isLargeScreen ? 60.0 : 52.0);
+    final subtitleFontSize = isSmallScreen ? 14.0 : (isLargeScreen ? 20.0 : 18.0);
+    final statusFontSize = isSmallScreen ? 16.0 : (isLargeScreen ? 22.0 : 19.0);
+
     return Scaffold(
+      // ✅ ENSURE BODY EXTENDS BEHIND SYSTEM BARS BUT CONTENT IS SAFE
+      extendBodyBehindAppBar: true,
+      extendBody: true,
       body: Container(
         width: double.infinity,
         height: double.infinity,
@@ -449,288 +528,303 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry>
             stops: const [0.0, 0.3, 0.7, 1.0],
           ),
         ),
-        child: Stack(
-          children: [
-            // Electric spark particles
-            ...List.generate(25, (index) => _buildElectricSpark(index)),
+        child: SafeArea(
+          child: Stack(
+            children: [
+              // Electric spark particles
+              ...List.generate(25, (index) => _buildElectricSpark(index)),
 
-            // Main content
-            Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Animated electric iron with heat and steam
-                  AnimatedBuilder(
-                    animation: _ironController,
-                    builder: (context, child) {
-                      return Transform.scale(
-                        scale: _ironScale.value,
-                        child: Opacity(
-                          opacity: _ironOpacity.value,
-                          child: AnimatedBuilder(
-                            animation: _heatController,
-                            builder: (context, child) {
-                              return AnimatedBuilder(
-                                animation: _glowController,
+              // Main content
+              Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: size.width * 0.05,
+                    vertical: size.height * 0.02,
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // Animated electric iron with heat and steam
+                      AnimatedBuilder(
+                        animation: _ironController,
+                        builder: (context, child) {
+                          return Transform.scale(
+                            scale: _ironScale.value,
+                            child: Opacity(
+                              opacity: _ironOpacity.value,
+                              child: AnimatedBuilder(
+                                animation: _heatController,
                                 builder: (context, child) {
-                                  return Container(
-                                    width: 160,
-                                    height: 160,
-                                    decoration: BoxDecoration(
-                                      gradient: RadialGradient(
-                                        colors: [
-                                          Colors.white.withOpacity(0.4),
-                                          Colors.orange.withOpacity(0.3 * _heatAnimation.value),
-                                          Colors.red.withOpacity(0.2 * _heatAnimation.value),
-                                          Colors.blue.withOpacity(0.1),
-                                        ],
-                                        stops: const [0.0, 0.5, 0.7, 1.0],
-                                      ),
-                                      shape: BoxShape.circle,
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.orange.withOpacity(0.6 * _glowAnimation.value),
-                                          blurRadius: 60,
-                                          offset: const Offset(0, 0),
-                                        ),
-                                        BoxShadow(
-                                          color: Colors.blue.withOpacity(0.3 * _glowAnimation.value),
-                                          blurRadius: 100,
-                                          offset: const Offset(0, 20),
-                                        ),
-                                      ],
-                                    ),
-                                    child: Stack(
-                                      alignment: Alignment.center,
-                                      children: [
-                                        // Main iron icon with notification badge
-                                        Stack(
-                                          children: [
-                                            const Icon(
-                                              Icons.iron,
-                                              size: 90,
-                                              color: Colors.white,
+                                  return AnimatedBuilder(
+                                    animation: _glowController,
+                                    builder: (context, child) {
+                                      return Container(
+                                        width: ironSize,
+                                        height: ironSize,
+                                        decoration: BoxDecoration(
+                                          gradient: RadialGradient(
+                                            colors: [
+                                              Colors.white.withOpacity(0.4),
+                                              Colors.orange.withOpacity(0.3 * _heatAnimation.value),
+                                              Colors.red.withOpacity(0.2 * _heatAnimation.value),
+                                              Colors.blue.withOpacity(0.1),
+                                            ],
+                                            stops: const [0.0, 0.5, 0.7, 1.0],
+                                          ),
+                                          shape: BoxShape.circle,
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.orange.withOpacity(0.6 * _glowAnimation.value),
+                                              blurRadius: 60,
+                                              offset: const Offset(0, 0),
                                             ),
-                                            // Notification indicator
-                                            Positioned(
-                                              top: 5,
-                                              right: 5,
-                                              child: AnimatedBuilder(
-                                                animation: _textController,
-                                                builder: (context, child) {
-                                                  return Opacity(
-                                                    opacity: _textOpacity.value,
+                                            BoxShadow(
+                                              color: Colors.blue.withOpacity(0.3 * _glowAnimation.value),
+                                              blurRadius: 100,
+                                              offset: const Offset(0, 20),
+                                            ),
+                                          ],
+                                        ),
+                                        child: Stack(
+                                          alignment: Alignment.center,
+                                          children: [
+                                            // Main iron icon with notification badge
+                                            Stack(
+                                              children: [
+                                                Icon(
+                                                  Icons.iron,
+                                                  size: ironSize * 0.5625, // 90/160 ratio
+                                                  color: Colors.white,
+                                                ),
+                                                // Notification indicator
+                                                Positioned(
+                                                  top: 5,
+                                                  right: 5,
+                                                  child: AnimatedBuilder(
+                                                    animation: _textController,
+                                                    builder: (context, child) {
+                                                      return Opacity(
+                                                        opacity: _textOpacity.value,
+                                                        child: Container(
+                                                          width: 12,
+                                                          height: 12,
+                                                          decoration: BoxDecoration(
+                                                            color: Colors.red,
+                                                            shape: BoxShape.circle,
+                                                            boxShadow: [
+                                                              BoxShadow(
+                                                                color: Colors.red.withOpacity(0.5),
+                                                                blurRadius: 8,
+                                                                offset: Offset.zero,
+                                                              ),
+                                                            ],
+                                                          ),
+                                                        ),
+                                                      );
+                                                    },
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            // Steam effect
+                                            AnimatedBuilder(
+                                              animation: _steamController,
+                                              builder: (context, child) {
+                                                return Positioned(
+                                                  top: 15,
+                                                  child: Opacity(
+                                                    opacity: _steamAnimation.value * 0.8,
+                                                    child: Transform.scale(
+                                                      scale: 1 + _steamAnimation.value * 0.5,
+                                                      child: Icon(
+                                                        Icons.cloud,
+                                                        size: ironSize * 0.21875, // 35/160 ratio
+                                                        color: Colors.white70,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                            // Heat indicator
+                                            AnimatedBuilder(
+                                              animation: _heatController,
+                                              builder: (context, child) {
+                                                return Positioned(
+                                                  bottom: 15,
+                                                  child: Opacity(
+                                                    opacity: _heatAnimation.value * 0.9,
                                                     child: Container(
-                                                      width: 12,
-                                                      height: 12,
+                                                      width: 20,
+                                                      height: 20,
                                                       decoration: BoxDecoration(
-                                                        color: Colors.red,
+                                                        color: Colors.orange,
                                                         shape: BoxShape.circle,
                                                         boxShadow: [
                                                           BoxShadow(
-                                                            color: Colors.red.withOpacity(0.5),
-                                                            blurRadius: 8,
+                                                            color: Colors.orange.withOpacity(0.8),
+                                                            blurRadius: 15,
                                                             offset: Offset.zero,
                                                           ),
                                                         ],
                                                       ),
                                                     ),
-                                                  );
-                                                },
-                                              ),
+                                                  ),
+                                                );
+                                              },
                                             ),
                                           ],
                                         ),
-                                        // Steam effect
-                                        AnimatedBuilder(
-                                          animation: _steamController,
-                                          builder: (context, child) {
-                                            return Positioned(
-                                              top: 15,
-                                              child: Opacity(
-                                                opacity: _steamAnimation.value * 0.8,
-                                                child: Transform.scale(
-                                                  scale: 1 + _steamAnimation.value * 0.5,
-                                                  child: const Icon(
-                                                    Icons.cloud,
-                                                    size: 35,
-                                                    color: Colors.white70,
-                                                  ),
-                                                ),
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                        // Heat indicator
-                                        AnimatedBuilder(
-                                          animation: _heatController,
-                                          builder: (context, child) {
-                                            return Positioned(
-                                              bottom: 15,
-                                              child: Opacity(
-                                                opacity: _heatAnimation.value * 0.9,
-                                                child: Container(
-                                                  width: 20,
-                                                  height: 20,
-                                                  decoration: BoxDecoration(
-                                                    color: Colors.orange,
-                                                    shape: BoxShape.circle,
-                                                    boxShadow: [
-                                                      BoxShadow(
-                                                        color: Colors.orange.withOpacity(0.8),
-                                                        blurRadius: 15,
-                                                        offset: Offset.zero,
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                      ],
-                                    ),
+                                      );
+                                    },
                                   );
                                 },
-                              );
-                            },
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-
-                  const SizedBox(height: 60),
-
-                  // Iron service branding
-                  AnimatedBuilder(
-                    animation: _textController,
-                    builder: (context, child) {
-                      return Opacity(
-                        opacity: _textOpacity.value,
-                        child: const Text(
-                          'ironXpress',
-                          style: TextStyle(
-                            fontSize: 52,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                            letterSpacing: 4,
-                            shadows: [
-                              Shadow(
-                                color: Colors.black38,
-                                offset: Offset(0, 3),
-                                blurRadius: 6,
                               ),
-                              Shadow(
-                                color: Colors.orange,
-                                offset: Offset(0, 0),
-                                blurRadius: 20,
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  // Service types
-                  AnimatedBuilder(
-                    animation: _textController,
-                    builder: (context, child) {
-                      return Opacity(
-                        opacity: _textOpacity.value * 0.9,
-                        child: const Text(
-                          'Iron Services • Smart Notifications',
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w400,
-                            letterSpacing: 1,
-                            shadows: [
-                              Shadow(
-                                color: Colors.black26,
-                                offset: Offset(0, 1),
-                                blurRadius: 3,
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-
-            // Loading indicator with notification setup status
-            Positioned(
-              bottom: 120,
-              left: 0,
-              right: 0,
-              child: AnimatedBuilder(
-                animation: _textController,
-                builder: (context, child) {
-                  return Opacity(
-                    opacity: _textOpacity.value,
-                    child: Column(
-                      children: [
-                        Container(
-                          width: 60,
-                          height: 60,
-                          decoration: BoxDecoration(
-                            gradient: RadialGradient(
-                              colors: [
-                                Colors.white.withOpacity(0.15),
-                                Colors.orange.withOpacity(0.1),
-                              ],
                             ),
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.orange.withOpacity(0.3),
-                                blurRadius: 25,
-                                offset: const Offset(0, 5),
+                          );
+                        },
+                      ),
+
+                      SizedBox(height: size.height * 0.08),
+
+                      // Iron service branding
+                      AnimatedBuilder(
+                        animation: _textController,
+                        builder: (context, child) {
+                          return Opacity(
+                            opacity: _textOpacity.value,
+                            child: Text(
+                              'ironXpress',
+                              style: TextStyle(
+                                fontSize: titleFontSize,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                                letterSpacing: 4,
+                                shadows: const [
+                                  Shadow(
+                                    color: Colors.black38,
+                                    offset: Offset(0, 3),
+                                    blurRadius: 6,
+                                  ),
+                                  Shadow(
+                                    color: Colors.orange,
+                                    offset: Offset(0, 0),
+                                    blurRadius: 20,
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                          child: SizedBox(
-                            width: 40,
-                            height: 40,
-                            child: CircularProgressIndicator(
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Colors.white.withOpacity(0.95),
-                              ),
-                              strokeWidth: 4,
+                              textAlign: TextAlign.center,
                             ),
-                          ),
-                        ),
-                        const SizedBox(height: 25),
-                        Text(
-                          _statusMessage,
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.95),
-                            fontSize: 19,
-                            fontWeight: FontWeight.w500,
-                            letterSpacing: 1.2,
-                            shadows: const [
-                              Shadow(
-                                color: Colors.black26,
-                                offset: Offset(0, 1),
-                                blurRadius: 3,
+                          );
+                        },
+                      ),
+
+                      SizedBox(height: size.height * 0.025),
+
+                      // Service types
+                      AnimatedBuilder(
+                        animation: _textController,
+                        builder: (context, child) {
+                          return Opacity(
+                            opacity: _textOpacity.value * 0.9,
+                            child: Text(
+                              'Iron Services • Smart Notifications',
+                              style: TextStyle(
+                                fontSize: subtitleFontSize,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w400,
+                                letterSpacing: 1,
+                                shadows: const [
+                                  Shadow(
+                                    color: Colors.black26,
+                                    offset: Offset(0, 1),
+                                    blurRadius: 3,
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  );
-                },
+                              textAlign: TextAlign.center,
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ],
+
+              // Loading indicator with notification setup status
+              Positioned(
+                bottom: size.height * 0.15,
+                left: 0,
+                right: 0,
+                child: AnimatedBuilder(
+                  animation: _textController,
+                  builder: (context, child) {
+                    return Opacity(
+                      opacity: _textOpacity.value,
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: size.width * 0.1),
+                        child: Column(
+                          children: [
+                            Container(
+                              width: 60,
+                              height: 60,
+                              decoration: BoxDecoration(
+                                gradient: RadialGradient(
+                                  colors: [
+                                    Colors.white.withOpacity(0.15),
+                                    Colors.orange.withOpacity(0.1),
+                                  ],
+                                ),
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.orange.withOpacity(0.3),
+                                    blurRadius: 25,
+                                    offset: const Offset(0, 5),
+                                  ),
+                                ],
+                              ),
+                              child: SizedBox(
+                                width: 40,
+                                height: 40,
+                                child: CircularProgressIndicator(
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white.withOpacity(0.95),
+                                  ),
+                                  strokeWidth: 4,
+                                ),
+                              ),
+                            ),
+                            SizedBox(height: size.height * 0.03),
+                            Text(
+                              _statusMessage,
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.95),
+                                fontSize: statusFontSize,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 1.2,
+                                shadows: const [
+                                  Shadow(
+                                    color: Colors.black26,
+                                    offset: Offset(0, 1),
+                                    blurRadius: 3,
+                                  ),
+                                ],
+                              ),
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
