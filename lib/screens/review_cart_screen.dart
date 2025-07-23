@@ -41,7 +41,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
   double expressDeliveryFee = 0.0;
   String selectedDeliveryType = 'Standard';
 
-  // ✅ Premium Animation controllers
+  // Animation controllers
   late AnimationController _bannerController;
   late AnimationController _couponController;
   late AnimationController _popupController;
@@ -59,7 +59,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
   late Animation<double> _floatingAnimation;
   late Animation<Offset> _bannerCarouselAnimation;
 
-  // ✅ Popup overlay state
   OverlayEntry? _overlayEntry;
 
   @override
@@ -123,7 +122,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
       CurvedAnimation(parent: _popupController, curve: Curves.easeIn),
     );
 
-    // ✅ Simplified premium success animations
     _successScaleAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _successController, curve: Curves.elasticOut),
     );
@@ -146,7 +144,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     _floatingController.repeat(reverse: true);
   }
 
-  // ✅ Load multiple banner coupons from Supabase for auto-slide
   Future<void> _loadBannerCoupon() async {
     try {
       final response = await supabase
@@ -186,7 +183,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     });
   }
 
-  // Load billing settings from Supabase
   Future<void> _loadBillingSettings() async {
     try {
       final response = await supabase
@@ -218,7 +214,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     }
   }
 
-  // ✅ ULTRA PREMIUM: Advanced micro-animations and effects
   void _showSuccessPopup(String couponCode, double discountAmount) {
     _overlayEntry = OverlayEntry(
       builder: (context) => AnimatedBuilder(
@@ -258,14 +253,12 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // ✅ Ultra Premium Success Icon with multiple animation layers
                         AnimatedBuilder(
                           animation: _successController,
                           builder: (context, child) {
                             return Stack(
                               alignment: Alignment.center,
                               children: [
-                                // Outer pulse ring
                                 Transform.scale(
                                   scale: 1.0 + (_successScaleAnimation.value * 0.3),
                                   child: Container(
@@ -280,8 +273,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                                     ),
                                   ),
                                 ),
-
-                                // Middle glow ring
                                 Transform.scale(
                                   scale: 1.0 + (_successScaleAnimation.value * 0.15),
                                   child: Container(
@@ -293,8 +284,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                                     ),
                                   ),
                                 ),
-
-                                // Main success icon
                                 Transform.scale(
                                   scale: _successScaleAnimation.value,
                                   child: Container(
@@ -323,8 +312,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                                     ),
                                   ),
                                 ),
-
-                                // Subtle sparkle effects
                                 ...List.generate(6, (index) {
                                   final angle = (index * 60) * pi / 180;
                                   final distance = 45.0;
@@ -350,10 +337,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                             );
                           },
                         ),
-
                         const SizedBox(height: 16),
-
-                        // ✅ Premium gradient text with micro-animation
                         AnimatedBuilder(
                           animation: _successController,
                           builder: (context, child) {
@@ -385,10 +369,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                             );
                           },
                         ),
-
                         const SizedBox(height: 6),
-
-                        // ✅ Coupon code with premium styling
                         AnimatedBuilder(
                           animation: _successController,
                           builder: (context, child) {
@@ -416,10 +397,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                             );
                           },
                         ),
-
                         const SizedBox(height: 12),
-
-                        // ✅ Ultra Premium savings display with animated counter
                         AnimatedBuilder(
                           animation: _successController,
                           builder: (context, child) {
@@ -469,7 +447,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                                               color: Colors.green.shade700,
                                             ),
                                           ),
-                                          // Animated counter effect
                                           AnimatedBuilder(
                                             animation: _successController,
                                             builder: (context, child) {
@@ -493,10 +470,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                             );
                           },
                         ),
-
                         const SizedBox(height: 4),
-
-                        // ✅ Subtle success indicator
                         AnimatedBuilder(
                           animation: _successController,
                           builder: (context, child) {
@@ -534,7 +508,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     _popupController.forward();
     _successController.forward();
 
-    // Auto hide after 2.2 seconds for snappier UX
     Future.delayed(const Duration(milliseconds: 2200), () {
       _hideSuccessPopup();
     });
@@ -551,21 +524,16 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     }
   }
 
-  // Handle coupon application
   void _onCouponApplied(String couponCode, double discountAmount) {
     setState(() {
       _appliedCouponCode = couponCode;
       discount = discountAmount;
     });
 
-    // ✅ Show premium success popup
     _showSuccessPopup(couponCode, discountAmount);
-
-    // Update coupon usage count in Supabase
     _updateCouponUsage(couponCode);
   }
 
-  // Update coupon usage count
   Future<void> _updateCouponUsage(String couponCode) async {
     try {
       await supabase
@@ -577,7 +545,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     }
   }
 
-  // Remove applied coupon
   void _removeCoupon() {
     setState(() {
       _appliedCouponCode = null;
@@ -603,32 +570,21 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     }
   }
 
-  // Calculate basic subtotal
   double _calculateSubtotal() {
     return _cartItems.fold(0.0, (sum, item) {
       return sum + (item['total_price']?.toDouble() ?? 0.0);
     });
   }
 
-  // ✅ Calculate billing breakdown
   Map<String, double> _calculateBilling() {
     double subtotal = _cartItems.fold(0.0, (sum, item) {
       return sum + (item['total_price']?.toDouble() ?? 0.0);
     });
 
-    // Minimum cart fee logic
     double minCartFeeApplied = subtotal < minimumCartFee ? (minimumCartFee - subtotal) : 0.0;
-
-    // Adjusted subtotal after minimum cart fee
     double adjustedSubtotal = subtotal + minCartFeeApplied;
-
-    // Service tax calculation (on subtotal only)
     double serviceTax = (subtotal * serviceTaxPercent) / 100;
-
-    // Delivery fee (Standard by default)
     double deliveryFee = selectedDeliveryType == 'Express' ? expressDeliveryFee : standardDeliveryFee;
-
-    // Total amount
     double totalAmount = adjustedSubtotal + platformFee + serviceTax + deliveryFee - discount;
 
     return {
@@ -642,7 +598,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     };
   }
 
-  // Update quantity in Supabase
   Future<void> _updateQuantityInSupabase(Map<String, dynamic> item, int delta) async {
     final userId = supabase.auth.currentUser?.id;
     if (userId == null) return;
@@ -771,7 +726,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     );
   }
 
-  // ✅ SMOOTH SLIDING: Auto-sliding banner with carousel animation
   Widget _buildFloatingBannerCoupon() {
     if (_bannerLoading) {
       return Container(
@@ -792,10 +746,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
       height: 90,
       child: Stack(
         children: [
-          // ✅ Current banner
           _buildBannerCard(_bannerCoupons[_currentBannerIndex], false),
-
-          // ✅ Next banner with slide animation
           AnimatedBuilder(
             animation: _slideController,
             builder: (context, child) {
@@ -814,9 +765,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     );
   }
 
-  // ✅ Individual banner card builder
   Widget _buildBannerCard(Map<String, dynamic> coupon, bool isSliding) {
-    // Dynamic colors based on discount type and index
     List<Color> bannerColors;
     String discountText;
 
@@ -828,7 +777,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
       discountText = "₹${coupon['discount_value'].toInt()} OFF";
     }
 
-    // Add variety with different color schemes based on current index
     if (_currentBannerIndex % 3 == 1) {
       bannerColors = [Colors.green.shade800, Colors.green.shade600, Colors.green.shade700];
     } else if (_currentBannerIndex % 3 == 2) {
@@ -844,7 +792,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
           offset: Offset(0, _floatingAnimation.value),
           child: GestureDetector(
             onTap: () {
-              // ✅ Only allow navigation if no coupon is applied
               if (_appliedCouponCode == null) {
                 Navigator.push(
                   context,
@@ -954,7 +901,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     );
   }
 
-  // ✅ UPDATED: Removed "Change Coupon" option
   Widget _buildCompactOffersAndDiscounts() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -998,7 +944,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
           ),
           const SizedBox(height: 12),
 
-          // Applied Coupon Display
           if (_appliedCouponCode != null) ...[
             SlideTransition(
               position: _couponSlideAnimation,
@@ -1060,7 +1005,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
             ),
           ],
 
-          // ✅ Apply Coupon Button - Only show if no coupon is applied
           if (_appliedCouponCode == null) ...[
             SlideTransition(
               position: _couponSlideAnimation,
@@ -1135,7 +1079,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     );
   }
 
-  // ✅ COMPACT: More compact order summary
   Widget _buildCompactOrderSummary(List<Map<String, dynamic>> items) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -1197,7 +1140,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     );
   }
 
-  // ✅ COMPACT: More compact order item
   Widget _buildCompactOrderItem(Map<String, dynamic> item) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -1234,15 +1176,21 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  item['product_name']?.toString() ?? '',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    color: Colors.black87,
+                // FIXED: Product name with proper text handling
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.5, // Limit width to 50% of screen
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  child: Text(
+                    item['product_name']?.toString() ?? '',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: Colors.black87,
+                    ),
+                    maxLines: 2, // Allow text to wrap to second line
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Container(
@@ -1278,8 +1226,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                       ? const SizedBox(
                       width: 12,
                       height: 12,
-                      child: CircularProgressIndicator(strokeWidth: 1.5)
-                  )
+                      child: CircularProgressIndicator(strokeWidth: 1.5))
                       : const Icon(Icons.remove, color: Colors.black, size: 14),
                 ),
               ),
@@ -1306,8 +1253,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                       ? const SizedBox(
                       width: 12,
                       height: 12,
-                      child: CircularProgressIndicator(strokeWidth: 1.5)
-                  )
+                      child: CircularProgressIndicator(strokeWidth: 1.5))
                       : const Icon(Icons.add, color: Colors.black, size: 14),
                 ),
               ),
@@ -1327,7 +1273,6 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     );
   }
 
-  // ✅ PREMIUM: Enhanced Billing Summary
   Widget _buildBillingSummary(Map<String, double> billing) {
     if (_billingLoading) {
       return Container(
