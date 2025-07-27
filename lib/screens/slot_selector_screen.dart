@@ -146,6 +146,62 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     }
   }
 
+  // NEW METHOD: Check if a specific date has available delivery slots
+  bool _hasAvailableDeliverySlots(DateTime date) {
+    int dayOfWeek = date.weekday;
+
+    List<Map<String, dynamic>> daySlots = deliverySlots.where((slot) {
+      int slotDayOfWeek = slot['day_of_week'] ?? 0;
+      bool dayMatches = slotDayOfWeek == dayOfWeek ||
+          (dayOfWeek == 7 && slotDayOfWeek == 0) ||
+          (slotDayOfWeek == 7 && dayOfWeek == 0);
+
+      bool typeMatches = isExpressDelivery
+          ? (slot['slot_type'] == 'express' || slot['slot_type'] == 'both')
+          : (slot['slot_type'] == 'standard' || slot['slot_type'] == 'both');
+
+      return dayMatches && typeMatches;
+    }).toList();
+
+    if (daySlots.isEmpty) return false;
+
+    // Check if any slot would be available for this date
+    for (var slot in daySlots) {
+      // Create a temporary selected delivery date to test availability
+      DateTime tempDeliveryDate = selectedDeliveryDate;
+      setState(() {
+        selectedDeliveryDate = date;
+      });
+
+      bool isAvailable = _isDeliverySlotAvailable(slot);
+
+      // Restore original date
+      setState(() {
+        selectedDeliveryDate = tempDeliveryDate;
+      });
+
+      if (isAvailable) return true;
+    }
+
+    return false;
+  }
+
+  // NEW METHOD: Find next available delivery date
+  DateTime? _findNextAvailableDeliveryDate() {
+    for (int i = 0; i < deliveryDates.length; i++) {
+      DateTime date = deliveryDates[i];
+      if (_hasAvailableDeliverySlots(date)) {
+        return date;
+      }
+    }
+    return null;
+  }
+
+  // UPDATED METHOD: Filter delivery dates to only show those with available slots
+  List<DateTime> _getAvailableDeliveryDates() {
+    return deliveryDates.where((date) => _hasAvailableDeliverySlots(date)).toList();
+  }
+
   Future<void> _loadBillingSettings() async {
     try {
       final response = await supabase.from('billing_settings').select().single();
@@ -316,6 +372,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     });
   }
 
+  // UPDATED METHOD: Auto-select next available delivery date when pickup is selected
   void _onPickupSlotSelected(Map<String, dynamic> slot) {
     setState(() {
       selectedPickupSlot = slot;
@@ -323,7 +380,14 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
       currentStep = 1;
       // Update delivery dates based on pickup date
       _updateDeliveryDates();
-      selectedDeliveryDate = selectedPickupDate; // Start from pickup date
+
+      // Auto-select next available delivery date
+      DateTime? nextAvailableDate = _findNextAvailableDeliveryDate();
+      if (nextAvailableDate != null) {
+        selectedDeliveryDate = nextAvailableDate;
+      } else {
+        selectedDeliveryDate = selectedPickupDate; // Fallback to pickup date
+      }
     });
   }
 
@@ -1418,10 +1482,11 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     }
   }
 
+  // UPDATED METHOD: Only show delivery dates that have available slots
   Widget _buildDateSelector(bool isPickup) {
     DateTime selectedDate = isPickup ? selectedPickupDate : selectedDeliveryDate;
     ScrollController controller = isPickup ? _pickupDateScrollController : _deliveryDateScrollController;
-    List<DateTime> availableDates = isPickup ? pickupDates : deliveryDates;
+    List<DateTime> availableDates = isPickup ? pickupDates : _getAvailableDeliveryDates();
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
