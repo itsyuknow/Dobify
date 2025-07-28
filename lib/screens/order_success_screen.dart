@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'colors.dart';
 import 'profile_screen.dart';
+import 'order_screen.dart';// Import the OrdersScreen
 
 class OrderSuccessScreen extends StatefulWidget {
   final String orderId;
@@ -47,12 +48,17 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
   Map<String, dynamic>? billingDetails;
   bool isLoadingBilling = true;
 
+  // ✅ NEW: Expanded items state
+  bool _isOrderDetailsExpanded = false;
+
   late AnimationController _mainController;
   late AnimationController _checkController;
   late AnimationController _textController;
   late AnimationController _confettiController;
   late AnimationController _pulseController;
   late AnimationController _backgroundController;
+  // ✅ NEW: Expansion animation controller
+  late AnimationController _expansionController;
 
   // Background animations
   late Animation<double> _backgroundFadeAnimation;
@@ -78,6 +84,9 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
   // Confetti and effects
   late Animation<double> _confettiAnimation;
   late Animation<double> _pulseAnimation;
+
+  // ✅ NEW: Expansion animation
+  late Animation<double> _expansionAnimation;
 
   @override
   void initState() {
@@ -121,6 +130,12 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
     // Pulse controller
     _pulseController = AnimationController(
       duration: const Duration(milliseconds: 1200),
+      vsync: this,
+    );
+
+    // ✅ NEW: Expansion controller
+    _expansionController = AnimationController(
+      duration: const Duration(milliseconds: 600),
       vsync: this,
     );
 
@@ -249,6 +264,15 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
       parent: _pulseController,
       curve: Curves.easeInOut,
     ));
+
+    // ✅ NEW: Expansion animation
+    _expansionAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _expansionController,
+      curve: Curves.easeInOutCubic,
+    ));
   }
 
   void _startAnimationSequence() async {
@@ -280,6 +304,19 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
     }
   }
 
+  // ✅ NEW: Toggle order details expansion
+  void _toggleOrderDetailsExpansion() {
+    setState(() {
+      _isOrderDetailsExpanded = !_isOrderDetailsExpanded;
+    });
+
+    if (_isOrderDetailsExpanded) {
+      _expansionController.forward();
+    } else {
+      _expansionController.reverse();
+    }
+  }
+
   // Load billing details from database
   Future<void> _loadBillingDetails() async {
     try {
@@ -301,34 +338,235 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
     }
   }
 
-  // ✅ Handle back button press - prevent going back to previous screens
+  // ✅ ENHANCED: Handle back button press with attractive popup design
   Future<bool> _onWillPop() async {
-    // Show a dialog to confirm if user wants to exit
+    // Show enhanced dialog with attractive design
     final shouldExit = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Order Confirmed'),
-        content: const Text('Your order has been placed successfully. Do you want to continue shopping?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Stay Here'),
+      barrierDismissible: false,
+      barrierColor: Colors.black.withOpacity(0.6),
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          margin: const EdgeInsets.symmetric(horizontal: 20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: kPrimaryColor.withOpacity(0.1),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 10,
+                offset: const Offset(0, 5),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Continue Shopping'),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Success Icon
+              Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      kPrimaryColor,
+                      kPrimaryColor.withOpacity(0.8),
+                    ],
+                  ),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: kPrimaryColor.withOpacity(0.3),
+                      blurRadius: 15,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.check_circle_rounded,
+                  color: Colors.white,
+                  size: 40,
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // Title
+              Text(
+                'Order Confirmed!',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: kPrimaryColor,
+                ),
+                textAlign: TextAlign.center,
+              ),
+
+              const SizedBox(height: 12),
+
+              // Subtitle
+              Text(
+                'Your order has been placed successfully.\nWhat would you like to do next?',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey.shade600,
+                  height: 1.4,
+                ),
+                textAlign: TextAlign.center,
+              ),
+
+              const SizedBox(height: 24),
+
+              // Order ID Badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: kPrimaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: kPrimaryColor.withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.receipt_long,
+                      color: kPrimaryColor,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Order: ${widget.orderId.length > 15 ? widget.orderId.substring(0, 15) + '...' : widget.orderId}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: kPrimaryColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 28),
+
+              // Action Buttons
+              Column(
+                children: [
+                  // Continue Shopping Button - Enhanced
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pop(false);
+                        _navigateToOrdersScreen(); // ✅ FIXED: Navigate to OrdersScreen
+                      },
+                      icon: const Icon(
+                        Icons.shopping_bag_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      label: const Text(
+                        'Continue Shopping',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: kPrimaryColor,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 14,
+                          horizontal: 24,
+                        ),
+                        elevation: 4,
+                        shadowColor: kPrimaryColor.withOpacity(0.3),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // Stay Here Button - Enhanced
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      icon: Icon(
+                        Icons.visibility_rounded,
+                        color: Colors.grey.shade600,
+                        size: 20,
+                      ),
+                      label: Text(
+                        'Stay Here',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(
+                          color: Colors.grey.shade300,
+                          width: 1.5,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 14,
+                          horizontal: 24,
+                        ),
+                        backgroundColor: Colors.grey.shade50,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              // Additional info
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    color: Colors.grey.shade400,
+                    size: 14,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'You can always view your order details later',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade500,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
 
-    if (shouldExit == true) {
-      // Navigate to home screen and clear the stack
-      _navigateToHome();
-      return false;
-    }
-
-    return false; // Prevent back navigation
+    return false; // Always prevent back navigation
   }
 
   // ✅ Navigate to order history (Profile screen with order history opened)
@@ -346,11 +584,11 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
     Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
   }
 
-  // ✅ FIXED: Navigate to orders screen instead of home
+  // ✅ Navigate to orders screen (OrdersScreen)
   void _navigateToOrdersScreen() {
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
-        builder: (context) => const ProfileScreen(openOrderHistory: true),
+        builder: (context) => const OrdersScreen(),
       ),
           (route) => false,
     );
@@ -364,6 +602,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
     _textController.dispose();
     _confettiController.dispose();
     _pulseController.dispose();
+    _expansionController.dispose(); // ✅ NEW: Dispose expansion controller
     super.dispose();
   }
 
@@ -390,6 +629,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
         _textController,
         _confettiController,
         _pulseController,
+        _expansionController, // ✅ NEW: Add expansion controller
       ]),
       builder: (context, child) {
         return PopScope(
@@ -592,27 +832,25 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
 
                                     const SizedBox(height: 32),
 
-                                    // ✅ FIXED Action Buttons - Perfect styling and navigation
+                                    // ✅ ENHANCED Action Buttons with smooth animations
                                     SlideTransition(
                                       position: _detailsSlideAnimation,
                                       child: FadeTransition(
                                         opacity: _detailsFadeAnimation,
                                         child: Column(
                                           children: [
-
-
-                                            // Start Shopping Button (goes to orders instead of home)
+                                            // ✅ NEW: View Your Orders Button (goes to profile with order history)
                                             SizedBox(
                                               width: double.infinity,
                                               child: ElevatedButton.icon(
-                                                onPressed: _navigateToOrdersScreen, // ✅ FIXED: Now goes to orders
+                                                onPressed: _navigateToOrderHistory,
                                                 icon: const Icon(
-                                                  Icons.shopping_bag_rounded,
+                                                  Icons.receipt_long_rounded,
                                                   color: Colors.white,
                                                   size: 20,
                                                 ),
                                                 label: const Text(
-                                                  'View All Orders',
+                                                  'View Your Orders',
                                                   style: TextStyle(
                                                     fontSize: 16,
                                                     fontWeight: FontWeight.w600,
@@ -635,7 +873,42 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                               ),
                                             ),
 
+                                            const SizedBox(height: 12),
 
+                                            // ✅ NEW: Continue Shopping Button (goes to OrdersScreen)
+                                            SizedBox(
+                                              width: double.infinity,
+                                              child: OutlinedButton.icon(
+                                                onPressed: _navigateToOrdersScreen,
+                                                icon: Icon(
+                                                  Icons.shopping_bag_outlined,
+                                                  color: kPrimaryColor,
+                                                  size: 20,
+                                                ),
+                                                label: Text(
+                                                  'Continue Shopping',
+                                                  style: TextStyle(
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: kPrimaryColor,
+                                                  ),
+                                                ),
+                                                style: OutlinedButton.styleFrom(
+                                                  side: BorderSide(
+                                                    color: kPrimaryColor,
+                                                    width: 2,
+                                                  ),
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius: BorderRadius.circular(16),
+                                                  ),
+                                                  padding: const EdgeInsets.symmetric(
+                                                    vertical: 16,
+                                                    horizontal: 24,
+                                                  ),
+                                                  backgroundColor: Colors.transparent,
+                                                ),
+                                              ),
+                                            ),
                                           ],
                                         ),
                                       ),
@@ -660,6 +933,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
     );
   }
 
+  // ✅ ENHANCED Order Details Card with expandable functionality
   Widget _buildOrderDetailsCard() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -682,6 +956,8 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
             ],
           ),
           const SizedBox(height: 12),
+
+          // Always show first 3 items
           ...widget.cartItems.take(3).map((item) => Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Row(
@@ -703,15 +979,83 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
               ],
             ),
           )).toList(),
-          if (widget.cartItems.length > 3)
-            Text(
-              '... and ${widget.cartItems.length - 3} more items',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade600,
-                fontStyle: FontStyle.italic,
+
+          // ✅ ENHANCED: Show expandable section for remaining items
+          if (widget.cartItems.length > 3) ...[
+            // Expandable content with smooth animation
+            SizeTransition(
+              sizeFactor: _expansionAnimation,
+              child: FadeTransition(
+                opacity: _expansionAnimation,
+                child: Column(
+                  children: widget.cartItems.skip(3).map((item) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${item['product_name']} x${item['product_quantity']}',
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                        ),
+                        Text(
+                          '₹${item['total_price']?.toStringAsFixed(2) ?? '0.00'}',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )).toList(),
+                ),
               ),
             ),
+
+            // ✅ ENHANCED: Smooth toggle button with rotation animation
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: _toggleOrderDetailsExpansion,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: kPrimaryColor.withOpacity(_isOrderDetailsExpanded ? 0.1 : 0.05),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: kPrimaryColor.withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _isOrderDetailsExpanded
+                          ? 'View Less'
+                          : 'View ${widget.cartItems.length - 3} More Items',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: kPrimaryColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    AnimatedRotation(
+                      duration: const Duration(milliseconds: 300),
+                      turns: _isOrderDetailsExpanded ? 0.5 : 0.0,
+                      child: Icon(
+                        Icons.keyboard_arrow_down,
+                        color: kPrimaryColor,
+                        size: 16,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

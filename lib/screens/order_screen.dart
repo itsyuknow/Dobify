@@ -145,25 +145,25 @@ class _OrdersScreenState extends State<OrdersScreen>
       vsync: this,
     );
 
-    // ✅ NEW: Smooth floating motion controller
+    // ✅ SMOOTH: Much longer for ultra-smooth sine wave motion
     _smoothFloatController = AnimationController(
-      duration: const Duration(milliseconds: 4000), // ✅ Much longer for smooth sine wave
+      duration: const Duration(milliseconds: 8000), // ✅ Increased for ultra-smooth motion
       vsync: this,
     );
 
-    // ✅ NEW: Breathing animation for subtle scale effect
+    // ✅ SMOOTH: Longer breathing for smoother scale
     _breathingController = AnimationController(
-      duration: const Duration(milliseconds: 3000),
+      duration: const Duration(milliseconds: 5000), // ✅ Increased for smoother breathing
       vsync: this,
     );
 
     _bounceController = AnimationController(
-      duration: const Duration(milliseconds: 800), // ✅ Slower bounce
+      duration: const Duration(milliseconds: 600), // ✅ Slightly faster bounce
       vsync: this,
     );
 
     _clearZoneController = AnimationController(
-      duration: const Duration(milliseconds: 400),
+      duration: const Duration(milliseconds: 300), // ✅ Faster clear zone response
       vsync: this,
     );
 
@@ -172,17 +172,17 @@ class _OrdersScreenState extends State<OrdersScreen>
       vsync: this,
     );
 
-    // ✅ NEW: Continuous floating controller
+    // ✅ SMOOTH: Ultra-slow for natural floating motion
     _continuousFloatController = AnimationController(
-      duration: const Duration(milliseconds: 6000), // ✅ Very slow for natural motion
+      duration: const Duration(milliseconds: 10000), // ✅ Much longer for smoother motion
       vsync: this,
     );
 
-    // ✅ SMOOTH: Enhanced animations with better curves
+    // ✅ SMOOTH: Enhanced animations with ultra-smooth curves
     _floatingCartScale = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _floatingCartController,
-        curve: Curves.elasticOut,
+        curve: Curves.easeOutCubic, // ✅ Smoother than elastic
       ),
     );
 
@@ -191,7 +191,7 @@ class _OrdersScreenState extends State<OrdersScreen>
       end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: _floatingCartController,
-      curve: Curves.easeOutQuint, // ✅ Much smoother curve
+      curve: Curves.easeOutCubic, // ✅ Ultra-smooth curve
     ));
 
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
@@ -201,26 +201,26 @@ class _OrdersScreenState extends State<OrdersScreen>
       ),
     );
 
-    // ✅ SMOOTH: Sine wave floating motion
-    _smoothFloatAnimation = Tween<double>(begin: -6.0, end: 6.0).animate(
+    // ✅ SMOOTH: Smaller range for subtle floating motion
+    _smoothFloatAnimation = Tween<double>(begin: -3.0, end: 3.0).animate(
       CurvedAnimation(
         parent: _smoothFloatController,
-        curve: Curves.easeInOutSine, // ✅ Sine wave for natural motion
+        curve: Curves.easeInOutSine, // ✅ Perfect sine wave
       ),
     );
 
-    // ✅ SMOOTH: Subtle breathing scale
-    _breathingAnimation = Tween<double>(begin: 0.98, end: 1.02).animate(
+    // ✅ SMOOTH: More subtle breathing scale
+    _breathingAnimation = Tween<double>(begin: 0.99, end: 1.01).animate(
       CurvedAnimation(
         parent: _breathingController,
         curve: Curves.easeInOutSine,
       ),
     );
 
-    _bounceAnimation = Tween<double>(begin: 1.0, end: 1.15).animate(
+    _bounceAnimation = Tween<double>(begin: 1.0, end: 1.08).animate(
       CurvedAnimation(
         parent: _bounceController,
-        curve: Curves.elasticOut,
+        curve: Curves.easeOutBack, // ✅ Smoother bounce
       ),
     );
 
@@ -236,14 +236,14 @@ class _OrdersScreenState extends State<OrdersScreen>
     _clearZoneScale = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _clearZoneController,
-        curve: Curves.elasticOut,
+        curve: Curves.easeOutBack, // ✅ Smoother scale
       ),
     );
 
     _clearZoneOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _clearZoneController,
-        curve: Curves.easeInOut,
+        curve: Curves.easeOut,
       ),
     );
 
@@ -254,15 +254,15 @@ class _OrdersScreenState extends State<OrdersScreen>
       ),
     );
 
-    // ✅ NEW: Continuous floating animations
-    _continuousFloatAnimation = Tween<double>(begin: -4.0, end: 4.0).animate(
+    // ✅ SMOOTH: Ultra-subtle continuous floating animations
+    _continuousFloatAnimation = Tween<double>(begin: -2.0, end: 2.0).animate(
       CurvedAnimation(
         parent: _continuousFloatController,
         curve: Curves.easeInOutSine,
       ),
     );
 
-    _continuousScaleAnimation = Tween<double>(begin: 0.96, end: 1.04).animate(
+    _continuousScaleAnimation = Tween<double>(begin: 0.98, end: 1.02).animate(
       CurvedAnimation(
         parent: _continuousFloatController,
         curve: Curves.easeInOutSine,
@@ -272,7 +272,7 @@ class _OrdersScreenState extends State<OrdersScreen>
     // ✅ SMOOTH: Start animations
     _fadeController.forward();
 
-    // ✅ SMOOTH: Continuous repeating animations with sine waves
+    // ✅ SMOOTH: Continuous repeating animations with ultra-smooth sine waves
     _smoothFloatController.repeat(reverse: true);
     _breathingController.repeat(reverse: true);
     _continuousFloatController.repeat(reverse: true);
@@ -679,6 +679,10 @@ class _OrdersScreenState extends State<OrdersScreen>
         return Icons.iron_rounded;
       case 'pressing':
         return Icons.compress;
+      case 'electric iron':
+        return Icons.iron_rounded;
+      case 'coal iron':
+        return Icons.local_fire_department_rounded;
       default:
         return Icons.cleaning_services_rounded;
     }
@@ -731,6 +735,9 @@ class _OrdersScreenState extends State<OrdersScreen>
 
       debugPrint('✅ Services loaded: ${services.length}');
 
+      // ✅ Get base product price for display
+      final basePrice = (product['product_price'] as num?)?.toDouble() ?? 0.0;
+
       if (mounted) {
         showDialog(
           context: context,
@@ -765,6 +772,24 @@ class _OrdersScreenState extends State<OrdersScreen>
                       ),
                       textAlign: TextAlign.center,
                     ),
+                    // ✅ NEW: Show base price here
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: kPrimaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: kPrimaryColor.withOpacity(0.3)),
+                      ),
+                      child: Text(
+                        'Base Price: ₹${basePrice.toInt()}',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: kPrimaryColor,
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 20),
 
                     Flexible(
@@ -775,6 +800,10 @@ class _OrdersScreenState extends State<OrdersScreen>
                           final service = services[index];
                           final name = service['name'];
                           final price = service['price'];
+                          final totalPrice = basePrice + price;
+
+                          // ✅ Check if this is Electric Iron (base service)
+                          final isBaseService = name.toLowerCase().contains('electric iron') || price == 0;
 
                           return Container(
                             margin: const EdgeInsets.only(bottom: 10),
@@ -789,9 +818,12 @@ class _OrdersScreenState extends State<OrdersScreen>
                                 child: Container(
                                   padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
-                                    color: Colors.grey.shade50,
+                                    color: isBaseService ? kPrimaryColor.withOpacity(0.05) : Colors.grey.shade50,
                                     borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: Colors.grey.shade200),
+                                    border: Border.all(
+                                      color: isBaseService ? kPrimaryColor.withOpacity(0.3) : Colors.grey.shade200,
+                                      width: isBaseService ? 2 : 1,
+                                    ),
                                   ),
                                   child: Row(
                                     children: [
@@ -812,15 +844,39 @@ class _OrdersScreenState extends State<OrdersScreen>
                                         child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            Text(
-                                              name,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w600,
-                                                fontSize: 14,
-                                              ),
+                                            Row(
+                                              children: [
+                                                Text(
+                                                  name,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w600,
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                                if (isBaseService) ...[
+                                                  const SizedBox(width: 6),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                    decoration: BoxDecoration(
+                                                      color: kPrimaryColor,
+                                                      borderRadius: BorderRadius.circular(8),
+                                                    ),
+                                                    child: const Text(
+                                                      'DEFAULT',
+                                                      style: TextStyle(
+                                                        fontSize: 8,
+                                                        color: Colors.white,
+                                                        fontWeight: FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ],
                                             ),
                                             Text(
-                                              'Base + ₹$price',
+                                              isBaseService
+                                                  ? '₹${totalPrice.toInt()}'
+                                                  : '₹${basePrice.toInt()} + ₹$price',
                                               style: TextStyle(
                                                 fontSize: 12,
                                                 color: Colors.grey.shade600,
@@ -830,7 +886,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                                         ),
                                       ),
                                       Text(
-                                        '+₹$price',
+                                        '₹${totalPrice.toInt()}',
                                         style: TextStyle(
                                           fontSize: 14,
                                           color: kPrimaryColor,
@@ -931,19 +987,31 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
   }
 
-  // ✅ FIXED: Check if cart icon is near clear zone - proper center-to-center calculation
+  // ✅ FIXED: Simplified and accurate clear zone detection
   bool _isCartNearClearZone() {
     final screenSize = MediaQuery.of(context).size;
-    final bottomNavHeight = kBottomNavigationBarHeight;
-    final safeAreaBottom = MediaQuery.of(context).padding.bottom;
-    final clearZoneY = screenSize.height - bottomNavHeight - safeAreaBottom - 30 - 40;
 
-    // ✅ FIXED: Calculate centers properly
-    final clearZoneCenter = Offset(screenSize.width * 0.4 + 40, clearZoneY); // Clear zone center
-    final cartCenter = Offset(_fabOffset.dx + 30, _fabOffset.dy + 30); // Cart center (30 = half of 60px cart size)
+    // ✅ FIXED: Clear zone position (matching the Positioned widget exactly)
+    final clearZoneX = screenSize.width * 0.4; // Same as Positioned left
+    final clearZoneY = 100; // Same as Positioned bottom (from bottom of stack)
+
+    // Convert bottom positioning to top positioning for accurate comparison
+    final stackHeight = screenSize.height - (Scaffold.of(context).appBarMaxHeight ?? kToolbarHeight) - kBottomNavigationBarHeight - MediaQuery.of(context).padding.bottom;
+    final clearZoneTopY = stackHeight - clearZoneY - 80; // 80 = clear zone height
+
+    // ✅ FIXED: Clear zone center
+    final clearZoneCenter = Offset(clearZoneX + 40, clearZoneTopY + 40); // 40 = half of 80px
+
+    // ✅ FIXED: Cart center
+    final cartCenter = Offset(_fabOffset.dx + 30, _fabOffset.dy + 30); // 30 = half of 60px
 
     final distance = (clearZoneCenter - cartCenter).distance;
-    return distance < 80; // Slightly larger detection area
+
+    // ✅ DEBUG: Print positions for debugging
+    debugPrint('🎯 CLEAR ZONE: center=$clearZoneCenter, cart=$cartCenter, distance=$distance');
+    debugPrint('🎯 Stack height: $stackHeight, Clear zone Y: $clearZoneTopY');
+
+    return distance < 80; // Generous detection area
   }
 
   // ✅ SMOOTH FLOATING CART - Enhanced with multiple smooth animations
@@ -977,11 +1045,11 @@ class _OrdersScreenState extends State<OrdersScreen>
           builder: (context, child) {
             return Stack(
               children: [
-                // ✅ ENHANCED: Clear Zone with X icon - positioned properly above footer
+                // ✅ FIXED: Clear Zone positioned relative to content area, not screen
                 if (_showClearZone)
                   Positioned(
-                    bottom: bottomNavHeight + safeAreaBottom + 30, // Always above footer with proper spacing
-                    left: screenSize.width * 0.4, // Near center, slightly left
+                    left: screenSize.width * 0.4, // 40% from left
+                    bottom: 100, // ✅ FIXED: 100px from bottom of content area
                     child: ScaleTransition(
                       scale: _clearZoneScale,
                       child: FadeTransition(
@@ -1029,14 +1097,34 @@ class _OrdersScreenState extends State<OrdersScreen>
                               // X Icon
                               Center(
                                 child: Transform.scale(
-                                  scale: _isNearClearZone ? 1.2 : 1.0,
+                                  scale: _isNearClearZone ? 1.3 : 1.0, // ✅ Bigger scale when near
                                   child: Icon(
                                     Icons.close,
-                                    color: Colors.white.withOpacity(_isNearClearZone ? 0.9 : 0.7),
-                                    size: 32,
+                                    color: Colors.white.withOpacity(_isNearClearZone ? 1.0 : 0.7), // ✅ Brighter when near
+                                    size: 36, // ✅ Bigger icon
                                   ),
                                 ),
                               ),
+
+                              // ✅ NEW: Debug indicator (remove after testing)
+                              if (_isNearClearZone)
+                                Positioned(
+                                  top: -10,
+                                  right: -10,
+                                  child: Container(
+                                    width: 20,
+                                    height: 20,
+                                    decoration: const BoxDecoration(
+                                      color: Colors.green,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.check,
+                                      color: Colors.white,
+                                      size: 12,
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
                         ),
@@ -1122,49 +1210,70 @@ class _OrdersScreenState extends State<OrdersScreen>
                       ).then((_) => _fetchCartData());
                     },
                     onPanStart: (details) {
+                      // ✅ FIXED: Use localPosition instead of globalPosition for accurate positioning
+                      final fingerX = details.localPosition.dx;
+                      final fingerY = details.localPosition.dy;
+
+                      // ✅ FIXED: Account for the widget's position in the stack
+                      final RenderBox renderBox = context.findRenderObject() as RenderBox;
+                      final localOffset = renderBox.globalToLocal(details.globalPosition);
+
                       setState(() {
                         _isDragging = true;
                         _showClearZone = true;
                         _showDragHint = false;
+
+                        // ✅ FIXED: Use the correct local coordinates
+                        _fabOffset = Offset(
+                          (localOffset.dx - 30).clamp(0, screenSize.width - 60),
+                          (localOffset.dy - 30).clamp(minTop, maxBottom),
+                        );
                       });
                       _clearZoneController.forward();
                     },
                     onPanUpdate: (details) {
-                      // ✅ FIXED: Proper finger positioning - center the cart icon under finger
-                      final newDx = details.globalPosition.dx - 30; // 30 = half of cart width (60px)
-                      final newDy = details.globalPosition.dy - 30; // 30 = half of cart height (60px)
+                      // ✅ FIXED: Use local positioning for accurate finger tracking
+                      final RenderBox renderBox = context.findRenderObject() as RenderBox;
+                      final localOffset = renderBox.globalToLocal(details.globalPosition);
 
                       setState(() {
+                        // ✅ FIXED: Perfect positioning using local coordinates
                         _fabOffset = Offset(
-                          newDx.clamp(0, screenSize.width - 60),
-                          newDy.clamp(minTop, maxBottom),
+                          (localOffset.dx - 30).clamp(0, screenSize.width - 60),
+                          (localOffset.dy - 30).clamp(minTop, maxBottom),
                         );
 
-                        // ✅ FIXED: Smooth clear zone detection
+                        // ✅ FIXED: More responsive clear zone detection
                         _isNearClearZone = _isCartNearClearZone();
                       });
                     },
                     onPanEnd: (details) {
-                      // ✅ FIXED: Better clear cart logic
+                      debugPrint('🎯 PAN END: Cart at ${_fabOffset}, Near clear zone: $_isNearClearZone');
+
+                      // ✅ FIXED: Clear cart with debug logging
                       if (_isNearClearZone) {
+                        debugPrint('✅ CLEARING CART - Cart was in clear zone!');
                         _clearCart();
+                      } else {
+                        debugPrint('❌ NOT CLEARING - Cart not in clear zone');
                       }
 
                       setState(() {
                         _isDragging = false;
                         _isNearClearZone = false;
 
-                        // ✅ FIXED: Smooth snap to nearest side
+                        // ✅ SMOOTH: Ultra-smooth snap to nearest side with easing
+                        final targetX = _fabOffset.dx < screenSize.width / 2 ? 20.0 : screenSize.width - 80.0;
                         _fabOffset = Offset(
-                          _fabOffset.dx < screenSize.width / 2 ? 20 : screenSize.width - 80,
+                          targetX,
                           _fabOffset.dy.clamp(minTop, maxBottom),
                         );
                       });
 
                       _clearZoneController.reverse();
 
-                      // Hide clear zone after animation
-                      Future.delayed(const Duration(milliseconds: 600), () {
+                      // Hide clear zone after animation completes
+                      Future.delayed(const Duration(milliseconds: 400), () {
                         if (mounted) {
                           setState(() => _showClearZone = false);
                         }
@@ -1581,7 +1690,7 @@ class _OrdersScreenState extends State<OrdersScreen>
     );
   }
 
-  // ✅ Product grid
+  // ✅ Product grid - REMOVED PRICE DISPLAY
   Widget _buildPremiumProductGrid(List<Map<String, dynamic>> products) {
     return GridView.builder(
       itemCount: products.length,
@@ -1685,25 +1794,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                             height: 1.2,
                           ),
                         ),
-                        const SizedBox(height: 6),
-
-                        // Price badge
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: kPrimaryColor.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            '₹${item['product_price'] ?? 0}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: kPrimaryColor,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 16), // ✅ CHANGED: Increased spacing since price is removed
 
                         // Button section
                         SizedBox(

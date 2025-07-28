@@ -189,6 +189,23 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
             }
           }
 
+          // Get delivery slot details
+          if (order['delivery_slot_id'] != null) {
+            try {
+              final deliverySlotResponse = await supabase
+                  .from('delivery_slots')
+                  .select('start_time, end_time, display_time')
+                  .eq('id', order['delivery_slot_id'])
+                  .maybeSingle();
+
+              if (deliverySlotResponse != null) {
+                orderWithDetails['delivery_slot'] = deliverySlotResponse;
+              }
+            } catch (e) {
+              print('Error loading delivery slot for order ${order['id']}: $e');
+            }
+          }
+
           // Setup cancel timer if order can be cancelled
           _setupCancelTimer(orderWithDetails);
 
@@ -383,6 +400,23 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     return status == 'pending' || status == 'confirmed';
   }
 
+  bool _canReschedule(Map<String, dynamic> order) {
+    final status = order['status']?.toString().toLowerCase() ??
+        order['order_status']?.toString().toLowerCase() ?? '';
+
+    // First check if order status allows rescheduling
+    if (!(status == 'pending' || status == 'confirmed')) {
+      return false;
+    }
+
+    // Then check if we're within the reschedule time window (same as cancel logic)
+    final orderId = order['id'].toString();
+    final remainingTime = _getRemainingCancelTime(orderId);
+
+    // Can only reschedule if there's remaining time (same as cancel button logic)
+    return remainingTime > 0;
+  }
+
   int _getRemainingCancelTime(String orderId) {
     return _cancelTimeRemaining[orderId] ?? 0;
   }
@@ -554,6 +588,54 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
       print('Error cancelling order: $e');
       _showErrorSnackBar('Failed to cancel order');
+    }
+  }
+
+  // NEW METHOD: Show reschedule dialog
+  Future<void> _showRescheduleDialog(Map<String, dynamic> order) async {
+    showDialog(
+      context: context,
+      builder: (context) => _RescheduleDialog(
+        order: order,
+        onReschedule: (newPickupSlot, newDeliverySlot, newPickupDate, newDeliveryDate) {
+          _rescheduleOrder(order, newPickupSlot, newDeliverySlot, newPickupDate, newDeliveryDate);
+        },
+      ),
+    );
+  }
+
+  // NEW METHOD: Reschedule order
+  Future<void> _rescheduleOrder(
+      Map<String, dynamic> order,
+      Map<String, dynamic> newPickupSlot,
+      Map<String, dynamic> newDeliverySlot,
+      DateTime newPickupDate,
+      DateTime newDeliveryDate,
+      ) async {
+    try {
+      _showLoadingDialog('Rescheduling your order...');
+
+      // Update order with new slots and dates
+      await supabase.from('orders').update({
+        'pickup_slot_id': newPickupSlot['id'],
+        'delivery_slot_id': newDeliverySlot['id'],
+        'pickup_date': newPickupDate.toIso8601String().split('T')[0],
+        'delivery_date': newDeliveryDate.toIso8601String().split('T')[0],
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', order['id']);
+
+      // Close loading dialog
+      if (mounted) Navigator.pop(context);
+
+      _showSuccessSnackBar('Order rescheduled successfully!');
+
+      // Reload orders to reflect changes
+      await _loadOrders();
+
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      print('Error rescheduling order: $e');
+      _showErrorSnackBar('Failed to reschedule order');
     }
   }
 
@@ -1049,6 +1131,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     final firstProduct = orderItems.isNotEmpty ? orderItems[0] : null;
     final orderId = order['id'].toString();
     final canCancel = _canShowCancelButton(order);
+    final canReschedule = _canReschedule(order);
     final remainingTime = _getRemainingCancelTime(orderId);
 
     return Container(
@@ -1274,27 +1357,34 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
                 const SizedBox(height: 16),
 
-                // Action Buttons Row - FIXED CANCEL BUTTON LOGIC
+                // Action Buttons Row - UPDATED: Reschedule button instead of View Details
                 Row(
                   children: [
-                    // View Details Button
+                    // Reschedule Button (was View Details)
                     Expanded(
                       child: Container(
                         height: 48,
                         child: ElevatedButton.icon(
-                          onPressed: () => _showOrderDetails(order),
-                          icon: Icon(Icons.visibility_rounded, size: 18, color: kPrimaryColor),
+                          onPressed: (canReschedule && remainingTime > 0) ? () => _showRescheduleDialog(order) : null,
+                          icon: Icon(
+                            (canReschedule && remainingTime > 0) ? Icons.schedule : Icons.block,
+                            size: 18,
+                            color: (canReschedule && remainingTime > 0) ? kPrimaryColor : Colors.grey.shade500,
+                          ),
                           label: Text(
-                            'View Details',
+                            (canReschedule && remainingTime > 0) ? 'Reschedule' :
+                            canReschedule ? 'Reschedule Timeout' : 'Cannot Reschedule',
                             style: TextStyle(
-                              color: kPrimaryColor,
+                              color: (canReschedule && remainingTime > 0) ? kPrimaryColor : Colors.grey.shade600,
                               fontWeight: FontWeight.w700,
                               fontSize: 14,
                             ),
                           ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: kPrimaryColor.withOpacity(0.1),
-                            foregroundColor: kPrimaryColor,
+                            backgroundColor: (canReschedule && remainingTime > 0)
+                                ? kPrimaryColor.withOpacity(0.1)
+                                : Colors.grey.shade100,
+                            foregroundColor: (canReschedule && remainingTime > 0) ? kPrimaryColor : Colors.grey.shade500,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -1516,6 +1606,869 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     } catch (e) {
       return 'N/A';
     }
+  }
+}
+
+// NEW CLASS: Reschedule Dialog Widget
+class _RescheduleDialog extends StatefulWidget {
+  final Map<String, dynamic> order;
+  final Function(Map<String, dynamic>, Map<String, dynamic>, DateTime, DateTime) onReschedule;
+
+  const _RescheduleDialog({
+    required this.order,
+    required this.onReschedule,
+  });
+
+  @override
+  State<_RescheduleDialog> createState() => _RescheduleDialogState();
+}
+
+class _RescheduleDialogState extends State<_RescheduleDialog> {
+  final supabase = Supabase.instance.client;
+
+  // Slot data
+  List<Map<String, dynamic>> pickupSlots = [];
+  List<Map<String, dynamic>> deliverySlots = [];
+  bool isLoadingSlots = true;
+
+  // Selected values
+  Map<String, dynamic>? selectedPickupSlot;
+  Map<String, dynamic>? selectedDeliverySlot;
+  DateTime selectedPickupDate = DateTime.now();
+  DateTime selectedDeliveryDate = DateTime.now();
+
+  // Dates
+  late List<DateTime> pickupDates;
+  late List<DateTime> deliveryDates;
+
+  // Progress
+  int currentStep = 0; // 0: pickup, 1: delivery
+
+  // Express delivery (get from order)
+  bool isExpressDelivery = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeDates();
+    _getDeliveryTypeFromOrder();
+    _loadSlots();
+  }
+
+  void _initializeDates() {
+    // Pickup dates: 7 days from today
+    pickupDates = List.generate(7, (index) => DateTime.now().add(Duration(days: index)));
+
+    // Delivery dates: Initially same as pickup, will be updated when pickup date is selected
+    deliveryDates = List.generate(7, (index) => selectedPickupDate.add(Duration(days: index)));
+  }
+
+  void _getDeliveryTypeFromOrder() {
+    // Get delivery type from order
+    final deliveryType = widget.order['delivery_type']?.toString().toLowerCase() ?? 'standard';
+    isExpressDelivery = deliveryType == 'express';
+  }
+
+  Future<void> _loadSlots() async {
+    try {
+      final pickupResponse = await supabase
+          .from('pickup_slots')
+          .select()
+          .eq('is_active', true)
+          .order('start_time', ascending: true);
+
+      final deliveryResponse = await supabase
+          .from('delivery_slots')
+          .select()
+          .eq('is_active', true)
+          .order('start_time', ascending: true);
+
+      setState(() {
+        pickupSlots = List<Map<String, dynamic>>.from(pickupResponse);
+        deliverySlots = List<Map<String, dynamic>>.from(deliveryResponse);
+        isLoadingSlots = false;
+      });
+    } catch (e) {
+      setState(() => isLoadingSlots = false);
+    }
+  }
+
+  void _updateDeliveryDates() {
+    // Delivery dates: 7 days starting from selected pickup date
+    deliveryDates = List.generate(7, (index) => selectedPickupDate.add(Duration(days: index)));
+
+    // Ensure selected delivery date is not before pickup date
+    if (selectedDeliveryDate.isBefore(selectedPickupDate)) {
+      selectedDeliveryDate = selectedPickupDate;
+    }
+  }
+
+  void _onPickupDateSelected(DateTime date) {
+    setState(() {
+      selectedPickupDate = date;
+      selectedPickupSlot = null;
+      selectedDeliverySlot = null;
+      _updateDeliveryDates();
+    });
+  }
+
+  void _onDeliveryDateSelected(DateTime date) {
+    setState(() {
+      selectedDeliveryDate = date;
+      selectedDeliverySlot = null;
+    });
+  }
+
+  void _onPickupSlotSelected(Map<String, dynamic> slot) {
+    setState(() {
+      selectedPickupSlot = slot;
+      selectedDeliverySlot = null;
+      currentStep = 1;
+      _updateDeliveryDates();
+
+      // Auto-select next available delivery date
+      DateTime? nextAvailableDate = _findNextAvailableDeliveryDate();
+      if (nextAvailableDate != null) {
+        selectedDeliveryDate = nextAvailableDate;
+      } else {
+        selectedDeliveryDate = selectedPickupDate; // Fallback to pickup date
+      }
+    });
+  }
+
+  void _onDeliverySlotSelected(Map<String, dynamic> slot) {
+    setState(() {
+      selectedDeliverySlot = slot;
+    });
+  }
+
+  DateTime? _findNextAvailableDeliveryDate() {
+    for (int i = 0; i < deliveryDates.length; i++) {
+      DateTime date = deliveryDates[i];
+      if (_hasAvailableDeliverySlots(date)) {
+        return date;
+      }
+    }
+    return null;
+  }
+
+  bool _hasAvailableDeliverySlots(DateTime date) {
+    int dayOfWeek = date.weekday;
+
+    List<Map<String, dynamic>> daySlots = deliverySlots.where((slot) {
+      int slotDayOfWeek = slot['day_of_week'] ?? 0;
+      bool dayMatches = slotDayOfWeek == dayOfWeek ||
+          (dayOfWeek == 7 && slotDayOfWeek == 0) ||
+          (slotDayOfWeek == 7 && dayOfWeek == 0);
+
+      bool typeMatches = isExpressDelivery
+          ? (slot['slot_type'] == 'express' || slot['slot_type'] == 'both')
+          : (slot['slot_type'] == 'standard' || slot['slot_type'] == 'both');
+
+      return dayMatches && typeMatches;
+    }).toList();
+
+    if (daySlots.isEmpty) return false;
+
+    // Check if any slot would be available for this date
+    for (var slot in daySlots) {
+      // Create a temporary selected delivery date to test availability
+      DateTime tempDeliveryDate = selectedDeliveryDate;
+      selectedDeliveryDate = date;
+
+      bool isAvailable = _isDeliverySlotAvailable(slot);
+
+      // Restore original date
+      selectedDeliveryDate = tempDeliveryDate;
+
+      if (isAvailable) return true;
+    }
+
+    return false;
+  }
+
+  TimeOfDay _parseTimeString(String timeString) {
+    try {
+      List<String> parts = timeString.split(':');
+      int hour = int.parse(parts[0]);
+      int minute = parts.length > 1 ? int.parse(parts[1]) : 0;
+      return TimeOfDay(hour: hour, minute: minute);
+    } catch (e) {
+      return TimeOfDay(hour: 0, minute: 0);
+    }
+  }
+
+  List<Map<String, dynamic>> _getFilteredPickupSlots() {
+    final now = DateTime.now();
+    final isToday = selectedPickupDate.day == now.day &&
+        selectedPickupDate.month == now.month &&
+        selectedPickupDate.year == now.year;
+
+    int selectedDayOfWeek = selectedPickupDate.weekday;
+
+    List<Map<String, dynamic>> daySlots = pickupSlots.where((slot) {
+      int slotDayOfWeek = slot['day_of_week'] ?? 0;
+      bool dayMatches = slotDayOfWeek == selectedDayOfWeek ||
+          (selectedDayOfWeek == 7 && slotDayOfWeek == 0) ||
+          (slotDayOfWeek == 7 && selectedDayOfWeek == 0);
+
+      bool typeMatches = isExpressDelivery
+          ? (slot['slot_type'] == 'express' || slot['slot_type'] == 'both')
+          : (slot['slot_type'] == 'standard' || slot['slot_type'] == 'both');
+
+      return dayMatches && typeMatches;
+    }).toList();
+
+    // Sort slots by time
+    daySlots.sort((a, b) {
+      TimeOfDay timeA = _parseTimeString(a['start_time']);
+      TimeOfDay timeB = _parseTimeString(b['start_time']);
+      if (timeA.hour != timeB.hour) return timeA.hour.compareTo(timeB.hour);
+      return timeA.minute.compareTo(timeB.minute);
+    });
+
+    if (!isToday) {
+      return daySlots;
+    }
+
+    // For today, filter based on current time
+    final currentTime = TimeOfDay.now();
+
+    return daySlots.where((slot) {
+      final slotStart = _parseTimeString(slot['start_time']);
+      int currentMinutes = currentTime.hour * 60 + currentTime.minute;
+      int slotMinutes = slotStart.hour * 60 + slotStart.minute;
+      return slotMinutes > currentMinutes;
+    }).toList();
+  }
+
+  List<Map<String, dynamic>> _getFilteredDeliverySlots() {
+    if (selectedPickupSlot == null) return [];
+
+    final deliveryDate = selectedDeliveryDate;
+    int deliveryDayOfWeek = deliveryDate.weekday;
+
+    List<Map<String, dynamic>> daySlots = deliverySlots.where((slot) {
+      int slotDayOfWeek = slot['day_of_week'] ?? 0;
+      bool dayMatches = slotDayOfWeek == deliveryDayOfWeek ||
+          (deliveryDayOfWeek == 7 && slotDayOfWeek == 0) ||
+          (slotDayOfWeek == 7 && deliveryDayOfWeek == 0);
+
+      bool typeMatches = isExpressDelivery
+          ? (slot['slot_type'] == 'express' || slot['slot_type'] == 'both')
+          : (slot['slot_type'] == 'standard' || slot['slot_type'] == 'both');
+
+      return dayMatches && typeMatches;
+    }).toList();
+
+    // Sort slots by time
+    daySlots.sort((a, b) {
+      TimeOfDay timeA = _parseTimeString(a['start_time']);
+      TimeOfDay timeB = _parseTimeString(b['start_time']);
+      if (timeA.hour != timeB.hour) return timeA.hour.compareTo(timeB.hour);
+      return timeA.minute.compareTo(timeB.minute);
+    });
+
+    final pickupDate = selectedPickupDate;
+
+    // If delivery is on a different day, apply express/standard logic from morning slots
+    if (pickupDate.day != deliveryDate.day ||
+        pickupDate.month != deliveryDate.month ||
+        pickupDate.year != deliveryDate.year) {
+
+      if (isExpressDelivery) {
+        return daySlots;
+      } else {
+        return daySlots.skip(1).toList();
+      }
+    }
+
+    // Same day delivery - apply filtering logic based on pickup slot
+    int pickupSlotIndex = -1;
+    for (int i = 0; i < daySlots.length; i++) {
+      if (daySlots[i]['start_time'] == selectedPickupSlot!['start_time'] &&
+          daySlots[i]['end_time'] == selectedPickupSlot!['end_time']) {
+        pickupSlotIndex = i;
+        break;
+      }
+    }
+
+    if (pickupSlotIndex == -1) return daySlots;
+
+    int startIndex;
+    if (isExpressDelivery) {
+      startIndex = pickupSlotIndex + 1;
+    } else {
+      startIndex = pickupSlotIndex + 2;
+    }
+
+    return daySlots.skip(startIndex).toList();
+  }
+
+  bool _isDeliverySlotAvailable(Map<String, dynamic> slot) {
+    if (selectedPickupSlot == null) return false;
+
+    final pickupDate = selectedPickupDate;
+    final deliveryDate = selectedDeliveryDate;
+
+    // Check if slot has passed (only for same day as today)
+    final now = DateTime.now();
+    final isToday = deliveryDate.day == now.day &&
+        deliveryDate.month == now.month &&
+        deliveryDate.year == now.year;
+
+    if (isToday) {
+      final currentTime = TimeOfDay.now();
+      String timeString = slot['start_time'];
+      TimeOfDay slotTime = _parseTimeString(timeString);
+
+      if (slotTime.hour < currentTime.hour) return false;
+      if (slotTime.hour == currentTime.hour && slotTime.minute < currentTime.minute) return false;
+    }
+
+    // Apply same logic as slot selector screen
+    if (!isExpressDelivery) {
+      String pickupStartTime = selectedPickupSlot!['start_time'];
+      String pickupEndTime = selectedPickupSlot!['end_time'];
+
+      if (pickupStartTime == '20:00:00' && pickupEndTime == '22:00:00') {
+        DateTime tomorrow = pickupDate.add(Duration(days: 1));
+        if (deliveryDate.day == tomorrow.day &&
+            deliveryDate.month == tomorrow.month &&
+            deliveryDate.year == tomorrow.year) {
+          if (slot['start_time'] == '08:00:00' && slot['end_time'] == '10:00:00') {
+            return false;
+          }
+        }
+      }
+
+      if (pickupDate.day == deliveryDate.day &&
+          pickupDate.month == deliveryDate.month &&
+          pickupDate.year == deliveryDate.year) {
+
+        List<Map<String, dynamic>> allDaySlots = deliverySlots.where((s) {
+          int slotDayOfWeek = s['day_of_week'] ?? 0;
+          int dayOfWeek = deliveryDate.weekday;
+          return slotDayOfWeek == dayOfWeek ||
+              (dayOfWeek == 7 && slotDayOfWeek == 0) ||
+              (slotDayOfWeek == 7 && dayOfWeek == 0);
+        }).toList();
+
+        int pickupSlotIndex = -1;
+        for (int i = 0; i < allDaySlots.length; i++) {
+          if (allDaySlots[i]['start_time'] == selectedPickupSlot!['start_time'] &&
+              allDaySlots[i]['end_time'] == selectedPickupSlot!['end_time']) {
+            pickupSlotIndex = i;
+            break;
+          }
+        }
+
+        int currentSlotIndex = -1;
+        for (int i = 0; i < allDaySlots.length; i++) {
+          if (allDaySlots[i]['id'] == slot['id']) {
+            currentSlotIndex = i;
+            break;
+          }
+        }
+
+        if (pickupSlotIndex != -1 && currentSlotIndex != -1) {
+          if (currentSlotIndex <= pickupSlotIndex + 1) {
+            return false;
+          }
+        }
+      }
+    } else {
+      if (pickupDate.day == deliveryDate.day &&
+          pickupDate.month == deliveryDate.month &&
+          pickupDate.year == deliveryDate.year) {
+
+        List<Map<String, dynamic>> allDaySlots = deliverySlots.where((s) {
+          int slotDayOfWeek = s['day_of_week'] ?? 0;
+          int dayOfWeek = deliveryDate.weekday;
+          return slotDayOfWeek == dayOfWeek ||
+              (dayOfWeek == 7 && slotDayOfWeek == 0) ||
+              (slotDayOfWeek == 7 && dayOfWeek == 0);
+        }).toList();
+
+        int pickupSlotIndex = -1;
+        for (int i = 0; i < allDaySlots.length; i++) {
+          if (allDaySlots[i]['start_time'] == selectedPickupSlot!['start_time'] &&
+              allDaySlots[i]['end_time'] == selectedPickupSlot!['end_time']) {
+            pickupSlotIndex = i;
+            break;
+          }
+        }
+
+        int currentSlotIndex = -1;
+        for (int i = 0; i < allDaySlots.length; i++) {
+          if (allDaySlots[i]['id'] == slot['id']) {
+            currentSlotIndex = i;
+            break;
+          }
+        }
+
+        if (pickupSlotIndex != -1 && currentSlotIndex != -1) {
+          if (currentSlotIndex <= pickupSlotIndex) {
+            return false;
+          }
+        }
+      }
+    }
+
+    return true;
+  }
+
+  void _goBackToPickup() {
+    setState(() {
+      currentStep = 0;
+      selectedPickupSlot = null;
+      selectedDeliverySlot = null;
+    });
+  }
+
+  void _handleConfirmReschedule() {
+    if (selectedPickupSlot != null && selectedDeliverySlot != null) {
+      Navigator.pop(context); // Close dialog
+      widget.onReschedule(
+        selectedPickupSlot!,
+        selectedDeliverySlot!,
+        selectedPickupDate,
+        selectedDeliveryDate,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Container(
+        height: MediaQuery.of(context).size.height * 0.8,
+        width: MediaQuery.of(context).size.width * 0.9,
+        child: Column(
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)]),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.schedule, color: Colors.white, size: 24),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Reschedule Order',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          'Order #${widget.order['id'].toString().substring(0, 8)}',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close, color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+
+            // Progress Indicator
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: currentStep >= 0 ? kPrimaryColor : Colors.grey.shade300,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      selectedPickupSlot != null ? Icons.check : Icons.schedule,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                  Expanded(
+                    child: Container(
+                      height: 2,
+                      color: currentStep >= 1 ? kPrimaryColor : Colors.grey.shade300,
+                    ),
+                  ),
+                  Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: currentStep >= 1 ? kPrimaryColor : Colors.grey.shade300,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      selectedDeliverySlot != null ? Icons.check : Icons.local_shipping,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Content
+            Expanded(
+              child: isLoadingSlots
+                  ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(color: kPrimaryColor),
+                    const SizedBox(height: 16),
+                    const Text('Loading available slots...'),
+                  ],
+                ),
+              )
+                  : SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (currentStep == 0) ...[
+                      _buildDateSelector(true),
+                      const SizedBox(height: 16),
+                      _buildSlotsSection(true),
+                    ],
+                    if (currentStep == 1) ...[
+                      _buildDateSelector(false),
+                      const SizedBox(height: 16),
+                      _buildSlotsSection(false),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+
+            // Bottom Bar
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: Colors.grey.shade200)),
+              ),
+              child: Row(
+                children: [
+                  if (currentStep == 1)
+                    Expanded(
+                      child: TextButton(
+                        onPressed: _goBackToPickup,
+                        child: const Text('Back to Pickup'),
+                      ),
+                    ),
+                  if (currentStep == 1) const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: (currentStep == 0 && selectedPickupSlot != null) ||
+                          (currentStep == 1 && selectedDeliverySlot != null)
+                          ? (currentStep == 0 ? null : _handleConfirmReschedule)
+                          : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: kPrimaryColor,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        currentStep == 1 && selectedDeliverySlot != null
+                            ? 'Confirm Reschedule'
+                            : currentStep == 0
+                            ? 'Continue'
+                            : 'Select Delivery Slot',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDateSelector(bool isPickup) {
+    DateTime selectedDate = isPickup ? selectedPickupDate : selectedDeliveryDate;
+    List<DateTime> dates = isPickup ? pickupDates : deliveryDates;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.calendar_today, color: kPrimaryColor, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              'Select ${isPickup ? 'Pickup' : 'Delivery'} Date',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 80,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: dates.length,
+            itemBuilder: (context, index) {
+              final date = dates[index];
+              final isSelected = date.day == selectedDate.day &&
+                  date.month == selectedDate.month &&
+                  date.year == selectedDate.year;
+              final isToday = date.day == DateTime.now().day &&
+                  date.month == DateTime.now().month &&
+                  date.year == DateTime.now().year;
+
+              bool isDisabled = false;
+              if (!isPickup) {
+                isDisabled = date.isBefore(selectedPickupDate);
+              }
+
+              return GestureDetector(
+                onTap: isDisabled ? null : () {
+                  if (isPickup) {
+                    _onPickupDateSelected(date);
+                  } else {
+                    _onDeliveryDateSelected(date);
+                  }
+                },
+                child: Container(
+                  width: 60,
+                  margin: const EdgeInsets.only(right: 8),
+                  decoration: BoxDecoration(
+                    color: isDisabled
+                        ? Colors.grey.shade200
+                        : isSelected ? kPrimaryColor : Colors.white,
+                    border: Border.all(
+                      color: isDisabled
+                          ? Colors.grey.shade300
+                          : isSelected ? kPrimaryColor : Colors.grey.shade300,
+                      width: 1.5,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        _getDayName(date.weekday),
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: isDisabled
+                              ? Colors.grey.shade500
+                              : isSelected ? Colors.white : Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        date.day.toString(),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: isDisabled
+                              ? Colors.grey.shade500
+                              : isSelected ? Colors.white : Colors.black,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      if (isToday)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: isDisabled
+                                ? Colors.grey.shade400
+                                : isSelected ? Colors.white : kPrimaryColor,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            'Today',
+                            style: TextStyle(
+                              fontSize: 8,
+                              fontWeight: FontWeight.w600,
+                              color: isDisabled
+                                  ? Colors.white
+                                  : isSelected ? kPrimaryColor : Colors.white,
+                            ),
+                          ),
+                        )
+                      else
+                        Text(
+                          _getMonthName(date.month),
+                          style: TextStyle(
+                            fontSize: 8,
+                            fontWeight: FontWeight.w500,
+                            color: isDisabled
+                                ? Colors.grey.shade500
+                                : isSelected ? Colors.white70 : Colors.black45,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSlotsSection(bool isPickup) {
+    List<Map<String, dynamic>> slots = isPickup
+        ? _getFilteredPickupSlots()
+        : _getFilteredDeliverySlots();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            if (!isPickup)
+              IconButton(
+                onPressed: _goBackToPickup,
+                icon: const Icon(Icons.arrow_back, size: 20),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            if (!isPickup) const SizedBox(width: 8),
+            Icon(
+              isPickup ? Icons.schedule : Icons.local_shipping,
+              color: kPrimaryColor,
+              size: 20,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '${isPickup ? 'Pickup' : 'Delivery'} ${isExpressDelivery ? '(Express)' : '(Standard)'}',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (slots.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                Icon(Icons.schedule, size: 48, color: Colors.grey.shade400),
+                const SizedBox(height: 8),
+                Text(
+                  'No ${isPickup ? 'pickup' : 'delivery'} slots available',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                ),
+              ],
+            ),
+          )
+        else
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              childAspectRatio: 3,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+            ),
+            itemCount: slots.length,
+            itemBuilder: (context, index) {
+              final slot = slots[index];
+              bool isSelected = isPickup
+                  ? (selectedPickupSlot?['id'] == slot['id'])
+                  : (selectedDeliverySlot?['id'] == slot['id']);
+
+              bool isSlotAvailable = isPickup
+                  ? true // All filtered slots are available for pickup
+                  : _isDeliverySlotAvailable(slot);
+
+              return GestureDetector(
+                onTap: !isSlotAvailable ? null : () {
+                  if (isPickup) {
+                    _onPickupSlotSelected(slot);
+                  } else {
+                    _onDeliverySlotSelected(slot);
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: !isSlotAvailable
+                        ? Colors.grey.shade100
+                        : isSelected ? kPrimaryColor : Colors.white,
+                    border: Border.all(
+                      color: !isSlotAvailable
+                          ? Colors.grey.shade300
+                          : isSelected ? kPrimaryColor : Colors.grey.shade300,
+                      width: 1.5,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          slot['display_time'] ?? '${slot['start_time']} - ${slot['end_time']}',
+                          style: TextStyle(
+                            color: !isSlotAvailable
+                                ? Colors.grey.shade500
+                                : isSelected ? Colors.white : Colors.black,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        if (!isSlotAvailable)
+                          Text(
+                            'Unavailable',
+                            style: TextStyle(color: Colors.red.shade400, fontSize: 10, fontWeight: FontWeight.w500),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  String _getDayName(int weekday) {
+    const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    return days[weekday - 1];
+  }
+
+  String _getMonthName(int month) {
+    const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
+      'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    return months[month - 1];
   }
 }
 
