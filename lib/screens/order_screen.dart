@@ -71,6 +71,9 @@ class _OrdersScreenState extends State<OrdersScreen>
   bool _isNearClearZone = false;
   bool _showDragHint = false;
 
+  // ✅ NEW: Track clear zone position globally
+  Offset _clearZoneCenter = Offset.zero;
+
   @override
   void initState() {
     super.initState();
@@ -987,31 +990,25 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
   }
 
-  // ✅ FIXED: Simplified and accurate clear zone detection
+  // ✅ COMPLETELY REWRITTEN: Simple and accurate clear zone detection
   bool _isCartNearClearZone() {
+    // Clear zone position - center of screen horizontally, lower third vertically
     final screenSize = MediaQuery.of(context).size;
+    final clearZoneLeft = screenSize.width * 0.5 - 40;
+    final clearZoneTop = screenSize.height * 0.65; // Position in lower third of screen
+    final clearZoneCenter = Offset(clearZoneLeft + 40, clearZoneTop + 40);
 
-    // ✅ FIXED: Clear zone position (matching the Positioned widget exactly)
-    final clearZoneX = screenSize.width * 0.4; // Same as Positioned left
-    final clearZoneY = 100; // Same as Positioned bottom (from bottom of stack)
+    // Cart center (60x60 widget)
+    final cartCenter = Offset(_fabOffset.dx + 30, _fabOffset.dy + 30);
 
-    // Convert bottom positioning to top positioning for accurate comparison
-    final stackHeight = screenSize.height - (Scaffold.of(context).appBarMaxHeight ?? kToolbarHeight) - kBottomNavigationBarHeight - MediaQuery.of(context).padding.bottom;
-    final clearZoneTopY = stackHeight - clearZoneY - 80; // 80 = clear zone height
+    // Calculate distance
+    final distance = (cartCenter - clearZoneCenter).distance;
 
-    // ✅ FIXED: Clear zone center
-    final clearZoneCenter = Offset(clearZoneX + 40, clearZoneTopY + 40); // 40 = half of 80px
+    // Debug output
+    debugPrint('🎯 Cart: $cartCenter, Clear Zone: $clearZoneCenter, Distance: $distance');
 
-    // ✅ FIXED: Cart center
-    final cartCenter = Offset(_fabOffset.dx + 30, _fabOffset.dy + 30); // 30 = half of 60px
-
-    final distance = (clearZoneCenter - cartCenter).distance;
-
-    // ✅ DEBUG: Print positions for debugging
-    debugPrint('🎯 CLEAR ZONE: center=$clearZoneCenter, cart=$cartCenter, distance=$distance');
-    debugPrint('🎯 Stack height: $stackHeight, Clear zone Y: $clearZoneTopY');
-
-    return distance < 80; // Generous detection area
+    // Return true if within 80 pixels
+    return distance < 80;
   }
 
   // ✅ SMOOTH FLOATING CART - Enhanced with multiple smooth animations
@@ -1045,11 +1042,11 @@ class _OrdersScreenState extends State<OrdersScreen>
           builder: (context, child) {
             return Stack(
               children: [
-                // ✅ FIXED: Clear Zone positioned relative to content area, not screen
+                // ✅ Clear Zone positioned in lower third of screen
                 if (_showClearZone)
                   Positioned(
-                    left: screenSize.width * 0.4, // 40% from left
-                    bottom: 100, // ✅ FIXED: 100px from bottom of content area
+                    left: screenSize.width * 0.5 - 40, // Center horizontally
+                    top: screenSize.height * 0.65, // Lower third of screen
                     child: ScaleTransition(
                       scale: _clearZoneScale,
                       child: FadeTransition(
@@ -1060,71 +1057,51 @@ class _OrdersScreenState extends State<OrdersScreen>
                           decoration: BoxDecoration(
                             gradient: RadialGradient(
                               colors: [
-                                (_isNearClearZone ? Colors.red.shade300 : Colors.red.shade400).withOpacity(0.3),
-                                (_isNearClearZone ? Colors.red.shade500 : Colors.red.shade600).withOpacity(0.5),
+                                (_isNearClearZone ? Colors.red.shade400 : Colors.red.shade500).withOpacity(0.4),
+                                (_isNearClearZone ? Colors.red.shade600 : Colors.red.shade700).withOpacity(0.6),
                               ],
                             ),
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: Colors.red.withOpacity(_isNearClearZone ? 0.7 : 0.4),
-                              width: 2,
+                              color: Colors.red.withOpacity(_isNearClearZone ? 0.9 : 0.6),
+                              width: 3,
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.red.withOpacity(_isNearClearZone ? 0.4 : 0.2),
-                                blurRadius: _isNearClearZone ? 25 : 15,
-                                spreadRadius: _isNearClearZone ? 3 : 1,
-                                offset: const Offset(0, 6),
+                                color: Colors.red.withOpacity(_isNearClearZone ? 0.6 : 0.4),
+                                blurRadius: _isNearClearZone ? 35 : 25,
+                                spreadRadius: _isNearClearZone ? 8 : 4,
+                                offset: const Offset(0, 8),
                               ),
                             ],
                           ),
                           child: Stack(
                             children: [
-                              // Animated border pulse
+                              // Animated pulse effect when near
                               if (_isNearClearZone)
                                 Positioned.fill(
                                   child: Container(
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
                                       border: Border.all(
-                                        color: Colors.white.withOpacity(0.5),
-                                        width: 2,
+                                        color: Colors.white.withOpacity(0.8),
+                                        width: 3,
                                       ),
                                     ),
                                   ),
                                 ),
 
-                              // X Icon
+                              // Delete icon
                               Center(
                                 child: Transform.scale(
-                                  scale: _isNearClearZone ? 1.3 : 1.0, // ✅ Bigger scale when near
+                                  scale: _isNearClearZone ? 1.4 : 1.0,
                                   child: Icon(
-                                    Icons.close,
-                                    color: Colors.white.withOpacity(_isNearClearZone ? 1.0 : 0.7), // ✅ Brighter when near
-                                    size: 36, // ✅ Bigger icon
+                                    Icons.delete_forever,
+                                    color: Colors.white,
+                                    size: 42,
                                   ),
                                 ),
                               ),
-
-                              // ✅ NEW: Debug indicator (remove after testing)
-                              if (_isNearClearZone)
-                                Positioned(
-                                  top: -10,
-                                  right: -10,
-                                  child: Container(
-                                    width: 20,
-                                    height: 20,
-                                    decoration: const BoxDecoration(
-                                      color: Colors.green,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(
-                                      Icons.check,
-                                      color: Colors.white,
-                                      size: 12,
-                                    ),
-                                  ),
-                                ),
                             ],
                           ),
                         ),
@@ -1179,7 +1156,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                                   ),
                                 ),
                                 Text(
-                                  'Drop on ❌ to delete all items',
+                                  'Drop on 🗑️ to delete all items',
                                   style: TextStyle(
                                     color: Colors.white.withOpacity(0.7),
                                     fontSize: 10,
@@ -1194,7 +1171,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                     ),
                   ),
 
-                // ✅ SMOOTH: Draggable Cart Icon with proper finger positioning
+                // ✅ COMPLETELY REWRITTEN: Draggable Cart with simplified positioning
                 Positioned(
                   left: _isDragging
                       ? _fabOffset.dx.clamp(0, screenSize.width - 60)
@@ -1210,47 +1187,29 @@ class _OrdersScreenState extends State<OrdersScreen>
                       ).then((_) => _fetchCartData());
                     },
                     onPanStart: (details) {
-                      // ✅ FIXED: Use localPosition instead of globalPosition for accurate positioning
-                      final fingerX = details.localPosition.dx;
-                      final fingerY = details.localPosition.dy;
-
-                      // ✅ FIXED: Account for the widget's position in the stack
-                      final RenderBox renderBox = context.findRenderObject() as RenderBox;
-                      final localOffset = renderBox.globalToLocal(details.globalPosition);
-
                       setState(() {
                         _isDragging = true;
                         _showClearZone = true;
                         _showDragHint = false;
-
-                        // ✅ FIXED: Use the correct local coordinates
-                        _fabOffset = Offset(
-                          (localOffset.dx - 30).clamp(0, screenSize.width - 60),
-                          (localOffset.dy - 30).clamp(minTop, maxBottom),
-                        );
                       });
                       _clearZoneController.forward();
                     },
                     onPanUpdate: (details) {
-                      // ✅ FIXED: Use local positioning for accurate finger tracking
-                      final RenderBox renderBox = context.findRenderObject() as RenderBox;
-                      final localOffset = renderBox.globalToLocal(details.globalPosition);
-
                       setState(() {
-                        // ✅ FIXED: Perfect positioning using local coordinates
+                        // Update position to follow finger
                         _fabOffset = Offset(
-                          (localOffset.dx - 30).clamp(0, screenSize.width - 60),
-                          (localOffset.dy - 30).clamp(minTop, maxBottom),
+                          (_fabOffset.dx + details.delta.dx).clamp(0, screenSize.width - 60),
+                          (_fabOffset.dy + details.delta.dy).clamp(minTop, maxBottom),
                         );
 
-                        // ✅ FIXED: More responsive clear zone detection
+                        // Check if near clear zone
                         _isNearClearZone = _isCartNearClearZone();
                       });
                     },
                     onPanEnd: (details) {
                       debugPrint('🎯 PAN END: Cart at ${_fabOffset}, Near clear zone: $_isNearClearZone');
 
-                      // ✅ FIXED: Clear cart with debug logging
+                      // Clear cart if in clear zone
                       if (_isNearClearZone) {
                         debugPrint('✅ CLEARING CART - Cart was in clear zone!');
                         _clearCart();
@@ -1262,7 +1221,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                         _isDragging = false;
                         _isNearClearZone = false;
 
-                        // ✅ SMOOTH: Ultra-smooth snap to nearest side with easing
+                        // Snap to nearest side
                         final targetX = _fabOffset.dx < screenSize.width / 2 ? 20.0 : screenSize.width - 80.0;
                         _fabOffset = Offset(
                           targetX,
@@ -1272,7 +1231,7 @@ class _OrdersScreenState extends State<OrdersScreen>
 
                       _clearZoneController.reverse();
 
-                      // Hide clear zone after animation completes
+                      // Hide clear zone after animation
                       Future.delayed(const Duration(milliseconds: 400), () {
                         if (mounted) {
                           setState(() => _showClearZone = false);
@@ -1285,7 +1244,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                         scale: _floatingCartScale,
                         child: Transform.scale(
                           scale: _isDragging
-                              ? 1.1 // Slightly smaller when dragging for better visibility
+                              ? 1.1
                               : (_bounceAnimation.value * _breathingAnimation.value * _continuousScaleAnimation.value),
                           child: Container(
                             height: 60,
