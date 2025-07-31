@@ -1570,22 +1570,8 @@ class _OrdersScreenState extends State<OrdersScreen>
           ),
         ],
       ),
-      actions: [
-        // ✅ NEW: Debug refresh button
-        IconButton(
-          onPressed: () {
-            debugPrint('🔄 Manual refresh triggered');
-            _hasFetchedProducts = false;
-            _cachedProducts.clear();
-            _cachedCategories = ['All'];
-            _products.clear();
-            _categories = ['All'];
-            _fetchCategoriesAndProducts();
-          },
-          icon: const Icon(Icons.refresh, color: Colors.white),
-          tooltip: 'Refresh Products',
-        ),
-      ],
+      // Removed the debug refresh button from actions
+      actions: [],
     );
   }
 

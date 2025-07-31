@@ -584,7 +584,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         ),
       ),
       actions: [
-        // Clear cart button
+        // Clear cart button only
         if (_cartItems.isNotEmpty)
           IconButton(
             onPressed: _isClearingCart ? null : _clearCart,
@@ -600,11 +600,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                 : const Icon(Icons.delete_sweep, color: Colors.white),
             tooltip: 'Clear Cart',
           ),
-        IconButton(
-          onPressed: _loadCart,
-          icon: const Icon(Icons.refresh_rounded, color: Colors.white),
-          tooltip: 'Refresh Cart',
-        ),
         const SizedBox(width: 8),
       ],
     );

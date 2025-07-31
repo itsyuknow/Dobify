@@ -1,10 +1,11 @@
-// ✅ UPDATED APP WRAPPER - ELECTRIC IRON THEME + FIXED SERVICE CHECK + SUPABASE INITIALIZATION FIX
+// ✅ UPDATED PREMIUM LOCATION SELECTION SCREEN
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_typeahead/flutter_typeahead.dart';
 import 'home_screen.dart';
 import 'login_screen.dart';
 import 'colors.dart';
@@ -17,7 +18,7 @@ class AppWrapper extends StatefulWidget {
 }
 
 class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
-  // ✅ FIXED: Safe Supabase initialization
+  // Supabase initialization
   SupabaseClient? supabase;
   bool isSupabaseReady = false;
 
@@ -36,6 +37,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
   LatLng? _selectedLocation;
   GoogleMapController? _mapController;
   Set<Marker> _markers = {};
+  final TextEditingController _searchController = TextEditingController();
 
   // Animation controllers
   late AnimationController _pulseController;
@@ -56,7 +58,6 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
     _initializeSupabase();
   }
 
-  // ✅ FIXED: Safe Supabase initialization with retry logic
   Future<void> _initializeSupabase() async {
     try {
       int attempts = 0;
@@ -232,7 +233,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
     if (mounted) {
       setState(() {
         _isLocationLoading = true;
-        _currentLocation = 'Detecting your  area...';
+        _currentLocation = 'Detecting your area...';
         _hasLocationChecked = false;
         _showMap = false;
         _locationVerifiedSuccessfully = false;
@@ -313,14 +314,13 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
     }
   }
 
-  // ✅ FIXED: Bulletproof service confirmation
   Future<void> _confirmLocationAndCheckService() async {
     if (supabase == null) {
       print('❌ Supabase not ready');
       return;
     }
 
-    print('🔥 CONFIRM BUTTON PRESSED - Checking ironXpress  availability');
+    print('🔥 CONFIRM BUTTON PRESSED - Checking ironXpress availability');
     print('📍 Selected location: $_selectedLocation');
     print('📍 Selected address: $_selectedAddress');
 
@@ -344,7 +344,6 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
     try {
       print('🔍 Checking if we provide ironXpress in this area...');
 
-      // Check service availability with timeout
       bool serviceAvailable = false;
       try {
         serviceAvailable = await _checkIronServiceAvailability(
@@ -354,11 +353,9 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
         print('🔍 IronXpress available: $serviceAvailable');
       } catch (e) {
         print('⚠️ Service check timeout: $e');
-        // Don't block user - proceed with assumption of availability
-        serviceAvailable = false; // Be conservative for iron services
+        serviceAvailable = false;
       }
 
-      // Always save location regardless of service availability
       print('💾 Saving location to profile...');
       try {
         await _saveLocationToProfile().timeout(const Duration(seconds: 8));
@@ -433,7 +430,6 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
       final cleanPincode = pincode.replaceAll(RegExp(r'[^0-9]'), '');
       print('🔍 Checking ironXpress for pincode: $pincode (cleaned: $cleanPincode)');
 
-      // Check if we provide iron services in this pincode
       final response = await supabase!
           .from('service_areas')
           .select()
@@ -445,7 +441,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
       print('🔍 IronXpress check result: $isAvailable');
 
       if (isAvailable) {
-        print('✅ Excellent! We provide  pickup/delivery service in this area');
+        print('✅ Excellent! We provide pickup/delivery service in this area');
       } else {
         print('❌ Sorry, ironXpress not available in this pincode yet');
       }
@@ -591,34 +587,43 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
     _scaleController.dispose();
     _mapController?.dispose();
     _authSubscription?.cancel();
+    _searchController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    final bottomPadding = mediaQuery.padding.bottom;
+    final screenHeight = mediaQuery.size.height;
+    final screenWidth = mediaQuery.size.width;
+
+    // Calculate dynamic padding based on screen size
+    final dynamicBottomPadding = screenHeight < 600 ? 16.0 : 24.0;
+    final totalBottomPadding = bottomPadding + dynamicBottomPadding;
+
     // ✅ SHOW LOADING WHILE SUPABASE INITIALIZES
     if (!isSupabaseReady) {
       return Scaffold(
         body: Container(
-          decoration: _buildIronBackgroundGradient(),
-          child: const Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                CircularProgressIndicator(color: kPrimaryColor),
-                SizedBox(height: 20),
-                Text(
-                  'Setting up ironXpress...',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.black54,
-                    fontWeight: FontWeight.w500,
+            decoration: _buildIronBackgroundGradient(),
+            child: const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(color: kPrimaryColor),
+                  SizedBox(height: 20),
+                  Text(
+                    'Setting up ironXpress...',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.black54,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ),
-        ),
+                ],
+              ),
+            )),
       );
     }
 
@@ -626,25 +631,24 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
     if (_isCheckingSession) {
       return Scaffold(
         body: Container(
-          decoration: _buildIronBackgroundGradient(),
-          child: const Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                CircularProgressIndicator(color: kPrimaryColor),
-                SizedBox(height: 20),
-                Text(
-                  'Checking your account...',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.black54,
-                    fontWeight: FontWeight.w500,
+            decoration: _buildIronBackgroundGradient(),
+            child: const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(color: kPrimaryColor),
+                  SizedBox(height: 20),
+                  Text(
+                    'Checking your account...',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.black54,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ),
-        ),
+                ],
+              ),
+            )),
       );
     }
 
@@ -796,6 +800,16 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
   }
 
   Widget _buildMapSelectionScreen() {
+    final mediaQuery = MediaQuery.of(context);
+    final screenHeight = mediaQuery.size.height;
+    final screenWidth = mediaQuery.size.width;
+    final bottomPadding = mediaQuery.padding.bottom;
+
+    // Calculate dynamic values based on screen size
+    final bottomSheetHeight = screenHeight * 0.35;
+    final buttonBottomPadding = screenHeight < 600 ? 16.0 : 24.0;
+    final totalBottomPadding = bottomPadding + buttonBottomPadding;
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
@@ -814,127 +828,277 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
             myLocationButtonEnabled: false,
             zoomControlsEnabled: false,
             mapToolbarEnabled: false,
+            padding: EdgeInsets.only(
+              top: screenHeight * 0.15,
+              bottom: bottomSheetHeight,
+            ),
           ),
+
+          // Fixed location pin at center
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(50),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 10,
+                        spreadRadius: 2,
+                        offset: const Offset(0, 5),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.location_pin,
+                    size: 48,
+                    color: Color(0xFF1565C0),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1565C0),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Search bar at top
           Positioned(
             top: 60,
             left: 16,
             right: 16,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.white, Colors.white.withOpacity(0.95)],
-                ),
-                borderRadius: BorderRadius.circular(20),
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.15),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 10,
+                    offset: const Offset(0, 5),
                   ),
                 ],
               ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF1565C0), Color(0xFF2196F3)],
+              child: TypeAheadField<Location>(
+                controller: _searchController,
+                builder: (context, controller, focusNode) {
+                  return TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    decoration: InputDecoration(
+                      hintText: 'Search for area, street name...',
+                      hintStyle: TextStyle(
+                        color: Colors.grey.shade500,
+                        fontSize: 16,
                       ),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.iron,
-                      color: Colors.white,
-                      size: 24,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Confirm Your Location',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'For pickup & delivery',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.black54,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: 220,
-            right: 16,
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF1565C0), Color(0xFF2196F3)],
-                ),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF1565C0).withOpacity(0.3),
-                    blurRadius: 15,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: IconButton(
-                onPressed: () async {
-                  if (_currentPosition != null) {
-                    final currentLatLng = LatLng(
-                      _currentPosition!.latitude,
-                      _currentPosition!.longitude,
-                    );
-
-                    _mapController?.animateCamera(
-                      CameraUpdate.newCameraPosition(
-                        CameraPosition(
-                          target: currentLatLng,
-                          zoom: 15.0,
-                        ),
+                      border: InputBorder.none,
+                      prefixIcon: Icon(
+                        Icons.search,
+                        color: Colors.grey.shade600,
                       ),
-                    );
-
-                    await _onMapTap(currentLatLng);
+                      suffixIcon: controller.text.isNotEmpty
+                          ? IconButton(
+                        icon: Icon(
+                          Icons.close,
+                          color: Colors.grey.shade600,
+                        ),
+                        onPressed: () {
+                          controller.clear();
+                          // Removed setState since controller is managed internally
+                        },
+                      )
+                          : null,
+                    ),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      color: Colors.black87,
+                    ),
+                  );
+                },
+                suggestionsCallback: (pattern) async {
+                  if (pattern.length < 3) return [];
+                  try {
+                    return await locationFromAddress(pattern);
+                  } catch (e) {
+                    return [];
                   }
                 },
-                icon: const Icon(
-                  Icons.my_location,
-                  color: Colors.white,
-                  size: 28,
+                itemBuilder: (context, Location suggestion) {
+                  return FutureBuilder<List<Placemark>>(
+                    future: placemarkFromCoordinates(suggestion.latitude, suggestion.longitude),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) {
+                        return const ListTile(
+                          leading: Icon(Icons.location_on),
+                          title: Text('Loading address...'),
+                        );
+                      }
+                      final placemark = snapshot.data!.first;
+                      return ListTile(
+                        leading: const Icon(Icons.location_on),
+                        title: Text(
+                          placemark.street?.isNotEmpty == true
+                              ? '${placemark.street}, ${placemark.locality}'
+                              : placemark.locality ?? 'Unknown location',
+                        ),
+                        subtitle: Text(
+                            '${placemark.subAdministrativeArea ?? ''} ${placemark.postalCode ?? ''}'
+                        ),
+                      );
+                    },
+                  );
+                },
+                onSelected: (Location selectedLocation) async {
+                  final placemarks = await placemarkFromCoordinates(
+                    selectedLocation.latitude,
+                    selectedLocation.longitude,
+                  );
+
+                  if (placemarks.isEmpty) return;
+
+                  final placemark = placemarks.first;
+                  final latLng = LatLng(
+                    selectedLocation.latitude,
+                    selectedLocation.longitude,
+                  );
+
+                  _mapController?.animateCamera(
+                    CameraUpdate.newCameraPosition(
+                      CameraPosition(
+                        target: latLng,
+                        zoom: 15.0,
+                      ),
+                    ),
+                  );
+
+                  await _onMapTap(latLng);
+                  _searchController.clear();
+
+                  setState(() {
+                    _selectedAddress = placemark.street?.isNotEmpty == true
+                        ? '${placemark.street}, ${placemark.locality}'
+                        : placemark.locality ?? 'Selected location';
+                  });
+                },
+                // ✅ FIXED: Changed from noItemsFoundBuilder to emptyBuilder
+                emptyBuilder: (context) => const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text(
+                    'No locations found',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.grey,
+                    ),
+                  ),
                 ),
-                padding: const EdgeInsets.all(16),
+                // ✅ FIXED: Updated loadingBuilder syntax
+                loadingBuilder: (context) => const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 12),
+                      Text('Searching...'),
+                    ],
+                  ),
+                ),
+                // ✅ NEW: Added decoration for suggestions dropdown
+                decorationBuilder: (context, child) {
+                  return Material(
+                    type: MaterialType.card,
+                    elevation: 4,
+                    borderRadius: BorderRadius.circular(8),
+                    child: child,
+                  );
+                },
+                // ✅ NEW: Position offset for suggestions
+                offset: const Offset(0, 12),
+                // ✅ NEW: Constraints for suggestions height
+                constraints: const BoxConstraints(maxHeight: 500),
               ),
             ),
           ),
+          // My location button
           Positioned(
-            bottom: 20,
-            left: 16,
+            bottom: bottomSheetHeight + totalBottomPadding + 20,
             right: 16,
-            child: Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.white, Colors.white.withOpacity(0.95)],
+            child: GestureDetector(
+              onTap: () async {
+                if (_currentPosition != null) {
+                  final currentLatLng = LatLng(
+                    _currentPosition!.latitude,
+                    _currentPosition!.longitude,
+                  );
+
+                  _mapController?.animateCamera(
+                    CameraUpdate.newCameraPosition(
+                      CameraPosition(
+                        target: currentLatLng,
+                        zoom: 15.0,
+                      ),
+                    ),
+                  );
+
+                  await _onMapTap(currentLatLng);
+                }
+              },
+              child: Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 10,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
                 ),
-                borderRadius: BorderRadius.circular(20),
+                child: const Icon(
+                  Icons.my_location,
+                  color: Color(0xFF1565C0),
+                  size: 24,
+                ),
+              ),
+            ),
+          ),
+
+          // Bottom sheet with address and confirm button
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              height: bottomSheetHeight,
+              padding: EdgeInsets.only(
+                left: 24,
+                right: 24,
+                top: 24,
+                bottom: totalBottomPadding,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(24),
+                  topRight: Radius.circular(24),
+                ),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.2),
@@ -952,12 +1116,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              const Color(0xFF1565C0).withOpacity(0.2),
-                              const Color(0xFF2196F3).withOpacity(0.1)
-                            ],
-                          ),
+                          color: const Color(0xFF1565C0).withOpacity(0.1),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Icon(
@@ -979,7 +1138,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    _selectedAddress.isNotEmpty ? _selectedAddress : 'Tap on map to select location',
+                    _selectedAddress.isNotEmpty ? _selectedAddress : 'Move map to select location',
                     style: const TextStyle(
                       fontSize: 15,
                       color: Colors.black54,
@@ -988,7 +1147,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
                   SizedBox(
                     width: double.infinity,
                     height: 56,
@@ -1003,6 +1162,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
                         ),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
                       child: _isLocationLoading
                           ? const SizedBox(
@@ -1013,20 +1173,12 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                           strokeWidth: 2,
                         ),
                       )
-                          : Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.check_circle, size: 24),
-                          const SizedBox(width: 12),
-                          const Text(
-                            'Confirm Location',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ],
+                          : const Text(
+                        'Confirm Location',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ),
@@ -1040,15 +1192,28 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
   }
 
   Widget _buildServiceNotAvailableScreen() {
+    final mediaQuery = MediaQuery.of(context);
+    final screenHeight = mediaQuery.size.height;
+    final bottomPadding = mediaQuery.padding.bottom;
+
+    // Calculate dynamic values based on screen size
+    final buttonBottomPadding = screenHeight < 600 ? 16.0 : 24.0;
+    final totalBottomPadding = bottomPadding + buttonBottomPadding;
+
     return Container(
       width: double.infinity,
       height: double.infinity,
       child: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
+          padding: EdgeInsets.only(
+            left: 24,
+            right: 24,
+            top: 24,
+            bottom: totalBottomPadding,
+          ),
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              minHeight: MediaQuery.of(context).size.height - 200,
+              minHeight: screenHeight - 200,
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,

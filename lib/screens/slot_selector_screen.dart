@@ -870,7 +870,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
       // Generate unique order ID
       final orderId = 'ORD${DateTime.now().millisecondsSinceEpoch}';
 
-      // Create order in database
+      // ✅ FIXED: Create order with proper slot details stored
       await supabase.from('orders').insert({
         'id': orderId,
         'user_id': user.id,
@@ -879,6 +879,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
         'payment_status': _selectedPaymentMethod == 'online' ? 'paid' : 'pending',
         'payment_id': paymentId,
         'order_status': 'confirmed',
+        'status': 'confirmed', // ✅ FIXED: Set both status fields
         'pickup_date': selectedPickupDate.toIso8601String().split('T')[0],
         'pickup_slot_id': selectedPickupSlot!['id'],
         'delivery_date': selectedDeliveryDate.toIso8601String().split('T')[0],
@@ -888,7 +889,15 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
         'address_details': selectedAddress,
         'applied_coupon_code': widget.appliedCouponCode,
         'discount_amount': widget.discount,
+        // ✅ FIXED: Store slot details in order for reschedule functionality
+        'pickup_slot_display_time': selectedPickupSlot!['display_time'],
+        'pickup_slot_start_time': selectedPickupSlot!['start_time'],
+        'pickup_slot_end_time': selectedPickupSlot!['end_time'],
+        'delivery_slot_display_time': selectedDeliverySlot!['display_time'],
+        'delivery_slot_start_time': selectedDeliverySlot!['start_time'],
+        'delivery_slot_end_time': selectedDeliverySlot!['end_time'],
         'created_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
       });
 
       // Create order items
@@ -957,15 +966,28 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
 
   @override
   Widget build(BuildContext context) {
+    // ✅ RESPONSIVE: Get screen dimensions for universal phone display
+    final screenSize = MediaQuery.of(context).size;
+    final screenWidth = screenSize.width;
+    final screenHeight = screenSize.height;
+    final isSmallScreen = screenWidth < 360;
+    final isTablet = screenWidth > 600;
+    final cardMargin = isSmallScreen ? 12.0 : 16.0;
+    final cardPadding = isSmallScreen ? 12.0 : 16.0;
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.white,
         automaticallyImplyLeading: true,
-        title: const Text(
+        title: Text(
           "Select Slot",
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.w600),
+          style: TextStyle(
+            color: Colors.black,
+            fontWeight: FontWeight.w600,
+            fontSize: isSmallScreen ? 18 : 20,
+          ),
         ),
         iconTheme: const IconThemeData(color: Colors.black),
       ),
@@ -975,48 +997,51 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
             children: [
               Expanded(
                 child: SingleChildScrollView(
-                  child: Column(
-                    children: [
-                      _buildAddressSection(),
-                      _buildDeliveryTypeToggle(),
-                      _buildProgressIndicator(),
-                      if (currentStep == 0) ...[
-                        _buildDateSelector(true),
-                        if (isLoadingSlots)
-                          const Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(32.0),
-                              child: CircularProgressIndicator(),
-                            ),
-                          )
-                        else
-                          _buildPickupSlotsSection(),
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: cardMargin / 2),
+                    child: Column(
+                      children: [
+                        _buildAddressSection(cardMargin, cardPadding, isSmallScreen),
+                        _buildDeliveryTypeToggle(cardMargin, cardPadding, isSmallScreen),
+                        _buildProgressIndicator(cardMargin, isSmallScreen),
+                        if (currentStep == 0) ...[
+                          _buildDateSelector(true, cardMargin, isSmallScreen),
+                          if (isLoadingSlots)
+                            Container(
+                              padding: EdgeInsets.all(cardPadding * 2),
+                              child: Center(
+                                child: CircularProgressIndicator(color: kPrimaryColor),
+                              ),
+                            )
+                          else
+                            _buildPickupSlotsSection(cardMargin, cardPadding, isSmallScreen),
+                        ],
+                        if (currentStep == 1) ...[
+                          _buildDateSelector(false, cardMargin, isSmallScreen),
+                          if (isLoadingSlots)
+                            Container(
+                              padding: EdgeInsets.all(cardPadding * 2),
+                              child: Center(
+                                child: CircularProgressIndicator(color: kPrimaryColor),
+                              ),
+                            )
+                          else
+                            _buildDeliverySlotsSection(cardMargin, cardPadding, isSmallScreen),
+                        ],
+                        if (selectedPickupSlot != null || selectedDeliverySlot != null)
+                          _buildSelectionSummary(cardMargin, cardPadding, isSmallScreen),
+
+                        // Billing Summary Section
+                        if (selectedPickupSlot != null && selectedDeliverySlot != null)
+                          _buildBillingSummary(cardMargin, cardPadding, isSmallScreen),
+
+                        // Payment Method Selection
+                        if (selectedPickupSlot != null && selectedDeliverySlot != null)
+                          _buildPaymentMethodSelection(cardMargin, cardPadding, isSmallScreen),
+
+                        SizedBox(height: screenHeight * 0.12), // ✅ RESPONSIVE: Bottom spacing
                       ],
-                      if (currentStep == 1) ...[
-                        _buildDateSelector(false),
-                        if (isLoadingSlots)
-                          const Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(32.0),
-                              child: CircularProgressIndicator(),
-                            ),
-                          )
-                        else
-                          _buildDeliverySlotsSection(),
-                      ],
-                      if (selectedPickupSlot != null || selectedDeliverySlot != null)
-                        _buildSelectionSummary(),
-
-                      // Billing Summary Section
-                      if (selectedPickupSlot != null && selectedDeliverySlot != null)
-                        _buildBillingSummary(),
-
-                      // Payment Method Selection
-                      if (selectedPickupSlot != null && selectedDeliverySlot != null)
-                        _buildPaymentMethodSelection(),
-
-                      const SizedBox(height: 100),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -1027,8 +1052,8 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
               color: Colors.black54,
               child: Center(
                 child: Container(
-                  margin: const EdgeInsets.all(32),
-                  padding: const EdgeInsets.all(24),
+                  margin: EdgeInsets.all(cardMargin * 2),
+                  padding: EdgeInsets.all(cardPadding * 1.5),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
@@ -1036,20 +1061,41 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.location_off, size: 64, color: Colors.red.shade400),
-                      const SizedBox(height: 16),
-                      const Text('Service Unavailable', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 8),
+                      Icon(Icons.location_off, size: isSmallScreen ? 48 : 64, color: Colors.red.shade400),
+                      SizedBox(height: cardPadding),
+                      Text(
+                        'Service Unavailable',
+                        style: TextStyle(
+                          fontSize: isSmallScreen ? 18 : 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      SizedBox(height: cardPadding / 2),
                       Text(
                         'Sorry, we are currently not available in ${selectedAddress!['pincode']}',
                         textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 14, color: Colors.black54),
+                        style: TextStyle(
+                          fontSize: isSmallScreen ? 12 : 14,
+                          color: Colors.black54,
+                        ),
                       ),
-                      const SizedBox(height: 16),
+                      SizedBox(height: cardPadding),
                       ElevatedButton(
                         onPressed: _openAddressBook,
-                        style: ElevatedButton.styleFrom(backgroundColor: kPrimaryColor),
-                        child: const Text('Change Address'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: kPrimaryColor,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: cardPadding * 1.5,
+                            vertical: cardPadding,
+                          ),
+                        ),
+                        child: Text(
+                          'Change Address',
+                          style: TextStyle(
+                            fontSize: isSmallScreen ? 14 : 16,
+                            color: Colors.white,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -1058,24 +1104,24 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
             ),
         ],
       ),
-      bottomNavigationBar: _buildBottomBar(),
+      bottomNavigationBar: _buildBottomBar(isSmallScreen),
     );
   }
 
   // Billing Summary Widget
-  Widget _buildBillingSummary() {
+  Widget _buildBillingSummary(double cardMargin, double cardPadding, bool isSmallScreen) {
     if (isLoadingBillingSettings) {
       return Container(
-        margin: const EdgeInsets.all(16),
-        padding: const EdgeInsets.all(32),
-        child: const Center(child: CircularProgressIndicator()),
+        margin: EdgeInsets.all(cardMargin),
+        padding: EdgeInsets.all(cardPadding * 2),
+        child: Center(child: CircularProgressIndicator(color: kPrimaryColor)),
       );
     }
 
     final billing = _calculateBilling();
 
     return Container(
-      margin: const EdgeInsets.all(16),
+      margin: EdgeInsets.all(cardMargin),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -1103,7 +1149,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
               }
             },
             child: Container(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(cardPadding),
               decoration: BoxDecoration(
                 color: kPrimaryColor.withOpacity(0.05),
                 borderRadius: _isBillingSummaryExpanded
@@ -1116,26 +1162,29 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
               child: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(8),
+                    padding: EdgeInsets.all(isSmallScreen ? 6 : 8),
                     decoration: BoxDecoration(
                       color: kPrimaryColor.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Icon(Icons.receipt_long, color: kPrimaryColor, size: 20),
+                    child: Icon(Icons.receipt_long, color: kPrimaryColor, size: isSmallScreen ? 18 : 20),
                   ),
-                  const SizedBox(width: 12),
+                  SizedBox(width: cardPadding * 0.75),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Bill Summary',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                          style: TextStyle(
+                            fontSize: isSmallScreen ? 14 : 16,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                         Text(
                           'Total: ₹${billing['totalAmount']!.toStringAsFixed(2)}',
                           style: TextStyle(
-                            fontSize: 14,
+                            fontSize: isSmallScreen ? 12 : 14,
                             fontWeight: FontWeight.bold,
                             color: kPrimaryColor,
                           ),
@@ -1149,7 +1198,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                     child: Icon(
                       Icons.keyboard_arrow_down,
                       color: kPrimaryColor,
-                      size: 24,
+                      size: isSmallScreen ? 20 : 24,
                     ),
                   ),
                 ],
@@ -1163,26 +1212,27 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
             height: _isBillingSummaryExpanded ? null : 0,
             child: _isBillingSummaryExpanded
                 ? Container(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(cardPadding),
               child: Column(
                 children: [
-                  _buildBillingRow('Subtotal', billing['subtotal']!),
+                  _buildBillingRow('Subtotal', billing['subtotal']!, isSmallScreen: isSmallScreen),
                   if (billing['minimumCartFee']! > 0)
-                    _buildBillingRow('Minimum Cart Fee', billing['minimumCartFee']!),
-                  _buildBillingRow('Platform Fee', billing['platformFee']!),
-                  _buildBillingRow('Service Tax', billing['serviceTax']!),
+                    _buildBillingRow('Minimum Cart Fee', billing['minimumCartFee']!, isSmallScreen: isSmallScreen),
+                  _buildBillingRow('Platform Fee', billing['platformFee']!, isSmallScreen: isSmallScreen),
+                  _buildBillingRow('Service Tax', billing['serviceTax']!, isSmallScreen: isSmallScreen),
                   _buildBillingRow(
                       'Delivery Fee (${isExpressDelivery ? 'Express' : 'Standard'})',
-                      billing['deliveryFee']!
+                      billing['deliveryFee']!,
+                      isSmallScreen: isSmallScreen
                   ),
                   if (billing['discount']! > 0)
-                    _buildBillingRow('Discount', -billing['discount']!, color: Colors.green),
+                    _buildBillingRow('Discount', -billing['discount']!, color: Colors.green, isSmallScreen: isSmallScreen),
                   if (widget.appliedCouponCode != null)
                     _buildBillingRow('Coupon Applied', 0.0,
-                        customValue: widget.appliedCouponCode!, color: Colors.green),
+                        customValue: widget.appliedCouponCode!, color: Colors.green, isSmallScreen: isSmallScreen),
                   const Divider(height: 20),
                   _buildBillingRow('Total Amount', billing['totalAmount']!,
-                      isTotal: true, color: kPrimaryColor),
+                      isTotal: true, color: kPrimaryColor, isSmallScreen: isSmallScreen),
                 ],
               ),
             )
@@ -1193,24 +1243,26 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     );
   }
 
-  Widget _buildBillingRow(String label, double amount, {bool isTotal = false, Color? color, String? customValue}) {
+  Widget _buildBillingRow(String label, double amount, {bool isTotal = false, Color? color, String? customValue, required bool isSmallScreen}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: isTotal ? 16 : 14,
-              fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
-              color: color ?? Colors.black87,
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: isTotal ? (isSmallScreen ? 14 : 16) : (isSmallScreen ? 12 : 14),
+                fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+                color: color ?? Colors.black87,
+              ),
             ),
           ),
           Text(
             customValue ?? '₹${amount.toStringAsFixed(2)}',
             style: TextStyle(
-              fontSize: isTotal ? 16 : 14,
+              fontSize: isTotal ? (isSmallScreen ? 14 : 16) : (isSmallScreen ? 12 : 14),
               fontWeight: isTotal ? FontWeight.bold : FontWeight.w600,
               color: color ?? Colors.black87,
             ),
@@ -1221,10 +1273,10 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
   }
 
   // Payment method selection widget
-  Widget _buildPaymentMethodSelection() {
+  Widget _buildPaymentMethodSelection(double cardMargin, double cardPadding, bool isSmallScreen) {
     return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
+      margin: EdgeInsets.all(cardMargin),
+      padding: EdgeInsets.all(cardPadding),
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
         borderRadius: BorderRadius.circular(12),
@@ -1235,19 +1287,22 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
         children: [
           Row(
             children: [
-              Icon(Icons.payment, color: kPrimaryColor, size: 20),
-              const SizedBox(width: 8),
-              const Text(
+              Icon(Icons.payment, color: kPrimaryColor, size: isSmallScreen ? 18 : 20),
+              SizedBox(width: cardPadding / 2),
+              Text(
                 'Payment Method',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 14 : 16,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: cardPadding),
 
           // Online Payment Option
           Container(
-            margin: const EdgeInsets.only(bottom: 12),
+            margin: EdgeInsets.only(bottom: cardPadding * 0.75),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
@@ -1269,7 +1324,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
               title: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(6),
+                    padding: EdgeInsets.all(isSmallScreen ? 4 : 6),
                     decoration: BoxDecoration(
                       color: kPrimaryColor.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(6),
@@ -1277,11 +1332,11 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                     child: Icon(
                       Icons.payment,
                       color: kPrimaryColor,
-                      size: 16,
+                      size: isSmallScreen ? 14 : 16,
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  const Expanded(
+                  SizedBox(width: cardPadding * 0.6),
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1289,13 +1344,13 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                           'Pay Online',
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
-                            fontSize: 14,
+                            fontSize: isSmallScreen ? 12 : 14,
                           ),
                         ),
                         Text(
                           'UPI, Card, Net Banking, Wallet',
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: isSmallScreen ? 9 : 11,
                             color: Colors.grey,
                           ),
                         ),
@@ -1304,16 +1359,19 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                   ),
                   if (_selectedPaymentMethod == 'online')
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isSmallScreen ? 4 : 6,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.green.shade100,
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: const Text(
+                      child: Text(
                         'RECOMMENDED',
                         style: TextStyle(
                           color: Colors.green,
-                          fontSize: 8,
+                          fontSize: isSmallScreen ? 7 : 8,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -1347,19 +1405,19 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
               title: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(6),
+                    padding: EdgeInsets.all(isSmallScreen ? 4 : 6),
                     decoration: BoxDecoration(
                       color: Colors.orange.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.money,
                       color: Colors.orange,
-                      size: 16,
+                      size: isSmallScreen ? 14 : 16,
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  const Expanded(
+                  SizedBox(width: cardPadding * 0.6),
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1367,13 +1425,13 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                           'Pay on Delivery',
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
-                            fontSize: 14,
+                            fontSize: isSmallScreen ? 12 : 14,
                           ),
                         ),
                         Text(
                           'Cash payment when order is delivered',
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: isSmallScreen ? 9 : 11,
                             color: Colors.grey,
                           ),
                         ),
@@ -1390,12 +1448,12 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     );
   }
 
-  Widget _buildSelectionSummary() {
+  Widget _buildSelectionSummary(double cardMargin, double cardPadding, bool isSmallScreen) {
     if (selectedPickupSlot == null) return const SizedBox.shrink();
 
     return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
+      margin: EdgeInsets.all(cardMargin),
+      padding: EdgeInsets.all(cardPadding),
       decoration: BoxDecoration(
         color: kPrimaryColor.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
@@ -1406,21 +1464,21 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
         children: [
           Row(
             children: [
-              Icon(Icons.check_circle, color: kPrimaryColor, size: 20),
-              const SizedBox(width: 8),
+              Icon(Icons.check_circle, color: kPrimaryColor, size: isSmallScreen ? 18 : 20),
+              SizedBox(width: cardPadding / 2),
               Text(
                 'Selection Summary',
                 style: TextStyle(
                   color: kPrimaryColor,
                   fontWeight: FontWeight.w600,
-                  fontSize: 16,
+                  fontSize: isSmallScreen ? 14 : 16,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: cardPadding * 0.75),
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: EdgeInsets.all(cardPadding * 0.75),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(8),
@@ -1429,32 +1487,34 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
             child: Column(
               children: [
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.schedule, color: kPrimaryColor, size: 16),
-                    const SizedBox(width: 8),
+                    Icon(Icons.schedule, color: kPrimaryColor, size: isSmallScreen ? 14 : 16),
+                    SizedBox(width: cardPadding / 2),
                     Expanded(
                       child: Text(
                         'Pickup: ${_formatDate(selectedPickupDate)} at ${selectedPickupSlot!['display_time'] ?? '${selectedPickupSlot!['start_time']} - ${selectedPickupSlot!['end_time']}'}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.w500,
-                          fontSize: 14,
+                          fontSize: isSmallScreen ? 12 : 14,
                         ),
                       ),
                     ),
                   ],
                 ),
                 if (selectedDeliverySlot != null) ...[
-                  const SizedBox(height: 8),
+                  SizedBox(height: cardPadding / 2),
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.local_shipping, color: kPrimaryColor, size: 16),
-                      const SizedBox(width: 8),
+                      Icon(Icons.local_shipping, color: kPrimaryColor, size: isSmallScreen ? 14 : 16),
+                      SizedBox(width: cardPadding / 2),
                       Expanded(
                         child: Text(
                           'Delivery: ${_formatDate(selectedDeliveryDate)} at ${selectedDeliverySlot!['display_time'] ?? '${selectedDeliverySlot!['start_time']} - ${selectedDeliverySlot!['end_time']}'}',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.w500,
-                            fontSize: 14,
+                            fontSize: isSmallScreen ? 12 : 14,
                           ),
                         ),
                       ),
@@ -1483,29 +1543,32 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
   }
 
   // UPDATED METHOD: Only show delivery dates that have available slots
-  Widget _buildDateSelector(bool isPickup) {
+  Widget _buildDateSelector(bool isPickup, double cardMargin, bool isSmallScreen) {
     DateTime selectedDate = isPickup ? selectedPickupDate : selectedDeliveryDate;
     ScrollController controller = isPickup ? _pickupDateScrollController : _deliveryDateScrollController;
     List<DateTime> availableDates = isPickup ? pickupDates : _getAvailableDeliveryDates();
 
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: EdgeInsets.symmetric(horizontal: cardMargin, vertical: cardMargin / 2),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.calendar_today, color: kPrimaryColor, size: 20),
-              const SizedBox(width: 8),
+              Icon(Icons.calendar_today, color: kPrimaryColor, size: isSmallScreen ? 18 : 20),
+              SizedBox(width: cardMargin / 2),
               Text(
                 'Select ${isPickup ? 'Pickup' : 'Delivery'} Date',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 14 : 16,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: cardMargin * 0.75),
           SizedBox(
-            height: 80,
+            height: isSmallScreen ? 70 : 80,
             child: ListView.builder(
               controller: controller,
               scrollDirection: Axis.horizontal,
@@ -1534,8 +1597,8 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                     }
                   },
                   child: Container(
-                    width: 60,
-                    margin: const EdgeInsets.only(right: 8),
+                    width: isSmallScreen ? 50 : 60,
+                    margin: EdgeInsets.only(right: cardMargin / 2),
                     decoration: BoxDecoration(
                       color: isDisabled
                           ? Colors.grey.shade200
@@ -1557,28 +1620,31 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                         Text(
                           _getDayName(date.weekday),
                           style: TextStyle(
-                            fontSize: 10,
+                            fontSize: isSmallScreen ? 9 : 10,
                             fontWeight: FontWeight.w600,
                             color: isDisabled
                                 ? Colors.grey.shade500
                                 : isSelected ? Colors.white : Colors.black54,
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        SizedBox(height: isSmallScreen ? 2 : 4),
                         Text(
                           date.day.toString(),
                           style: TextStyle(
-                            fontSize: 16,
+                            fontSize: isSmallScreen ? 14 : 16,
                             fontWeight: FontWeight.bold,
                             color: isDisabled
                                 ? Colors.grey.shade500
                                 : isSelected ? Colors.white : Colors.black,
                           ),
                         ),
-                        const SizedBox(height: 2),
+                        SizedBox(height: isSmallScreen ? 1 : 2),
                         if (isToday)
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isSmallScreen ? 4 : 6,
+                              vertical: 1,
+                            ),
                             decoration: BoxDecoration(
                               color: isDisabled
                                   ? Colors.grey.shade400
@@ -1588,7 +1654,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                             child: Text(
                               'Today',
                               style: TextStyle(
-                                fontSize: 8,
+                                fontSize: isSmallScreen ? 7 : 8,
                                 fontWeight: FontWeight.w600,
                                 color: isDisabled
                                     ? Colors.white
@@ -1600,7 +1666,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                           Text(
                             _getMonthName(date.month),
                             style: TextStyle(
-                              fontSize: 8,
+                              fontSize: isSmallScreen ? 7 : 8,
                               fontWeight: FontWeight.w500,
                               color: isDisabled
                                   ? Colors.grey.shade500
@@ -1630,14 +1696,14 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     return months[month - 1];
   }
 
-  Widget _buildProgressIndicator() {
+  Widget _buildProgressIndicator(double cardMargin, bool isSmallScreen) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: EdgeInsets.symmetric(horizontal: cardMargin, vertical: cardMargin / 2),
       child: Row(
         children: [
           Container(
-            width: 24,
-            height: 24,
+            width: isSmallScreen ? 20 : 24,
+            height: isSmallScreen ? 20 : 24,
             decoration: BoxDecoration(
               color: currentStep >= 0 ? kPrimaryColor : Colors.grey.shade300,
               shape: BoxShape.circle,
@@ -1645,7 +1711,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
             child: Icon(
               selectedPickupSlot != null ? Icons.check : Icons.schedule,
               color: Colors.white,
-              size: 16,
+              size: isSmallScreen ? 12 : 16,
             ),
           ),
           Expanded(
@@ -1655,8 +1721,8 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
             ),
           ),
           Container(
-            width: 24,
-            height: 24,
+            width: isSmallScreen ? 20 : 24,
+            height: isSmallScreen ? 20 : 24,
             decoration: BoxDecoration(
               color: currentStep >= 1 ? kPrimaryColor : Colors.grey.shade300,
               shape: BoxShape.circle,
@@ -1664,7 +1730,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
             child: Icon(
               selectedDeliverySlot != null ? Icons.check : Icons.local_shipping,
               color: Colors.white,
-              size: 16,
+              size: isSmallScreen ? 12 : 16,
             ),
           ),
         ],
@@ -1672,10 +1738,10 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     );
   }
 
-  Widget _buildAddressSection() {
+  Widget _buildAddressSection(double cardMargin, double cardPadding, bool isSmallScreen) {
     return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
+      margin: EdgeInsets.all(cardMargin),
+      padding: EdgeInsets.all(cardPadding),
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
         borderRadius: BorderRadius.circular(12),
@@ -1686,53 +1752,107 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
         children: [
           Row(
             children: [
-              Icon(Icons.location_on, color: kPrimaryColor, size: 20),
-              const SizedBox(width: 8),
-              const Text('Delivery Address', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              Icon(Icons.location_on, color: kPrimaryColor, size: isSmallScreen ? 18 : 20),
+              SizedBox(width: cardPadding / 2),
+              Text(
+                'Delivery Address',
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 14 : 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
               const Spacer(),
               TextButton(
                 onPressed: _openAddressBook,
-                child: Text(selectedAddress == null ? 'Select' : 'Change', style: TextStyle(color: kPrimaryColor)),
+                child: Text(
+                  selectedAddress == null ? 'Select' : 'Change',
+                  style: TextStyle(
+                    color: kPrimaryColor,
+                    fontSize: isSmallScreen ? 12 : 14,
+                  ),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: cardPadding / 2),
           if (selectedAddress != null) ...[
-            Text(selectedAddress!['address_line_1'] ?? '', style: const TextStyle(fontWeight: FontWeight.w500)),
-            if (selectedAddress!['address_line_2'] != null) Text(selectedAddress!['address_line_2']),
-            Text('${selectedAddress!['city']}, ${selectedAddress!['state']} - ${selectedAddress!['pincode']}', style: const TextStyle(color: Colors.black54)),
+            Text(
+              selectedAddress!['address_line_1'] ?? '',
+              style: TextStyle(
+                fontWeight: FontWeight.w500,
+                fontSize: isSmallScreen ? 12 : 14,
+              ),
+            ),
+            if (selectedAddress!['address_line_2'] != null)
+              Text(
+                selectedAddress!['address_line_2'],
+                style: TextStyle(fontSize: isSmallScreen ? 12 : 14),
+              ),
+            Text(
+              '${selectedAddress!['city']}, ${selectedAddress!['state']} - ${selectedAddress!['pincode']}',
+              style: TextStyle(
+                color: Colors.black54,
+                fontSize: isSmallScreen ? 11 : 13,
+              ),
+            ),
             if (isLoadingServiceAvailability)
-              const Padding(
-                padding: EdgeInsets.only(top: 8.0),
-                child: Text('Checking availability...', style: TextStyle(color: Colors.orange, fontSize: 12)),
+              Padding(
+                padding: EdgeInsets.only(top: cardPadding / 2),
+                child: Text(
+                  'Checking availability...',
+                  style: TextStyle(
+                    color: Colors.orange,
+                    fontSize: isSmallScreen ? 10 : 12,
+                  ),
+                ),
               )
             else if (!isServiceAvailable)
-              const Padding(
-                padding: EdgeInsets.only(top: 8.0),
-                child: Text('❌ Service not available', style: TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.w500)),
+              Padding(
+                padding: EdgeInsets.only(top: cardPadding / 2),
+                child: Text(
+                  '❌ Service not available',
+                  style: TextStyle(
+                    color: Colors.red,
+                    fontSize: isSmallScreen ? 10 : 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               )
             else
-              const Padding(
-                padding: EdgeInsets.only(top: 8.0),
-                child: Text('✅ Service available', style: TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.w500)),
+              Padding(
+                padding: EdgeInsets.only(top: cardPadding / 2),
+                child: Text(
+                  '✅ Service available',
+                  style: TextStyle(
+                    color: Colors.green,
+                    fontSize: isSmallScreen ? 10 : 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ),
           ] else ...[
             GestureDetector(
               onTap: _openAddressBook,
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.all(cardPadding),
                 decoration: BoxDecoration(
                   border: Border.all(color: Colors.grey.shade300, style: BorderStyle.solid),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.add_location, color: Colors.grey.shade600),
-                    const SizedBox(width: 12),
-                    const Text('Select delivery address', style: TextStyle(color: Colors.black54, fontSize: 16)),
+                    Icon(Icons.add_location, color: Colors.grey.shade600, size: isSmallScreen ? 18 : 20),
+                    SizedBox(width: cardPadding * 0.75),
+                    Text(
+                      'Select delivery address',
+                      style: TextStyle(
+                        color: Colors.black54,
+                        fontSize: isSmallScreen ? 14 : 16,
+                      ),
+                    ),
                     const Spacer(),
-                    Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey.shade600),
+                    Icon(Icons.arrow_forward_ios, size: isSmallScreen ? 14 : 16, color: Colors.grey.shade600),
                   ],
                 ),
               ),
@@ -1743,15 +1863,21 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     );
   }
 
-  Widget _buildDeliveryTypeToggle() {
+  Widget _buildDeliveryTypeToggle(double cardMargin, double cardPadding, bool isSmallScreen) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: EdgeInsets.symmetric(horizontal: cardMargin, vertical: cardMargin / 2),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Text('Delivery Type:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              Text(
+                'Delivery Type:',
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 14 : 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
               const Spacer(),
               Container(
                 decoration: BoxDecoration(
@@ -1771,7 +1897,10 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                         });
                       },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isSmallScreen ? 16 : 20,
+                          vertical: isSmallScreen ? 8 : 10,
+                        ),
                         decoration: BoxDecoration(
                           color: !isExpressDelivery ? kPrimaryColor : Colors.transparent,
                           borderRadius: BorderRadius.circular(25),
@@ -1781,6 +1910,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                           style: TextStyle(
                             color: !isExpressDelivery ? Colors.white : Colors.black54,
                             fontWeight: FontWeight.w600,
+                            fontSize: isSmallScreen ? 12 : 14,
                           ),
                         ),
                       ),
@@ -1795,7 +1925,10 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                         });
                       },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isSmallScreen ? 16 : 20,
+                          vertical: isSmallScreen ? 8 : 10,
+                        ),
                         decoration: BoxDecoration(
                           color: isExpressDelivery ? kPrimaryColor : Colors.transparent,
                           borderRadius: BorderRadius.circular(25),
@@ -1805,6 +1938,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                           style: TextStyle(
                             color: isExpressDelivery ? Colors.white : Colors.black54,
                             fontWeight: FontWeight.w600,
+                            fontSize: isSmallScreen ? 12 : 14,
                           ),
                         ),
                       ),
@@ -1814,7 +1948,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          SizedBox(height: cardPadding / 3),
           Row(
             children: [
               Expanded(
@@ -1822,24 +1956,30 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                   isExpressDelivery
                       ? 'Faster Pick Up & Delivery Options'
                       : 'Choose Express Delivery for Quicker service',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  style: TextStyle(
+                    fontSize: isSmallScreen ? 10 : 12,
+                    color: Colors.grey.shade600,
+                  ),
                 ),
               ),
-              // Show express delivery fee when express is selected
+              // ✅ FIXED: Change express delivery fee color to dark red
               if (isExpressDelivery && !isLoadingBillingSettings)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isSmallScreen ? 6 : 8,
+                    vertical: isSmallScreen ? 3 : 4,
+                  ),
                   decoration: BoxDecoration(
-                    color: kPrimaryColor.withOpacity(0.1),
+                    color: Colors.red.shade50, // ✅ CHANGED: Light red background
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: kPrimaryColor.withOpacity(0.3)),
+                    border: Border.all(color: Colors.red.shade800.withOpacity(0.3)), // ✅ CHANGED: Dark red border
                   ),
                   child: Text(
                     '+₹${(expressDeliveryFee - standardDeliveryFee).toStringAsFixed(0)} extra',
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: isSmallScreen ? 9 : 11,
                       fontWeight: FontWeight.w600,
-                      color: kPrimaryColor,
+                      color: Colors.red.shade800, // ✅ CHANGED: Dark red text
                     ),
                   ),
                 ),
@@ -1850,11 +1990,11 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     );
   }
 
-  Widget _buildPickupSlotsSection() {
+  Widget _buildPickupSlotsSection(double cardMargin, double cardPadding, bool isSmallScreen) {
     List<Map<String, dynamic>> allSlots = _getAllPickupSlots();
     return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
+      margin: EdgeInsets.all(cardMargin),
+      padding: EdgeInsets.all(cardPadding),
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
         borderRadius: BorderRadius.circular(12),
@@ -1865,23 +2005,29 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
         children: [
           Row(
             children: [
-              Icon(Icons.schedule, color: kPrimaryColor, size: 20),
-              const SizedBox(width: 8),
-              const Text('Schedule Pickup', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              Icon(Icons.schedule, color: kPrimaryColor, size: isSmallScreen ? 18 : 20),
+              SizedBox(width: cardPadding / 2),
+              Text(
+                'Schedule Pickup',
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 14 : 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 16),
-          _buildTimeSlots(allSlots, true),
+          SizedBox(height: cardPadding),
+          _buildTimeSlots(allSlots, true, isSmallScreen),
         ],
       ),
     );
   }
 
-  Widget _buildDeliverySlotsSection() {
+  Widget _buildDeliverySlotsSection(double cardMargin, double cardPadding, bool isSmallScreen) {
     List<Map<String, dynamic>> allSlots = _getAllDeliverySlots();
     return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
+      margin: EdgeInsets.all(cardMargin),
+      padding: EdgeInsets.all(cardPadding),
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
         borderRadius: BorderRadius.circular(12),
@@ -1894,39 +2040,45 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
             children: [
               IconButton(
                 onPressed: _goBackToPickup,
-                icon: const Icon(Icons.arrow_back, size: 20),
+                icon: Icon(Icons.arrow_back, size: isSmallScreen ? 18 : 20),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
               ),
-              const SizedBox(width: 8),
-              Icon(Icons.local_shipping, color: kPrimaryColor, size: 20),
-              const SizedBox(width: 8),
+              SizedBox(width: cardPadding / 2),
+              Icon(Icons.local_shipping, color: kPrimaryColor, size: isSmallScreen ? 18 : 20),
+              SizedBox(width: cardPadding / 2),
               Expanded(
                 child: Text(
                   'Schedule Delivery ${isExpressDelivery ? '(Express)' : '(Standard)'}',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    fontSize: isSmallScreen ? 14 : 16,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          _buildTimeSlots(allSlots, false),
+          SizedBox(height: cardPadding),
+          _buildTimeSlots(allSlots, false, isSmallScreen),
         ],
       ),
     );
   }
 
-  Widget _buildTimeSlots(List<Map<String, dynamic>> slots, bool isPickup) {
+  Widget _buildTimeSlots(List<Map<String, dynamic>> slots, bool isPickup, bool isSmallScreen) {
     if (slots.isEmpty) {
       return Container(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(isSmallScreen ? 20 : 24),
         child: Column(
           children: [
-            Icon(Icons.schedule, size: 48, color: Colors.grey.shade400),
-            const SizedBox(height: 8),
+            Icon(Icons.schedule, size: isSmallScreen ? 40 : 48, color: Colors.grey.shade400),
+            SizedBox(height: isSmallScreen ? 6 : 8),
             Text(
               'No ${isPickup ? 'pickup' : 'delivery'} slots available',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+              style: TextStyle(
+                color: Colors.grey.shade600,
+                fontSize: isSmallScreen ? 12 : 14,
+              ),
             ),
           ],
         ),
@@ -1935,11 +2087,11 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 3,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: isSmallScreen ? 1 : 2, // ✅ RESPONSIVE: Single column for small screens
+        childAspectRatio: isSmallScreen ? 4 : 3,
+        crossAxisSpacing: isSmallScreen ? 6 : 8,
+        mainAxisSpacing: isSmallScreen ? 6 : 8,
       ),
       itemCount: slots.length,
       itemBuilder: (context, index) {
@@ -1964,7 +2116,10 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
             }
           },
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: EdgeInsets.symmetric(
+              horizontal: isSmallScreen ? 8 : 12,
+              vertical: isSmallScreen ? 6 : 8,
+            ),
             decoration: BoxDecoration(
               color: (!isSlotAvailable || isSlotPassed)
                   ? Colors.grey.shade100
@@ -1991,14 +2146,18 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                           ? Colors.grey.shade500
                           : isSelected ? Colors.white : Colors.black,
                       fontWeight: FontWeight.w600,
-                      fontSize: 12,
+                      fontSize: isSmallScreen ? 11 : 12,
                     ),
                     textAlign: TextAlign.center,
                   ),
                   if (!isSlotAvailable || isSlotPassed)
                     Text(
                       'Unavailable',
-                      style: TextStyle(color: Colors.red.shade400, fontSize: 10, fontWeight: FontWeight.w500),
+                      style: TextStyle(
+                        color: Colors.red.shade400,
+                        fontSize: isSmallScreen ? 9 : 10,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                 ],
               ),
@@ -2010,7 +2169,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
   }
 
   // Enhanced bottom bar with payment button text
-  Widget _buildBottomBar() {
+  Widget _buildBottomBar(bool isSmallScreen) {
     double totalAmount = _calculateTotalAmount();
     bool canProceed = selectedAddress != null &&
         selectedPickupSlot != null &&
@@ -2023,7 +2182,10 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     final buttonIcon = _selectedPaymentMethod == 'online' ? Icons.payment : Icons.shopping_bag;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      padding: EdgeInsets.symmetric(
+        horizontal: isSmallScreen ? 16 : 20,
+        vertical: isSmallScreen ? 10 : 12,
+      ),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: Colors.grey.shade300)),
         color: Colors.white,
@@ -2035,82 +2197,104 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
           ),
         ],
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text("Total Amount", style: TextStyle(fontSize: 13, color: Colors.black54)),
-                const SizedBox(height: 4),
-                if (isLoadingBillingSettings)
-                  const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                else
-                  Text("₹${totalAmount.toStringAsFixed(2)}", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ),
-
-          // Enhanced rounded button with payment functionality
-          Container(
-            height: 50,
-            child: ElevatedButton(
-              onPressed: (canProceed && !_isProcessingPayment) ? _handleProceed : null,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: kPrimaryColor,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(25), // Rounded button
-                ),
-                elevation: canProceed ? 8 : 0,
-                shadowColor: kPrimaryColor.withOpacity(0.3),
-              ),
-              child: _isProcessingPayment
-                  ? const Row(
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2,
-                    ),
-                  ),
-                  SizedBox(width: 8),
                   Text(
-                    'Processing...',
+                    "Total Amount",
                     style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
+                      fontSize: isSmallScreen ? 11 : 13,
+                      color: Colors.black54,
                     ),
                   ),
-                ],
-              )
-                  : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    buttonIcon,
-                    color: Colors.white,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    isLoadingBillingSettings ? "Loading..." : buttonText,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
+                  SizedBox(height: isSmallScreen ? 2 : 4),
+                  if (isLoadingBillingSettings)
+                    SizedBox(
+                      width: isSmallScreen ? 16 : 20,
+                      height: isSmallScreen ? 16 : 20,
+                      child: const CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else
+                    Text(
+                      "₹${totalAmount.toStringAsFixed(2)}",
+                      style: TextStyle(
+                        fontSize: isSmallScreen ? 16 : 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
-          ),
-        ],
+
+            // Enhanced rounded button with payment functionality
+            Container(
+              height: isSmallScreen ? 44 : 50,
+              child: ElevatedButton(
+                onPressed: (canProceed && !_isProcessingPayment) ? _handleProceed : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: kPrimaryColor,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isSmallScreen ? 20 : 24,
+                    vertical: isSmallScreen ? 12 : 14,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(25), // Rounded button
+                  ),
+                  elevation: canProceed ? 8 : 0,
+                  shadowColor: kPrimaryColor.withOpacity(0.3),
+                ),
+                child: _isProcessingPayment
+                    ? Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: isSmallScreen ? 14 : 16,
+                      height: isSmallScreen ? 14 : 16,
+                      child: const CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    ),
+                    SizedBox(width: isSmallScreen ? 6 : 8),
+                    Text(
+                      'Processing...',
+                      style: TextStyle(
+                        fontSize: isSmallScreen ? 12 : 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                )
+                    : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      buttonIcon,
+                      color: Colors.white,
+                      size: isSmallScreen ? 16 : 18,
+                    ),
+                    SizedBox(width: isSmallScreen ? 4 : 6),
+                    Text(
+                      isLoadingBillingSettings ? "Loading..." : buttonText,
+                      style: TextStyle(
+                        fontSize: isSmallScreen ? 13 : 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

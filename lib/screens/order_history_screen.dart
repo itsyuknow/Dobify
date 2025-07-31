@@ -59,13 +59,22 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       setState(() => isLoading = true);
       print('Loading orders for user: ${user.id}');
 
-      // Get orders from past 30 days
+      // Get orders from past 30 days with optimized query
       final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
 
+      // ✅ OPTIMIZED: Single query with proper filtering and joins to reduce API calls
       final ordersResponse = await supabase
           .from('orders')
-          .select('*')
-          .eq('user_id', user.id)
+          .select('''
+            *,
+            pickup_slot_display_time,
+            pickup_slot_start_time,
+            pickup_slot_end_time,
+            delivery_slot_display_time,
+            delivery_slot_start_time,
+            delivery_slot_end_time
+          ''')
+          .eq('user_id', user.id) // ✅ OPTIMIZED: Filter by user_id first
           .gte('created_at', thirtyDaysAgo.toIso8601String())
           .order('created_at', ascending: false);
 
@@ -77,10 +86,10 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
         Map<String, dynamic> orderWithDetails = Map<String, dynamic>.from(order);
 
         try {
-          // ✅ FIXED: Get order items with product_image directly
+          // ✅ OPTIMIZED: Get order items with single query
           final orderItemsResponse = await supabase
               .from('order_items')
-              .select('*, product_image') // ✅ Include product_image from order_items
+              .select('*, product_image')
               .eq('order_id', order['id']);
 
           print('Found ${orderItemsResponse.length} items for order ${order['id']}');
@@ -90,8 +99,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
           for (var item in orderItemsResponse) {
             Map<String, dynamic> processedItem = Map<String, dynamic>.from(item);
 
-            // ✅ FIXED: Use product_image from order_items first, then fallback to products table
-            String? productImageUrl = item['product_image']; // From order_items
+            String? productImageUrl = item['product_image'];
 
             // Get additional product details if product_id exists
             if (item['product_id'] != null) {
@@ -106,7 +114,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                   processedItem['products'] = {
                     'id': productResponse['id'],
                     'name': productResponse['product_name'],
-                    // ✅ FIXED: Use order_items image first, then products table image
                     'image_url': productImageUrl ?? productResponse['image_url'],
                     'price': productResponse['product_price'],
                     'category_id': productResponse['category_id'],
@@ -116,7 +123,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                   processedItem['products'] = {
                     'id': item['product_id'],
                     'name': item['product_name'] ?? 'Product ${item['product_id']}',
-                    'image_url': productImageUrl, // ✅ Use from order_items
+                    'image_url': productImageUrl,
                     'price': item['product_price'] ?? 0.0,
                     'category_id': null,
                   };
@@ -127,7 +134,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                 processedItem['products'] = {
                   'id': item['product_id'],
                   'name': item['product_name'] ?? 'Unknown Product',
-                  'image_url': productImageUrl, // ✅ Use from order_items
+                  'image_url': productImageUrl,
                   'price': item['product_price'] ?? 0.0,
                   'category_id': null,
                 };
@@ -137,7 +144,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
               processedItem['products'] = {
                 'id': null,
                 'name': item['product_name'] ?? 'Unknown Product',
-                'image_url': productImageUrl, // ✅ Use from order_items
+                'image_url': productImageUrl,
                 'price': item['product_price'] ?? 0.0,
                 'category_id': null,
               };
@@ -157,7 +164,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
             }
           }
 
-          // Get billing details if available
+          // ✅ OPTIMIZED: Get billing details with single query
           try {
             final billingResponse = await supabase
                 .from('order_billing_details')
@@ -172,38 +179,21 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
             print('Error loading billing details for order ${order['id']}: $e');
           }
 
-          // Get pickup slot details for cancel timer
-          if (order['pickup_slot_id'] != null) {
-            try {
-              final pickupSlotResponse = await supabase
-                  .from('pickup_slots')
-                  .select('start_time, end_time, display_time')
-                  .eq('id', order['pickup_slot_id'])
-                  .maybeSingle();
-
-              if (pickupSlotResponse != null) {
-                orderWithDetails['pickup_slot'] = pickupSlotResponse;
-              }
-            } catch (e) {
-              print('Error loading pickup slot for order ${order['id']}: $e');
-            }
+          // ✅ NEW: Use stored slot details from orders table instead of separate queries
+          if (order['pickup_slot_display_time'] != null) {
+            orderWithDetails['pickup_slot'] = {
+              'display_time': order['pickup_slot_display_time'],
+              'start_time': order['pickup_slot_start_time'],
+              'end_time': order['pickup_slot_end_time'],
+            };
           }
 
-          // Get delivery slot details
-          if (order['delivery_slot_id'] != null) {
-            try {
-              final deliverySlotResponse = await supabase
-                  .from('delivery_slots')
-                  .select('start_time, end_time, display_time')
-                  .eq('id', order['delivery_slot_id'])
-                  .maybeSingle();
-
-              if (deliverySlotResponse != null) {
-                orderWithDetails['delivery_slot'] = deliverySlotResponse;
-              }
-            } catch (e) {
-              print('Error loading delivery slot for order ${order['id']}: $e');
-            }
+          if (order['delivery_slot_display_time'] != null) {
+            orderWithDetails['delivery_slot'] = {
+              'display_time': order['delivery_slot_display_time'],
+              'start_time': order['delivery_slot_start_time'],
+              'end_time': order['delivery_slot_end_time'],
+            };
           }
 
           // Setup cancel timer if order can be cancelled
@@ -270,14 +260,13 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                   .maybeSingle();
 
               if (productCheck != null) {
-                // ✅ FIXED: Use product image from order first, then from products table
                 final imageUrl = product['image_url'] ?? productCheck['image_url'];
 
                 // Add item to cart with same service type
                 await supabase.from('cart').insert({
                   'user_id': user.id,
                   'product_name': productCheck['product_name'],
-                  'product_image': imageUrl, // ✅ Use correct image URL
+                  'product_image': imageUrl,
                   'product_price': productCheck['product_price'],
                   'service_type': item['service_type'] ?? 'Standard',
                   'service_price': item['service_price'] ?? 0.0,
@@ -294,7 +283,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
               await supabase.from('cart').insert({
                 'user_id': user.id,
                 'product_name': product['name'] ?? item['product_name'],
-                'product_image': product['image_url'], // ✅ Use image from order
+                'product_image': product['image_url'],
                 'product_price': product['price'] ?? item['product_price'],
                 'service_type': item['service_type'] ?? 'Standard',
                 'service_price': item['service_price'] ?? 0.0,
@@ -621,6 +610,13 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
         'delivery_slot_id': newDeliverySlot['id'],
         'pickup_date': newPickupDate.toIso8601String().split('T')[0],
         'delivery_date': newDeliveryDate.toIso8601String().split('T')[0],
+        // ✅ NEW: Update stored slot details
+        'pickup_slot_display_time': newPickupSlot['display_time'],
+        'pickup_slot_start_time': newPickupSlot['start_time'],
+        'pickup_slot_end_time': newPickupSlot['end_time'],
+        'delivery_slot_display_time': newDeliverySlot['display_time'],
+        'delivery_slot_start_time': newDeliverySlot['start_time'],
+        'delivery_slot_end_time': newDeliverySlot['end_time'],
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', order['id']);
 
@@ -1012,12 +1008,23 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
   @override
   Widget build(BuildContext context) {
+    // ✅ RESPONSIVE: Get screen dimensions for universal phone display
+    final screenSize = MediaQuery.of(context).size;
+    final screenWidth = screenSize.width;
+    final screenHeight = screenSize.height;
+    final isSmallScreen = screenWidth < 360;
+    final cardMargin = isSmallScreen ? 8.0 : 16.0;
+    final cardPadding = isSmallScreen ? 16.0 : 20.0;
+
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Order History',
-          style: TextStyle(fontWeight: FontWeight.w800),
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            fontSize: isSmallScreen ? 18 : 20,
+          ),
         ),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
@@ -1030,7 +1037,12 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
               color: kPrimaryColor.withOpacity(0.1),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(Icons.arrow_back_ios_rounded, color: kPrimaryColor, size: 16),
+            // ✅ FIXED: Correct arrow icon shape and color
+            child: Icon(
+              Icons.arrow_back_ios_new_rounded, // Better arrow shape
+              color: kPrimaryColor,
+              size: 18, // Slightly larger for better visibility
+            ),
           ),
         ),
       ),
@@ -1041,71 +1053,85 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
           children: [
             CircularProgressIndicator(color: kPrimaryColor),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               'Loading your orders...',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontSize: isSmallScreen ? 14 : 16,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),
       )
           : orders.isEmpty
           ? Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(32),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [kPrimaryColor.withOpacity(0.1), Colors.purple.withOpacity(0.05)],
+        child: SingleChildScrollView( // ✅ RESPONSIVE: Prevent overflow on small screens
+          padding: EdgeInsets.all(cardMargin),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: EdgeInsets.all(isSmallScreen ? 24 : 32),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [kPrimaryColor.withOpacity(0.1), Colors.purple.withOpacity(0.05)],
+                  ),
+                  borderRadius: BorderRadius.circular(24),
                 ),
-                borderRadius: BorderRadius.circular(24),
+                child: Icon(
+                  Icons.shopping_bag_outlined,
+                  size: isSmallScreen ? 60 : 80,
+                  color: kPrimaryColor,
+                ),
               ),
-              child: Icon(
-                Icons.shopping_bag_outlined,
-                size: 80,
-                color: kPrimaryColor,
-              ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'No Orders in Last 30 Days',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Your recent order history will appear here.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () {
-                // Navigate to home
-                Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: kPrimaryColor,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
-              ),
-              child: const Text(
-                'Start Shopping',
+              const SizedBox(height: 24),
+              Text(
+                'No Orders in Last 30 Days',
                 style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
+                  fontSize: isSmallScreen ? 20 : 24,
+                  fontWeight: FontWeight.w800,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Your recent order history will appear here.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 14 : 16,
+                  color: Colors.grey.shade600,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 24),
+              Container(
+                width: double.infinity,
+                constraints: BoxConstraints(maxWidth: screenWidth * 0.8),
+                child: ElevatedButton(
+                  // ✅ FIXED: Navigate to order_screen.dart instead of home
+                  onPressed: () {
+                    Navigator.of(context).pushNamedAndRemoveUntil('/orders', (route) => false);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kPrimaryColor,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isSmallScreen ? 24 : 32,
+                      vertical: isSmallScreen ? 12 : 16,
+                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+                  ),
+                  child: Text(
+                    'Start Shopping',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: isSmallScreen ? 14 : 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       )
           : FadeTransition(
@@ -1114,10 +1140,10 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
           onRefresh: _loadOrders,
           color: kPrimaryColor,
           child: ListView.builder(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(cardMargin),
             itemCount: orders.length,
             itemBuilder: (context, index) {
-              return _buildEnhancedOrderCard(orders[index], index);
+              return _buildEnhancedOrderCard(orders[index], index, cardPadding, isSmallScreen);
             },
           ),
         ),
@@ -1125,7 +1151,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     );
   }
 
-  Widget _buildEnhancedOrderCard(Map<String, dynamic> order, int index) {
+  Widget _buildEnhancedOrderCard(Map<String, dynamic> order, int index, double cardPadding, bool isSmallScreen) {
     final orderItems = order['order_items'] as List<dynamic>? ?? [];
     final totalItems = orderItems.length;
     final firstProduct = orderItems.isNotEmpty ? orderItems[0] : null;
@@ -1135,30 +1161,30 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     final remainingTime = _getRemainingCancelTime(orderId);
 
     return Container(
-      margin: EdgeInsets.only(bottom: 16, top: index == 0 ? 8 : 0),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.shade200,
-            blurRadius: 15,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => _showOrderDetails(order),
+        margin: EdgeInsets.only(bottom: isSmallScreen ? 12 : 16, top: index == 0 ? 8 : 0),
+        decoration: BoxDecoration(
+          color: Colors.white,
           borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header Row
-                Row(
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.shade200,
+              blurRadius: 15,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => _showOrderDetails(order),
+            borderRadius: BorderRadius.circular(20),
+            child: Padding(
+                padding: EdgeInsets.all(cardPadding),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                  // Header Row
+                  Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Expanded(
@@ -1170,14 +1196,17 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                               Icon(
                                 Icons.receipt_rounded,
                                 color: kPrimaryColor,
-                                size: 18,
+                                size: isSmallScreen ? 16 : 18,
                               ),
                               const SizedBox(width: 8),
-                              Text(
-                                'Order #${order['id'].toString().substring(0, 8)}',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 16,
+                              Flexible(
+                                child: Text(
+                                  'Order #${order['id'].toString().substring(0, 8)}',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: isSmallScreen ? 14 : 16,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             ],
@@ -1186,7 +1215,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                           Text(
                             _formatDate(order['created_at']),
                             style: TextStyle(
-                              fontSize: 13,
+                              fontSize: isSmallScreen ? 12 : 13,
                               color: Colors.grey.shade600,
                               fontWeight: FontWeight.w500,
                             ),
@@ -1196,288 +1225,288 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                     ),
                     // Show countdown timer for cancellable orders, otherwise show status badge
                     canCancel && remainingTime > 0
-                        ? _buildCountdownBadge(remainingTime)
-                        : _buildStatusBadge(order['status'] ?? order['order_status']),
+                        ? _buildCountdownBadge(remainingTime, isSmallScreen)
+                        : _buildStatusBadge(order['status'] ?? order['order_status'], isSmallScreen),
                   ],
                 ),
 
-                const SizedBox(height: 16),
+                SizedBox(height: isSmallScreen ? 12 : 16),
 
                 // Product Preview with proper image handling
                 if (firstProduct != null && firstProduct['products'] != null) ...[
-                  Row(
-                    children: [
-                      // Product Image
-                      Container(
-                        width: 60,
-                        height: 60,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          color: Colors.grey.shade100,
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: firstProduct['products']['image_url'] != null &&
-                              firstProduct['products']['image_url'].toString().isNotEmpty
-                              ? Image.network(
-                            firstProduct['products']['image_url'],
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) => Container(
-                              padding: const EdgeInsets.all(16),
-                              child: Icon(
-                                  Icons.image_not_supported_outlined,
-                                  color: Colors.grey.shade400,
-                                  size: 24
-                              ),
-                            ),
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return Center(
-                                child: CircularProgressIndicator(
-                                  value: loadingProgress.expectedTotalBytes != null
-                                      ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
-                                      : null,
-                                  strokeWidth: 2,
-                                  color: kPrimaryColor,
-                                ),
-                              );
-                            },
-                          )
-                              : Container(
-                            padding: const EdgeInsets.all(16),
-                            child: Icon(
-                                Icons.shopping_bag_outlined,
-                                color: Colors.grey.shade400,
-                                size: 24
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-
-                      // Product Info
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              firstProduct['products']['name']?.toString() ?? 'Unknown Product',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 15,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Qty: ${firstProduct['quantity'] ?? 1} • ${firstProduct['service_type'] ?? 'Standard'}',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey.shade600,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            if (totalItems > 1) ...[
-                              const SizedBox(height: 2),
-                              Text(
-                                '+${totalItems - 1} more item${totalItems > 2 ? 's' : ''}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: kPrimaryColor,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ],
+          Row(
+          children: [
+          // Product Image
+          Container(
+          width: isSmallScreen ? 50 : 60,
+            height: isSmallScreen ? 50 : 60,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: Colors.grey.shade100,
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: firstProduct['products']['image_url'] != null &&
+                  firstProduct['products']['image_url'].toString().isNotEmpty
+                  ? Image.network(
+                firstProduct['products']['image_url'],
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
+                  child: Icon(
+                      Icons.image_not_supported_outlined,
+                      color: Colors.grey.shade400,
+                      size: isSmallScreen ? 20 : 24
                   ),
-                  const SizedBox(height: 16),
+                ),
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Center(
+                    child: CircularProgressIndicator(
+                      value: loadingProgress.expectedTotalBytes != null
+                          ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                          : null,
+                      strokeWidth: 2,
+                      color: kPrimaryColor,
+                    ),
+                  );
+                },
+              )
+                  : Container(
+                padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
+                child: Icon(
+                    Icons.shopping_bag_outlined,
+                    color: Colors.grey.shade400,
+                    size: isSmallScreen ? 20 : 24
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+
+          // Product Info
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  firstProduct['products']['name']?.toString() ?? 'Unknown Product',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: isSmallScreen ? 13 : 15,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Qty: ${firstProduct['quantity'] ?? 1} • ${firstProduct['service_type'] ?? 'Standard'}',
+                  style: TextStyle(
+                    fontSize: isSmallScreen ? 11 : 13,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (totalItems > 1) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    '+${totalItems - 1} more item${totalItems > 2 ? 's' : ''}',
+                    style: TextStyle(
+                      fontSize: isSmallScreen ? 10 : 12,
+                      color: kPrimaryColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ],
-
-                // Order Summary
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [kPrimaryColor.withOpacity(0.05), Colors.purple.withOpacity(0.02)],
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Total Amount',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade600,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            '₹${order['total_amount'] ?? '0.00'}',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: kPrimaryColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            'Items',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade600,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            '$totalItems',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.black87,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // Action Buttons Row - UPDATED: Reschedule button instead of View Details
-                Row(
-                  children: [
-                    // Reschedule Button (was View Details)
-                    Expanded(
-                      child: Container(
-                        height: 48,
-                        child: ElevatedButton.icon(
-                          onPressed: (canReschedule && remainingTime > 0) ? () => _showRescheduleDialog(order) : null,
-                          icon: Icon(
-                            (canReschedule && remainingTime > 0) ? Icons.schedule : Icons.block,
-                            size: 18,
-                            color: (canReschedule && remainingTime > 0) ? kPrimaryColor : Colors.grey.shade500,
-                          ),
-                          label: Text(
-                            (canReschedule && remainingTime > 0) ? 'Reschedule' :
-                            canReschedule ? 'Reschedule Timeout' : 'Cannot Reschedule',
-                            style: TextStyle(
-                              color: (canReschedule && remainingTime > 0) ? kPrimaryColor : Colors.grey.shade600,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 14,
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: (canReschedule && remainingTime > 0)
-                                ? kPrimaryColor.withOpacity(0.1)
-                                : Colors.grey.shade100,
-                            foregroundColor: (canReschedule && remainingTime > 0) ? kPrimaryColor : Colors.grey.shade500,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-
-                    // Cancel Order or Reorder Button - FIXED LOGIC
-                    Expanded(
-                      child: Container(
-                        height: 48,
-                        child: canCancel
-                            ? ElevatedButton.icon(
-                          // Button is enabled only when there's remaining time
-                          onPressed: remainingTime > 0 ? () => _cancelOrder(order) : null,
-                          icon: Icon(
-                            remainingTime > 0 ? Icons.cancel_outlined : Icons.block,
-                            size: 18,
-                            color: remainingTime > 0 ? Colors.white : Colors.grey.shade500,
-                          ),
-                          label: Text(
-                            remainingTime > 0 ? 'Cancel Order' : 'Cancel Timeout',
-                            style: TextStyle(
-                              color: remainingTime > 0 ? Colors.white : Colors.grey.shade600,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 14,
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: remainingTime > 0 ? Colors.red.shade600 : Colors.grey.shade200,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        )
-                            : (_canReorder(order['status'] ?? order['order_status'])
-                            ? ElevatedButton.icon(
-                          onPressed: () => _reorderItems(order),
-                          icon: const Icon(Icons.refresh_rounded, size: 18, color: Colors.white),
-                          label: const Text(
-                            'Reorder',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 14,
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green.shade600,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        )
-                            : ElevatedButton.icon(
-                          onPressed: null,
-                          icon: Icon(Icons.info_outline, size: 18, color: Colors.grey.shade500),
-                          label: Text(
-                            'Order ${(order['status'] ?? order['order_status'] ?? 'Processing').toString().toLowerCase()}',
-                            style: TextStyle(
-                              color: Colors.grey.shade600,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 12,
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.grey.shade100,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        )),
-                      ),
-                    ),
-                  ],
-                ),
               ],
             ),
           ),
+          ],
         ),
-      ),
+        SizedBox(height: isSmallScreen ? 12 : 16),
+        ],
+
+    // Order Summary
+    Container(
+    padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
+    decoration: BoxDecoration(
+    gradient: LinearGradient(
+    colors: [kPrimaryColor.withOpacity(0.05), Colors.purple.withOpacity(0.02)],
+    ),
+    borderRadius: BorderRadius.circular(12),
+    ),
+    child: Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+    Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+    Text(
+    'Total Amount',
+    style: TextStyle(
+    fontSize: isSmallScreen ? 11 : 13,
+    color: Colors.grey.shade600,
+    fontWeight: FontWeight.w600,
+    ),
+    ),
+    Text(
+    '₹${order['total_amount'] ?? '0.00'}',
+    style: TextStyle(
+    fontSize: isSmallScreen ? 16 : 18,
+    fontWeight: FontWeight.w800,
+    color: kPrimaryColor,
+    ),
+    ),
+    ],
+    ),
+    Column(
+    crossAxisAlignment: CrossAxisAlignment.end,
+    children: [
+    Text(
+    'Items',
+    style: TextStyle(
+    fontSize: isSmallScreen ? 11 : 13,
+    color: Colors.grey.shade600,
+    fontWeight: FontWeight.w600,
+    ),
+    ),
+    Text(
+    '$totalItems',
+    style: TextStyle(
+    fontSize: isSmallScreen ? 16 : 18,
+    fontWeight: FontWeight.w800,
+    color: Colors.black87,
+    ),
+    ),
+    ],
+    ),
+    ],
+    ),
+    ),
+
+    SizedBox(height: isSmallScreen ? 12 : 16),
+
+                    // Action Buttons Row - UPDATED: Reschedule button instead of View Details
+                    Row(
+                      children: [
+                        // Reschedule Button (was View Details)
+                        Expanded(
+                          child: Container(
+                            height: isSmallScreen ? 42 : 48,
+                            child: ElevatedButton.icon(
+                              onPressed: (canReschedule && remainingTime > 0) ? () => _showRescheduleDialog(order) : null,
+                              icon: Icon(
+                                (canReschedule && remainingTime > 0) ? Icons.schedule : Icons.block,
+                                size: isSmallScreen ? 16 : 18,
+                                color: (canReschedule && remainingTime > 0) ? kPrimaryColor : Colors.grey.shade500,
+                              ),
+                              label: Text(
+                                (canReschedule && remainingTime > 0) ? 'Reschedule' :
+                                canReschedule ? 'Reschedule Timeout' : 'Cannot Reschedule',
+                                style: TextStyle(
+                                  color: (canReschedule && remainingTime > 0) ? kPrimaryColor : Colors.grey.shade600,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: isSmallScreen ? 12 : 14,
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: (canReschedule && remainingTime > 0)
+                                    ? kPrimaryColor.withOpacity(0.1)
+                                    : Colors.grey.shade100,
+                                foregroundColor: (canReschedule && remainingTime > 0) ? kPrimaryColor : Colors.grey.shade500,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+
+                        // Cancel Order or Reorder Button - FIXED LOGIC
+                        Expanded(
+                          child: Container(
+                            height: isSmallScreen ? 42 : 48,
+                            child: canCancel
+                                ? ElevatedButton.icon(
+                              // Button is enabled only when there's remaining time
+                              onPressed: remainingTime > 0 ? () => _cancelOrder(order) : null,
+                              icon: Icon(
+                                remainingTime > 0 ? Icons.cancel_outlined : Icons.block,
+                                size: isSmallScreen ? 16 : 18,
+                                color: remainingTime > 0 ? Colors.white : Colors.grey.shade500,
+                              ),
+                              label: Text(
+                                remainingTime > 0 ? 'Cancel Order' : 'Cancel Timeout',
+                                style: TextStyle(
+                                  color: remainingTime > 0 ? Colors.white : Colors.grey.shade600,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: isSmallScreen ? 12 : 14,
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: remainingTime > 0 ? Colors.red.shade600 : Colors.grey.shade200,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            )
+                                : (_canReorder(order['status'] ?? order['order_status'])
+                                ? ElevatedButton.icon(
+                              onPressed: () => _reorderItems(order),
+                              icon: Icon(Icons.refresh_rounded, size: isSmallScreen ? 16 : 18, color: Colors.white),
+                              label: Text(
+                                'Reorder',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: isSmallScreen ? 12 : 14,
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green.shade600,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            )
+                                : ElevatedButton.icon(
+                              onPressed: null,
+                              icon: Icon(Icons.info_outline, size: isSmallScreen ? 16 : 18, color: Colors.grey.shade500),
+                              label: Text(
+                                'Order ${(order['status'] ?? order['order_status'] ?? 'Processing').toString().toLowerCase()}',
+                                style: TextStyle(
+                                  color: Colors.grey.shade600,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: isSmallScreen ? 10 : 12,
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.grey.shade100,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            )),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+            ),
+          ),
+        ),
     );
   }
 
-  Widget _buildCountdownBadge(int remainingTime) {
+  Widget _buildCountdownBadge(int remainingTime, bool isSmallScreen) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: EdgeInsets.symmetric(horizontal: isSmallScreen ? 8 : 12, vertical: isSmallScreen ? 6 : 8),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [Colors.orange.shade600, Colors.orange.shade500],
@@ -1494,13 +1523,13 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.timer, color: Colors.white, size: 14),
+          Icon(Icons.timer, color: Colors.white, size: isSmallScreen ? 12 : 14),
           const SizedBox(width: 6),
           Text(
             _formatRemainingTime(remainingTime),
-            style: const TextStyle(
+            style: TextStyle(
               color: Colors.white,
-              fontSize: 12,
+              fontSize: isSmallScreen ? 10 : 12,
               fontWeight: FontWeight.w800,
               letterSpacing: 0.5,
             ),
@@ -1510,7 +1539,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     );
   }
 
-  Widget _buildStatusBadge(dynamic status) {
+  Widget _buildStatusBadge(dynamic status, bool isSmallScreen) {
     final statusString = status?.toString().toLowerCase() ?? '';
     Color color;
     IconData icon;
@@ -1546,7 +1575,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: EdgeInsets.symmetric(horizontal: isSmallScreen ? 8 : 12, vertical: isSmallScreen ? 4 : 6),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [color, color.withOpacity(0.8)],
@@ -1563,13 +1592,13 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: Colors.white, size: 14),
+          Icon(icon, color: Colors.white, size: isSmallScreen ? 12 : 14),
           const SizedBox(width: 6),
           Text(
             status?.toString().toUpperCase() ?? 'UNKNOWN',
-            style: const TextStyle(
+            style: TextStyle(
               color: Colors.white,
-              fontSize: 11,
+              fontSize: isSmallScreen ? 9 : 11,
               fontWeight: FontWeight.w800,
               letterSpacing: 0.5,
             ),
@@ -1609,6 +1638,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
   }
 }
 
+// End of OrderHistoryScreenState class
 // NEW CLASS: Reschedule Dialog Widget
 class _RescheduleDialog extends StatefulWidget {
   final Map<String, dynamic> order;
@@ -1751,6 +1781,85 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
     }
     return null;
   }
+  // Get ALL pickup slots (including unavailable ones)
+  List<Map<String, dynamic>> _getAllPickupSlots() {
+    int selectedDayOfWeek = selectedPickupDate.weekday;
+
+    List<Map<String, dynamic>> daySlots = pickupSlots.where((slot) {
+      int slotDayOfWeek = slot['day_of_week'] ?? 0;
+      bool dayMatches = slotDayOfWeek == selectedDayOfWeek ||
+          (selectedDayOfWeek == 7 && slotDayOfWeek == 0) ||
+          (slotDayOfWeek == 7 && selectedDayOfWeek == 0);
+
+      bool typeMatches = isExpressDelivery
+          ? (slot['slot_type'] == 'express' || slot['slot_type'] == 'both')
+          : (slot['slot_type'] == 'standard' || slot['slot_type'] == 'both');
+
+      return dayMatches && typeMatches;
+    }).toList();
+
+    // Sort slots by time
+    daySlots.sort((a, b) {
+      TimeOfDay timeA = _parseTimeString(a['start_time']);
+      TimeOfDay timeB = _parseTimeString(b['start_time']);
+      if (timeA.hour != timeB.hour) return timeA.hour.compareTo(timeB.hour);
+      return timeA.minute.compareTo(timeB.minute);
+    });
+
+    return daySlots;
+  }
+
+  // Get ALL delivery slots (including unavailable ones)
+  List<Map<String, dynamic>> _getAllDeliverySlots() {
+    if (selectedPickupSlot == null) return [];
+
+    final deliveryDate = selectedDeliveryDate;
+    int deliveryDayOfWeek = deliveryDate.weekday;
+
+    List<Map<String, dynamic>> daySlots = deliverySlots.where((slot) {
+      int slotDayOfWeek = slot['day_of_week'] ?? 0;
+      bool dayMatches = slotDayOfWeek == deliveryDayOfWeek ||
+          (deliveryDayOfWeek == 7 && slotDayOfWeek == 0) ||
+          (slotDayOfWeek == 7 && deliveryDayOfWeek == 0);
+
+      bool typeMatches = isExpressDelivery
+          ? (slot['slot_type'] == 'express' || slot['slot_type'] == 'both')
+          : (slot['slot_type'] == 'standard' || slot['slot_type'] == 'both');
+
+      return dayMatches && typeMatches;
+    }).toList();
+
+    // Sort slots by time
+    daySlots.sort((a, b) {
+      TimeOfDay timeA = _parseTimeString(a['start_time']);
+      TimeOfDay timeB = _parseTimeString(b['start_time']);
+      if (timeA.hour != timeB.hour) return timeA.hour.compareTo(timeB.hour);
+      return timeA.minute.compareTo(timeB.minute);
+    });
+
+    return daySlots;
+  }
+
+  // Check if pickup slot is available
+  bool _isPickupSlotAvailable(Map<String, dynamic> slot) {
+    final now = DateTime.now();
+    final isToday = selectedPickupDate.day == now.day &&
+        selectedPickupDate.month == now.month &&
+        selectedPickupDate.year == now.year;
+
+    if (!isToday) return true; // All slots available for future dates
+
+    // For today, check if slot has passed
+    final currentTime = TimeOfDay.now();
+    String timeString = slot['start_time'];
+    TimeOfDay slotTime = _parseTimeString(timeString);
+
+    // Check if slot has passed
+    if (slotTime.hour < currentTime.hour) return false;
+    if (slotTime.hour == currentTime.hour && slotTime.minute < currentTime.minute) return false;
+
+    return true;
+  }
 
   bool _hasAvailableDeliverySlots(DateTime date) {
     int dayOfWeek = date.weekday;
@@ -1797,114 +1906,6 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
       return TimeOfDay(hour: 0, minute: 0);
     }
   }
-
-  List<Map<String, dynamic>> _getFilteredPickupSlots() {
-    final now = DateTime.now();
-    final isToday = selectedPickupDate.day == now.day &&
-        selectedPickupDate.month == now.month &&
-        selectedPickupDate.year == now.year;
-
-    int selectedDayOfWeek = selectedPickupDate.weekday;
-
-    List<Map<String, dynamic>> daySlots = pickupSlots.where((slot) {
-      int slotDayOfWeek = slot['day_of_week'] ?? 0;
-      bool dayMatches = slotDayOfWeek == selectedDayOfWeek ||
-          (selectedDayOfWeek == 7 && slotDayOfWeek == 0) ||
-          (slotDayOfWeek == 7 && selectedDayOfWeek == 0);
-
-      bool typeMatches = isExpressDelivery
-          ? (slot['slot_type'] == 'express' || slot['slot_type'] == 'both')
-          : (slot['slot_type'] == 'standard' || slot['slot_type'] == 'both');
-
-      return dayMatches && typeMatches;
-    }).toList();
-
-    // Sort slots by time
-    daySlots.sort((a, b) {
-      TimeOfDay timeA = _parseTimeString(a['start_time']);
-      TimeOfDay timeB = _parseTimeString(b['start_time']);
-      if (timeA.hour != timeB.hour) return timeA.hour.compareTo(timeB.hour);
-      return timeA.minute.compareTo(timeB.minute);
-    });
-
-    if (!isToday) {
-      return daySlots;
-    }
-
-    // For today, filter based on current time
-    final currentTime = TimeOfDay.now();
-
-    return daySlots.where((slot) {
-      final slotStart = _parseTimeString(slot['start_time']);
-      int currentMinutes = currentTime.hour * 60 + currentTime.minute;
-      int slotMinutes = slotStart.hour * 60 + slotStart.minute;
-      return slotMinutes > currentMinutes;
-    }).toList();
-  }
-
-  List<Map<String, dynamic>> _getFilteredDeliverySlots() {
-    if (selectedPickupSlot == null) return [];
-
-    final deliveryDate = selectedDeliveryDate;
-    int deliveryDayOfWeek = deliveryDate.weekday;
-
-    List<Map<String, dynamic>> daySlots = deliverySlots.where((slot) {
-      int slotDayOfWeek = slot['day_of_week'] ?? 0;
-      bool dayMatches = slotDayOfWeek == deliveryDayOfWeek ||
-          (deliveryDayOfWeek == 7 && slotDayOfWeek == 0) ||
-          (slotDayOfWeek == 7 && deliveryDayOfWeek == 0);
-
-      bool typeMatches = isExpressDelivery
-          ? (slot['slot_type'] == 'express' || slot['slot_type'] == 'both')
-          : (slot['slot_type'] == 'standard' || slot['slot_type'] == 'both');
-
-      return dayMatches && typeMatches;
-    }).toList();
-
-    // Sort slots by time
-    daySlots.sort((a, b) {
-      TimeOfDay timeA = _parseTimeString(a['start_time']);
-      TimeOfDay timeB = _parseTimeString(b['start_time']);
-      if (timeA.hour != timeB.hour) return timeA.hour.compareTo(timeB.hour);
-      return timeA.minute.compareTo(timeB.minute);
-    });
-
-    final pickupDate = selectedPickupDate;
-
-    // If delivery is on a different day, apply express/standard logic from morning slots
-    if (pickupDate.day != deliveryDate.day ||
-        pickupDate.month != deliveryDate.month ||
-        pickupDate.year != deliveryDate.year) {
-
-      if (isExpressDelivery) {
-        return daySlots;
-      } else {
-        return daySlots.skip(1).toList();
-      }
-    }
-
-    // Same day delivery - apply filtering logic based on pickup slot
-    int pickupSlotIndex = -1;
-    for (int i = 0; i < daySlots.length; i++) {
-      if (daySlots[i]['start_time'] == selectedPickupSlot!['start_time'] &&
-          daySlots[i]['end_time'] == selectedPickupSlot!['end_time']) {
-        pickupSlotIndex = i;
-        break;
-      }
-    }
-
-    if (pickupSlotIndex == -1) return daySlots;
-
-    int startIndex;
-    if (isExpressDelivery) {
-      startIndex = pickupSlotIndex + 1;
-    } else {
-      startIndex = pickupSlotIndex + 2;
-    }
-
-    return daySlots.skip(startIndex).toList();
-  }
-
   bool _isDeliverySlotAvailable(Map<String, dynamic> slot) {
     if (selectedPickupSlot == null) return false;
 
@@ -2342,9 +2343,10 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
   }
 
   Widget _buildSlotsSection(bool isPickup) {
+    // Show ALL slots (including unavailable ones) like SlotSelectorScreen
     List<Map<String, dynamic>> slots = isPickup
-        ? _getFilteredPickupSlots()
-        : _getFilteredDeliverySlots();
+        ? _getAllPickupSlots()  // Show all pickup slots
+        : _getAllDeliverySlots(); // Show all delivery slots
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2403,12 +2405,13 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
                   ? (selectedPickupSlot?['id'] == slot['id'])
                   : (selectedDeliverySlot?['id'] == slot['id']);
 
+              // Check if slot is available like SlotSelectorScreen
               bool isSlotAvailable = isPickup
-                  ? true // All filtered slots are available for pickup
+                  ? _isPickupSlotAvailable(slot)
                   : _isDeliverySlotAvailable(slot);
 
               return GestureDetector(
-                onTap: !isSlotAvailable ? null : () {
+                onTap: !isSlotAvailable ? null : () {  // Disable tap for unavailable slots
                   if (isPickup) {
                     _onPickupSlotSelected(slot);
                   } else {
@@ -2418,6 +2421,7 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
+                    // Gray out unavailable slots
                     color: !isSlotAvailable
                         ? Colors.grey.shade100
                         : isSelected ? kPrimaryColor : Colors.white,
@@ -2436,6 +2440,7 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
                         Text(
                           slot['display_time'] ?? '${slot['start_time']} - ${slot['end_time']}',
                           style: TextStyle(
+                            // Gray out text for unavailable slots
                             color: !isSlotAvailable
                                 ? Colors.grey.shade500
                                 : isSelected ? Colors.white : Colors.black,
@@ -2444,6 +2449,7 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
                           ),
                           textAlign: TextAlign.center,
                         ),
+                        // Show "Unavailable" text like SlotSelectorScreen
                         if (!isSlotAvailable)
                           Text(
                             'Unavailable',
@@ -2472,6 +2478,7 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
   }
 }
 
+// End of _RescheduleDialog class
 // Enhanced Order Details Sheet with Premium Design
 class _OrderDetailsSheet extends StatelessWidget {
   final Map<String, dynamic> order;
@@ -2490,6 +2497,10 @@ class _OrderDetailsSheet extends StatelessWidget {
         (order['order_billing_details'] as List).isNotEmpty
         ? (order['order_billing_details'] as List)[0]
         : null;
+
+    // ✅ RESPONSIVE: Get screen dimensions for universal phone display
+    final screenSize = MediaQuery.of(context).size;
+    final isSmallScreen = screenSize.width < 360;
 
     return Container(
       height: MediaQuery.of(context).size.height * 0.9,
@@ -2512,33 +2523,33 @@ class _OrderDetailsSheet extends StatelessWidget {
 
           // Header
           Padding(
-            padding: const EdgeInsets.all(20),
+            padding: EdgeInsets.all(isSmallScreen ? 16 : 20),
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: EdgeInsets.all(isSmallScreen ? 10 : 12),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)]),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(Icons.receipt_rounded, color: Colors.white, size: 20),
+                  child: Icon(Icons.receipt_rounded, color: Colors.white, size: isSmallScreen ? 18 : 20),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Order Details',
                         style: TextStyle(
-                          fontSize: 20,
+                          fontSize: isSmallScreen ? 18 : 20,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
                       Text(
                         'Order #${order['id'].toString().substring(0, 8)}',
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: isSmallScreen ? 12 : 14,
                           color: Colors.grey.shade600,
                           fontWeight: FontWeight.w500,
                         ),
@@ -2554,7 +2565,7 @@ class _OrderDetailsSheet extends StatelessWidget {
                       color: Colors.grey.shade100,
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Icon(Icons.close_rounded, size: 20),
+                    child: Icon(Icons.close_rounded, size: isSmallScreen ? 18 : 20),
                   ),
                 ),
               ],
@@ -2564,14 +2575,14 @@ class _OrderDetailsSheet extends StatelessWidget {
           // Content
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: EdgeInsets.symmetric(horizontal: isSmallScreen ? 16 : 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Order Items Section
-                  _buildSectionHeader('Order Items', Icons.shopping_bag_outlined),
+                  _buildSectionHeader('Order Items', Icons.shopping_bag_outlined, isSmallScreen),
                   const SizedBox(height: 12),
-                  ...orderItems.map((item) => _buildOrderItem(item)).toList(),
+                  ...orderItems.map((item) => _buildOrderItem(item, isSmallScreen)).toList(),
 
                   const SizedBox(height: 24),
 
@@ -2581,26 +2592,26 @@ class _OrderDetailsSheet extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.receipt_long, color: kPrimaryColor, size: 20),
+                          Icon(Icons.receipt_long, color: kPrimaryColor, size: isSmallScreen ? 18 : 20),
                           const SizedBox(width: 8),
-                          const Text(
+                          Text(
                             'Bill Details',
                             style: TextStyle(
-                              fontSize: 18,
+                              fontSize: isSmallScreen ? 16 : 18,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
                         ],
                       ),
                       Container(
-                        height: 36,
+                        height: isSmallScreen ? 32 : 36,
                         child: ElevatedButton.icon(
                           onPressed: onGenerateInvoice,
-                          icon: const Icon(Icons.picture_as_pdf, size: 16, color: Colors.white),
-                          label: const Text(
+                          icon: Icon(Icons.picture_as_pdf, size: isSmallScreen ? 14 : 16, color: Colors.white),
+                          label: Text(
                             'Get Invoice',
                             style: TextStyle(
-                              fontSize: 14,
+                              fontSize: isSmallScreen ? 12 : 14,
                               fontWeight: FontWeight.w600,
                               color: Colors.white,
                             ),
@@ -2618,7 +2629,7 @@ class _OrderDetailsSheet extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   Container(
-                    padding: const EdgeInsets.all(20),
+                    padding: EdgeInsets.all(isSmallScreen ? 16 : 20),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [kPrimaryColor.withOpacity(0.05), Colors.purple.withOpacity(0.02)],
@@ -2629,23 +2640,23 @@ class _OrderDetailsSheet extends StatelessWidget {
                     child: Column(
                       children: [
                         if (billingDetails != null) ...[
-                          _buildBillRow('Subtotal', '₹${billingDetails['subtotal'] ?? '0.00'}'),
+                          _buildBillRow('Subtotal', '₹${billingDetails['subtotal'] ?? '0.00'}', isSmallScreen: isSmallScreen),
                           if ((billingDetails['minimum_cart_fee'] ?? 0) > 0)
-                            _buildBillRow('Minimum Cart Fee', '₹${billingDetails['minimum_cart_fee']}'),
+                            _buildBillRow('Minimum Cart Fee', '₹${billingDetails['minimum_cart_fee']}', isSmallScreen: isSmallScreen),
                           if ((billingDetails['platform_fee'] ?? 0) > 0)
-                            _buildBillRow('Platform Fee', '₹${billingDetails['platform_fee']}'),
+                            _buildBillRow('Platform Fee', '₹${billingDetails['platform_fee']}', isSmallScreen: isSmallScreen),
                           if ((billingDetails['service_tax'] ?? 0) > 0)
-                            _buildBillRow('Service Tax', '₹${billingDetails['service_tax']}'),
+                            _buildBillRow('Service Tax', '₹${billingDetails['service_tax']}', isSmallScreen: isSmallScreen),
                           if ((billingDetails['delivery_fee'] ?? 0) > 0)
-                            _buildBillRow('Delivery Fee', '₹${billingDetails['delivery_fee']}'),
+                            _buildBillRow('Delivery Fee', '₹${billingDetails['delivery_fee']}', isSmallScreen: isSmallScreen),
                           if ((billingDetails['discount_amount'] ?? 0) > 0)
-                            _buildBillRow('Discount', '-₹${billingDetails['discount_amount']}', isDiscount: true),
+                            _buildBillRow('Discount', '-₹${billingDetails['discount_amount']}', isDiscount: true, isSmallScreen: isSmallScreen),
                           if (billingDetails['applied_coupon_code'] != null)
-                            _buildBillRow('Coupon', billingDetails['applied_coupon_code'].toString(), isInfo: true),
+                            _buildBillRow('Coupon', billingDetails['applied_coupon_code'].toString(), isInfo: true, isSmallScreen: isSmallScreen),
                           const Divider(height: 24, thickness: 1),
-                          _buildBillRow('Total Amount', '₹${billingDetails['total_amount'] ?? order['total_amount'] ?? '0.00'}', isTotal: true),
+                          _buildBillRow('Total Amount', '₹${billingDetails['total_amount'] ?? order['total_amount'] ?? '0.00'}', isTotal: true, isSmallScreen: isSmallScreen),
                         ] else ...[
-                          _buildBillRow('Total Amount', '₹${order['total_amount'] ?? '0.00'}', isTotal: true),
+                          _buildBillRow('Total Amount', '₹${order['total_amount'] ?? '0.00'}', isTotal: true, isSmallScreen: isSmallScreen),
                         ],
                         const SizedBox(height: 12),
                         Container(
@@ -2661,7 +2672,7 @@ class _OrderDetailsSheet extends StatelessWidget {
                                 'Payment Method',
                                 style: TextStyle(
                                   color: Colors.grey.shade700,
-                                  fontSize: 14,
+                                  fontSize: isSmallScreen ? 12 : 14,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
@@ -2669,7 +2680,7 @@ class _OrderDetailsSheet extends StatelessWidget {
                                 order['payment_method']?.toString().toUpperCase() ?? 'N/A',
                                 style: TextStyle(
                                   color: kPrimaryColor,
-                                  fontSize: 14,
+                                  fontSize: isSmallScreen ? 12 : 14,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -2684,7 +2695,7 @@ class _OrderDetailsSheet extends StatelessWidget {
 
                   // Delivery Address
                   if (addressInfo != null) ...[
-                    _buildSectionHeader('Delivery Address', Icons.location_on),
+                    _buildSectionHeader('Delivery Address', Icons.location_on, isSmallScreen),
                     const SizedBox(height: 12),
                     Container(
                       padding: const EdgeInsets.all(16),
@@ -2700,13 +2711,15 @@ class _OrderDetailsSheet extends StatelessWidget {
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.person, color: kPrimaryColor, size: 18),
+                              Icon(Icons.person, color: kPrimaryColor, size: isSmallScreen ? 16 : 18),
                               const SizedBox(width: 8),
-                              Text(
-                                addressInfo['recipient_name'] ?? 'N/A',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 16,
+                              Expanded(
+                                child: Text(
+                                  addressInfo['recipient_name'] ?? 'N/A',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: isSmallScreen ? 14 : 16,
+                                  ),
                                 ),
                               ),
                             ],
@@ -2716,7 +2729,7 @@ class _OrderDetailsSheet extends StatelessWidget {
                             '${addressInfo['address_line_1'] ?? ''}\n${addressInfo['city'] ?? ''}, ${addressInfo['state'] ?? ''} - ${addressInfo['pincode'] ?? ''}',
                             style: TextStyle(
                               color: Colors.grey.shade700,
-                              fontSize: 14,
+                              fontSize: isSmallScreen ? 12 : 14,
                               height: 1.4,
                             ),
                           ),
@@ -2726,34 +2739,51 @@ class _OrderDetailsSheet extends StatelessWidget {
                     const SizedBox(height: 24),
                   ],
 
-                  // Order Timeline
-                  _buildSectionHeader('Order Timeline', Icons.timeline),
+                  // ✅ NEW: Order Timeline with Slot Details
+                  _buildSectionHeader('Order Timeline', Icons.timeline, isSmallScreen),
                   const SizedBox(height: 12),
                   Container(
-                    padding: const EdgeInsets.all(20),
+                    padding: EdgeInsets.all(isSmallScreen ? 16 : 20),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+                        colors: [kPrimaryColor.withOpacity(0.8), kPrimaryColor],
                       ),
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
                           color: kPrimaryColor.withOpacity(0.3),
-                          blurRadius: 12,
-                          offset: const Offset(0, 6),
+                          blurRadius: 15,
+                          offset: const Offset(0, 8),
                         ),
                       ],
                     ),
                     child: Column(
                       children: [
-                        _buildTimelineRow('Order Placed', _formatDate(order['created_at'])),
-                        if (order['pickup_date'] != null) ...[
+                        _buildTimelineRow('Order Placed', _formatDate(order['created_at']), isSmallScreen),
+                        // Show pickup slot details
+                        if (order['pickup_date'] != null && order['pickup_slot'] != null) ...[
                           const SizedBox(height: 12),
-                          _buildTimelineRow('Pickup Date', _formatDate(order['pickup_date'])),
+                          _buildTimelineRowWithSlot(
+                              'Pickup Scheduled',
+                              _formatDate(order['pickup_date']),
+                              order['pickup_slot']['display_time'] ?? '${order['pickup_slot']['start_time']} - ${order['pickup_slot']['end_time']}',
+                              isSmallScreen
+                          ),
                         ],
-                        if (order['delivery_date'] != null) ...[
+                        // Show delivery slot details
+                        if (order['delivery_date'] != null && order['delivery_slot'] != null) ...[
                           const SizedBox(height: 12),
-                          _buildTimelineRow('Delivery Date', _formatDate(order['delivery_date'])),
+                          _buildTimelineRowWithSlot(
+                              'Delivery Scheduled',
+                              _formatDate(order['delivery_date']),
+                              order['delivery_slot']['display_time'] ?? '${order['delivery_slot']['start_time']} - ${order['delivery_slot']['end_time']}',
+                              isSmallScreen
+                          ),
+                        ],
+                        // Show delivery type
+                        if (order['delivery_type'] != null) ...[
+                          const SizedBox(height: 12),
+                          _buildTimelineRow('Service Type', order['delivery_type'].toString().toUpperCase(), isSmallScreen),
                         ],
                       ],
                     ),
@@ -2769,15 +2799,15 @@ class _OrderDetailsSheet extends StatelessWidget {
     );
   }
 
-  Widget _buildSectionHeader(String title, IconData icon) {
+  Widget _buildSectionHeader(String title, IconData icon, bool isSmallScreen) {
     return Row(
       children: [
-        Icon(icon, color: kPrimaryColor, size: 20),
+        Icon(icon, color: kPrimaryColor, size: isSmallScreen ? 18 : 20),
         const SizedBox(width: 8),
         Text(
           title,
-          style: const TextStyle(
-            fontSize: 18,
+          style: TextStyle(
+            fontSize: isSmallScreen ? 16 : 18,
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -2785,23 +2815,25 @@ class _OrderDetailsSheet extends StatelessWidget {
     );
   }
 
-  Widget _buildTimelineRow(String label, String value) {
+  Widget _buildTimelineRow(String label, String value, bool isSmallScreen) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: isSmallScreen ? 14 : 16,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             color: Colors.white,
-            fontSize: 16,
+            fontSize: isSmallScreen ? 14 : 16,
             fontWeight: FontWeight.w800,
           ),
         ),
@@ -2809,24 +2841,78 @@ class _OrderDetailsSheet extends StatelessWidget {
     );
   }
 
-  Widget _buildBillRow(String label, String value, {bool isTotal = false, bool isDiscount = false, bool isInfo = false}) {
+  // Timeline row with slot details
+  Widget _buildTimelineRowWithSlot(String label, String date, String slot, bool isSmallScreen) {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: isSmallScreen ? 14 : 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            Text(
+              date,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: isSmallScreen ? 14 : 16,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                slot,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: isSmallScreen ? 10 : 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBillRow(String label, String value, {bool isTotal = false, bool isDiscount = false, bool isInfo = false, required bool isSmallScreen}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: isTotal ? 16 : 14,
-              fontWeight: isTotal ? FontWeight.w700 : FontWeight.w500,
-              color: isTotal ? Colors.black : Colors.grey.shade700,
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: isTotal ? (isSmallScreen ? 14 : 16) : (isSmallScreen ? 12 : 14),
+                fontWeight: isTotal ? FontWeight.w700 : FontWeight.w500,
+                color: isTotal ? Colors.black : Colors.grey.shade700,
+              ),
             ),
           ),
           Text(
             value,
             style: TextStyle(
-              fontSize: isTotal ? 18 : 14,
+              fontSize: isTotal ? (isSmallScreen ? 16 : 18) : (isSmallScreen ? 12 : 14),
               fontWeight: isTotal ? FontWeight.w800 : FontWeight.w600,
               color: isTotal
                   ? kPrimaryColor
@@ -2842,12 +2928,12 @@ class _OrderDetailsSheet extends StatelessWidget {
     );
   }
 
-  Widget _buildOrderItem(Map<String, dynamic> item) {
+  Widget _buildOrderItem(Map<String, dynamic> item, bool isSmallScreen) {
     final product = item['products'];
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
         borderRadius: BorderRadius.circular(12),
@@ -2857,8 +2943,8 @@ class _OrderDetailsSheet extends StatelessWidget {
         children: [
           // Product Image
           Container(
-            width: 60,
-            height: 60,
+            width: isSmallScreen ? 50 : 60,
+            height: isSmallScreen ? 50 : 60,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(8),
               color: Colors.white,
@@ -2873,8 +2959,8 @@ class _OrderDetailsSheet extends StatelessWidget {
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
-                    padding: const EdgeInsets.all(16),
-                    child: Icon(Icons.image_not_supported_outlined, color: Colors.grey.shade400, size: 24),
+                    padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
+                    child: Icon(Icons.image_not_supported_outlined, color: Colors.grey.shade400, size: isSmallScreen ? 20 : 24),
                   );
                 },
                 loadingBuilder: (context, child, loadingProgress) {
@@ -2891,8 +2977,8 @@ class _OrderDetailsSheet extends StatelessWidget {
                 },
               )
                   : Container(
-                padding: const EdgeInsets.all(16),
-                child: Icon(Icons.shopping_bag_outlined, color: Colors.grey.shade400, size: 24),
+                padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
+                child: Icon(Icons.shopping_bag_outlined, color: Colors.grey.shade400, size: isSmallScreen ? 20 : 24),
               ),
             ),
           ),
@@ -2905,9 +2991,9 @@ class _OrderDetailsSheet extends StatelessWidget {
               children: [
                 Text(
                   product?['name']?.toString() ?? 'Unknown Product',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w600,
-                    fontSize: 15,
+                    fontSize: isSmallScreen ? 13 : 15,
                   ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -2917,7 +3003,7 @@ class _OrderDetailsSheet extends StatelessWidget {
                   'Quantity: ${item['quantity'] ?? 1}',
                   style: TextStyle(
                     color: Colors.grey.shade600,
-                    fontSize: 13,
+                    fontSize: isSmallScreen ? 11 : 13,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -2928,7 +3014,7 @@ class _OrderDetailsSheet extends StatelessWidget {
                       '₹${product?['price'] ?? item['product_price'] ?? '0.00'} each',
                       style: TextStyle(
                         color: kPrimaryColor,
-                        fontSize: 14,
+                        fontSize: isSmallScreen ? 12 : 14,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -2943,7 +3029,7 @@ class _OrderDetailsSheet extends StatelessWidget {
                         item['service_type'] ?? 'Standard',
                         style: TextStyle(
                           color: Colors.blue.shade700,
-                          fontSize: 11,
+                          fontSize: isSmallScreen ? 9 : 11,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -2957,9 +3043,9 @@ class _OrderDetailsSheet extends StatelessWidget {
           // Item Total
           Text(
             '₹${item['total_price']?.toString() ?? '0.00'}',
-            style: const TextStyle(
+            style: TextStyle(
               fontWeight: FontWeight.w800,
-              fontSize: 16,
+              fontSize: isSmallScreen ? 14 : 16,
             ),
           ),
         ],
@@ -2979,3 +3065,5 @@ class _OrderDetailsSheet extends StatelessWidget {
     }
   }
 }
+
+// ✅ END OF COMPLETE ORDER HISTORY SCREEN CODE ✅

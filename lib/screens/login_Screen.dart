@@ -1,15 +1,12 @@
-// ✅ COMPLETE OAUTH REDIRECT FIX
-// Replace your existing login screen with this updated version
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:app_links/app_links.dart'; // Add this dependency
+import 'package:app_links/app_links.dart';
 import 'dart:async';
-import 'signup_screen.dart';
-import 'forgot_password_screen.dart';
 import 'phone_login_screen.dart';
 import 'colors.dart';
+import 'app_wrapper.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -19,20 +16,18 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin {
-  final emailController = TextEditingController();
-  final passwordController = TextEditingController();
   final supabase = Supabase.instance.client;
 
   late AnimationController _fadeController;
   late AnimationController _slideController;
+  late AnimationController _scaleController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+  late Animation<double> _scaleAnimation;
 
-  bool _isLoggingIn = false;
   bool _isGoogleLoggingIn = false;
-  bool _passwordVisible = false;
 
-  // ✅ NEW: App Links for handling OAuth redirects
+  // App Links for handling OAuth redirects
   late AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSubscription;
 
@@ -41,14 +36,49 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     super.initState();
     _initializeAnimations();
     _setupAuthListener();
-    _initDeepLinks(); // ✅ NEW: Initialize deep link handling
+    _initDeepLinks();
   }
 
-  // ✅ NEW: Setup deep link handling for OAuth
+  void _initializeAnimations() {
+    _fadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+    _slideController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+    _scaleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeInOut,
+    );
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.4),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _slideController,
+      curve: Curves.elasticOut,
+    ));
+    _scaleAnimation = CurvedAnimation(
+      parent: _scaleController,
+      curve: Curves.elasticOut,
+    );
+
+    _fadeController.forward();
+    _slideController.forward();
+    Future.delayed(const Duration(milliseconds: 200), () {
+      _scaleController.forward();
+    });
+  }
+
   void _initDeepLinks() {
     _appLinks = AppLinks();
 
-    // Listen for incoming links when app is already running
     _linkSubscription = _appLinks.uriLinkStream.listen(
           (Uri uri) {
         print('📱 Deep link received: $uri');
@@ -59,7 +89,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       },
     );
 
-    // Handle link when app is launched from terminated state
     _appLinks.getInitialLink().then((Uri? uri) {
       if (uri != null) {
         print('📱 Initial deep link: $uri');
@@ -68,21 +97,16 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     });
   }
 
-  // ✅ NEW: Handle OAuth redirect links
   void _handleIncomingLink(Uri uri) {
     print('🔗 Processing link: ${uri.toString()}');
 
-    // Check if this is a Supabase auth callback
     if (uri.scheme == 'com.yuknow.ironly' && uri.host == 'auth-callback') {
       print('✅ OAuth callback detected');
 
-      // Extract the fragment which contains the auth tokens
       final fragment = uri.fragment;
       if (fragment.isNotEmpty) {
-        // Parse the fragment to get auth tokens
         final params = Uri.splitQueryString(fragment);
         final accessToken = params['access_token'];
-        final refreshToken = params['refresh_token'];
 
         if (accessToken != null) {
           print('✅ Access token found in callback');
@@ -99,7 +123,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     setState(() {
       _isGoogleLoggingIn = false;
     });
-    _showMessage('Successfully signed in with Google!', isError: false);
+    _showMessage('🎉 Welcome! Signing you in...', isError: false);
     print('✅ OAuth login successful');
   }
 
@@ -111,89 +135,67 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     print('❌ OAuth error: $error');
   }
 
-  void _initializeAnimations() {
-    _fadeController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    );
-
-    _slideController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
-
-    _fadeAnimation = CurvedAnimation(
-      parent: _fadeController,
-      curve: Curves.easeInOut,
-    );
-
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.3),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _slideController,
-      curve: Curves.elasticOut,
-    ));
-
-    _fadeController.forward();
-    _slideController.forward();
-  }
-
   void _setupAuthListener() {
     supabase.auth.onAuthStateChange.listen((data) {
       final AuthChangeEvent event = data.event;
       final Session? session = data.session;
 
       print('🔐 Auth event: $event');
+      print('🔐 Session exists: ${session != null}');
+      print('🔐 User: ${session?.user?.email ?? session?.user?.phone}');
 
       if (event == AuthChangeEvent.signedIn && session != null) {
-        setState(() {
-          _isLoggingIn = false;
-          _isGoogleLoggingIn = false;
-        });
-        _showMessage('Welcome back!', isError: false);
-        print('✅ Login successful, user: ${session.user.email}');
+        if (mounted) {
+          setState(() {
+            _isGoogleLoggingIn = false;
+          });
 
-        // ✅ Navigate to home screen or handle successful login
-        // Navigator.pushReplacementNamed(context, '/home');
+          // Vibration feedback for success
+          HapticFeedback.lightImpact();
+
+          String userName = session.user.email?.split('@')[0] ??
+              session.user.phone?.replaceAll('+91', '') ?? 'User';
+
+          _showMessage('🎉 Welcome back, $userName!', isError: false);
+          print('✅ Login successful');
+
+          // Navigate to AppWrapper after a brief delay
+          Future.delayed(const Duration(milliseconds: 1500), () {
+            if (mounted) {
+              // ✅ NAVIGATE TO APP WRAPPER - NOT DIRECTLY TO HOME
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const AppWrapper()),
+                    (route) => false,
+              );
+
+              print('✅ Navigated to AppWrapper for location verification');
+            }
+          });
+        }
       } else if (event == AuthChangeEvent.signedOut) {
-        setState(() {
-          _isLoggingIn = false;
-          _isGoogleLoggingIn = false;
-        });
+        if (mounted) {
+          setState(() {
+            _isGoogleLoggingIn = false;
+          });
+        }
       }
     });
   }
 
-  Future<void> _loginWithEmail() async {
-    if (emailController.text.trim().isEmpty || passwordController.text.trim().isEmpty) {
-      _showMessage('Please fill in all fields', isError: true);
-      return;
-    }
-
-    setState(() {
-      _isLoggingIn = true;
-    });
-
+  Future<bool> _checkImageExists() async {
     try {
-      final res = await supabase.auth.signInWithPassword(
-        email: emailController.text.trim(),
-        password: passwordController.text.trim(),
-      );
-
-      if (res.user != null) {
-        // Success will be handled by auth listener
-      }
+      await rootBundle.load('assets/images/google_logo.png');
+      return true;
     } catch (e) {
-      setState(() {
-        _isLoggingIn = false;
-      });
-      _showMessage('Login failed: ${e.toString()}', isError: true);
+      print('❌ Google logo image not found: $e');
+      return false;
     }
   }
 
-  // ✅ UPDATED: Google OAuth with better redirect handling
   Future<void> _loginWithGoogle() async {
+    HapticFeedback.selectionClick();
+
     setState(() {
       _isGoogleLoggingIn = true;
     });
@@ -201,7 +203,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     try {
       print('🔐 Starting Google OAuth...');
 
-      // ✅ Use the correct redirect URL that matches your Supabase settings
       final authResponse = await supabase.auth.signInWithOAuth(
         OAuthProvider.google,
         redirectTo: 'com.yuknow.ironly://auth-callback',
@@ -209,8 +210,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       );
 
       print('🔐 OAuth initiated: ${authResponse.toString()}');
-
-      // Note: Don't set loading to false here, let the auth listener handle it
 
     } catch (e) {
       setState(() {
@@ -221,34 +220,67 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     }
   }
 
+  void _navigateToPhoneLogin() {
+    HapticFeedback.selectionClick();
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => const PhoneLoginScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(1.0, 0.0),
+              end: Offset.zero,
+            ).animate(CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeInOutCubic,
+            )),
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 300),
+      ),
+    );
+  }
+
   void _showMessage(String message, {required bool isError}) {
     ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              Icon(
-                isError ? Icons.error_outline : Icons.check_circle_outline,
-                color: Colors.white,
-                size: 20,
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              isError ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
+              color: Colors.white,
+              size: 22,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-              const SizedBox(width: 12),
-              Expanded(child: Text(message)),
-            ],
-          ),
-          backgroundColor: isError ? Colors.red.shade600 : Colors.green.shade600,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          margin: const EdgeInsets.all(16),
-        ));
+            ),
+          ],
+        ),
+        backgroundColor: isError ? Colors.red.shade600 : Colors.green.shade600,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        margin: const EdgeInsets.all(20),
+        duration: Duration(milliseconds: isError ? 4000 : 3000),
+        elevation: 8,
+      ),
+    );
   }
 
   @override
   void dispose() {
-    emailController.dispose();
-    passwordController.dispose();
     _fadeController.dispose();
     _slideController.dispose();
-    _linkSubscription?.cancel(); // ✅ NEW: Cancel deep link subscription
+    _scaleController.dispose();
+    _linkSubscription?.cancel();
     super.dispose();
   }
 
@@ -258,14 +290,15 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
             colors: [
+              kPrimaryColor.withOpacity(0.1),
               Colors.white,
               Colors.white,
-              kPrimaryColor.withOpacity(0.03),
+              kPrimaryColor.withOpacity(0.05),
             ],
-            stops: const [0.0, 0.6, 1.0],
+            stops: const [0.0, 0.3, 0.7, 1.0],
           ),
         ),
         child: SafeArea(
@@ -275,70 +308,50 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
               child: SlideTransition(
                 position: _slideAnimation,
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: 500,
-                      minHeight: MediaQuery.of(context).size.height * 0.8,
-                    ),
+                  padding: const EdgeInsets.symmetric(horizontal: 28),
+                  child: ScaleTransition(
+                    scale: _scaleAnimation,
                     child: Container(
-                      padding: const EdgeInsets.all(32),
+                      constraints: BoxConstraints(
+                        maxWidth: 450,
+                        minHeight: MediaQuery.of(context).size.height * 0.75,
+                      ),
+                      padding: const EdgeInsets.all(40),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(28),
+                        borderRadius: BorderRadius.circular(32),
                         boxShadow: [
                           BoxShadow(
-                            color: kPrimaryColor.withOpacity(0.1),
-                            blurRadius: 40,
+                            color: kPrimaryColor.withOpacity(0.15),
+                            blurRadius: 50,
                             spreadRadius: 5,
-                            offset: const Offset(0, 15),
+                            offset: const Offset(0, 20),
                           ),
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
-                            blurRadius: 20,
+                            color: Colors.black.withOpacity(0.08),
+                            blurRadius: 30,
                             spreadRadius: 0,
-                            offset: const Offset(0, 5),
+                            offset: const Offset(0, 10),
                           ),
                         ],
                       ),
                       child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          // ✅ WELCOME SECTION
+                          // Premium Logo & Welcome Section
                           _buildWelcomeSection(),
-                          const SizedBox(height: 40),
+                          const SizedBox(height: 60),
 
-                          // ✅ EMAIL FIELD
-                          _buildPremiumTextField(
-                            controller: emailController,
-                            label: 'Email Address',
-                            icon: Icons.email_outlined,
-                            keyboardType: TextInputType.emailAddress,
-                          ),
+                          // Google Login Button
+                          _buildGoogleLoginButton(),
                           const SizedBox(height: 20),
 
-                          // ✅ PASSWORD FIELD WITH EYE BUTTON
-                          _buildPasswordField(),
-                          const SizedBox(height: 16),
+                          // Phone Login Button
+                          _buildPhoneLoginButton(),
+                          const SizedBox(height: 50),
 
-                          // ✅ FORGOT PASSWORD
-                          _buildForgotPassword(),
-                          const SizedBox(height: 32),
-
-                          // ✅ LOGIN BUTTON
-                          _buildLoginButton(),
-                          const SizedBox(height: 24),
-
-                          // ✅ OR DIVIDER
-                          _buildOrDivider(),
-                          const SizedBox(height: 24),
-
-                          // ✅ SOCIAL LOGIN BUTTONS
-                          _buildSocialLoginButtons(),
-                          const SizedBox(height: 32),
-
-                          // ✅ SIGN UP LINK
-                          _buildSignUpLink(),
+                          // Premium Footer
+                          _buildPremiumFooter(),
                         ],
                       ),
                     ),
@@ -352,447 +365,332 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     );
   }
 
-  // ✅ WELCOME SECTION
   Widget _buildWelcomeSection() {
     return Column(
       children: [
-        // Premium logo with subtle shine effect
+        // Premium 3D Logo
         Container(
-          width: 80,
-          height: 80,
+          width: 100,
+          height: 100,
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.7)],
+              colors: [
+                kPrimaryColor,
+                kPrimaryColor.withOpacity(0.8),
+                kPrimaryColor.withOpacity(0.6),
+              ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: kPrimaryColor.withOpacity(0.3),
-                blurRadius: 25,
-                offset: const Offset(0, 10),
+                color: kPrimaryColor.withOpacity(0.4),
+                blurRadius: 30,
+                offset: const Offset(0, 15),
+              ),
+              BoxShadow(
+                color: kPrimaryColor.withOpacity(0.2),
+                blurRadius: 60,
+                offset: const Offset(0, 30),
               ),
             ],
           ),
           child: const Icon(
             Icons.local_laundry_service_rounded,
             color: Colors.white,
-            size: 40,
+            size: 50,
           ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 32),
 
-        // Welcome text with centered alignment
-        Column(
-          children: [
-            ShaderMask(
-              shaderCallback: (bounds) => LinearGradient(
-                colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
-              ).createShader(bounds),
-              child: const Text(
-                'Welcome to ironXpress',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w900,
-                  color: Colors.white,
-                  letterSpacing: 0.5,
-                  height: 1.3,
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Sign in to continue your laundry journey',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.grey.shade600,
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  // ✅ PASSWORD FIELD WITH EYE BUTTON
-  Widget _buildPasswordField() {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: TextFormField(
-        controller: passwordController,
-        obscureText: !_passwordVisible,
-        style: const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w500,
-        ),
-        decoration: InputDecoration(
-          labelText: 'Password',
-          labelStyle: TextStyle(
-            color: Colors.grey.shade600,
-            fontSize: 16,
-          ),
-          prefixIcon: Container(
-            margin: const EdgeInsets.all(12),
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [kPrimaryColor.withOpacity(0.1), kPrimaryColor.withOpacity(0.05)],
-              ),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              Icons.lock_outline,
-              color: kPrimaryColor,
-              size: 20,
-            ),
-          ),
-          suffixIcon: IconButton(
-            icon: Icon(
-              _passwordVisible ? Icons.visibility_off : Icons.visibility,
-              color: Colors.grey.shade600,
-            ),
-            onPressed: () {
-              setState(() {
-                _passwordVisible = !_passwordVisible;
-              });
-            },
-          ),
-          filled: true,
-          fillColor: Colors.white,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(color: Colors.grey.shade200),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(color: Colors.grey.shade200),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(color: kPrimaryColor, width: 2),
-          ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-        ),
-      ),
-    );
-  }
-
-  // ✅ FORGOT PASSWORD
-  Widget _buildForgotPassword() {
-    return Align(
-      alignment: Alignment.centerRight,
-      child: TextButton(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
-          );
-        },
-        style: TextButton.styleFrom(
-          padding: EdgeInsets.zero,
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        ),
-        child: Text(
-          'Forgot Password?',
-          style: TextStyle(
-            color: kPrimaryColor,
-            fontWeight: FontWeight.w700,
-            fontSize: 15,
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ✅ LOGIN BUTTON
-  Widget _buildLoginButton() {
-    return Container(
-      width: double.infinity,
-      height: 56,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        gradient: LinearGradient(
-          colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: kPrimaryColor.withOpacity(0.3),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: ElevatedButton(
-        onPressed: _isLoggingIn ? null : _loginWithEmail,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.transparent,
-          shadowColor: Colors.transparent,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-          ),
-          padding: const EdgeInsets.symmetric(vertical: 16),
-        ),
-        child: _isLoggingIn
-            ? const SizedBox(
-          width: 24,
-          height: 24,
-          child: CircularProgressIndicator(
-            color: Colors.white,
-            strokeWidth: 2,
-          ),
-        )
-            : const Text(
-          'Sign In',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: Colors.white,
-            letterSpacing: 0.5,
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ✅ OR DIVIDER
-  Widget _buildOrDivider() {
-    return Row(
-      children: [
-        Expanded(
-          child: Divider(
-            color: Colors.grey.shade300,
-            thickness: 1,
-            height: 1,
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Text(
-            'OR',
+        // Welcome Text with Gradient Effect
+        ShaderMask(
+          shaderCallback: (bounds) => LinearGradient(
+            colors: [
+              kPrimaryColor,
+              kPrimaryColor.withOpacity(0.8),
+              kPrimaryColor.withOpacity(0.6),
+            ],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ).createShader(bounds),
+          child: const Text(
+            'Welcome to\nironXpress',
+            textAlign: TextAlign.center,
             style: TextStyle(
-              color: Colors.grey.shade600,
-              fontWeight: FontWeight.w600,
-              fontSize: 14,
+              fontSize: 34,
+              fontWeight: FontWeight.w900,
+              color: Colors.white,
+              letterSpacing: -0.5,
+              height: 1.2,
             ),
           ),
         ),
-        Expanded(
-          child: Divider(
-            color: Colors.grey.shade300,
-            thickness: 1,
-            height: 1,
-          ),
-        ),
-      ],
-    );
-  }
+        const SizedBox(height: 16),
 
-  // ✅ SOCIAL LOGIN BUTTONS
-  Widget _buildSocialLoginButtons() {
-    return Column(
-      children: [
-        // Google Login
-        _buildSocialButton(
-          onPressed: _isGoogleLoggingIn ? null : _loginWithGoogle,
-          icon: Icons.g_mobiledata,
-          label: 'Continue with Google',
-          color: Colors.red,
-          isLoading: _isGoogleLoggingIn,
-        ),
-        const SizedBox(height: 12),
-
-        // Phone Login
-        _buildSocialButton(
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const PhoneLoginScreen()),
-            );
-          },
-          icon: Icons.phone_android_rounded,
-          label: 'Continue with Phone',
-          color: Colors.green,
-          isLoading: false,
-        ),
-      ],
-    );
-  }
-
-  // ✅ SOCIAL BUTTON
-  Widget _buildSocialButton({
-    required VoidCallback? onPressed,
-    required IconData icon,
-    required String label,
-    required Color color,
-    required bool isLoading,
-  }) {
-    return Container(
-      width: double.infinity,
-      height: 52,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.2), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: ElevatedButton(
-        onPressed: onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: color.withOpacity(0.05),
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-        child: isLoading
-            ? SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(
-            color: color,
-            strokeWidth: 2,
-          ),
-        )
-            : Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: color, size: 24),
-            const SizedBox(width: 12),
-            Text(
-              label,
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.w700,
-                fontSize: 16,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ✅ SIGN UP LINK
-  Widget _buildSignUpLink() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
         Text(
-          "Don't have an account? ",
+          'Your premium laundry service awaits.\nSign in to continue your journey.',
+          textAlign: TextAlign.center,
           style: TextStyle(
             color: Colors.grey.shade600,
             fontSize: 16,
             fontWeight: FontWeight.w500,
-          ),
-        ),
-        GestureDetector(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SignUpScreen()),
-            );
-          },
-          child: Text(
-            'Sign Up',
-            style: TextStyle(
-              color: kPrimaryColor,
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              decoration: TextDecoration.underline,
-              decorationThickness: 1.5,
-            ),
+            height: 1.5,
           ),
         ),
       ],
     );
   }
 
-  // ✅ PREMIUM TEXT FIELD (for email)
-  Widget _buildPremiumTextField({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    bool isPassword = false,
-    TextInputType keyboardType = TextInputType.text,
-  }) {
+  Widget _buildGoogleLoginButton() {
     return Container(
+      width: double.infinity,
+      height: 64,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
+        gradient: LinearGradient(
+          colors: [
+            Colors.red.shade50,
+            Colors.red.shade400,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(
+          color: Colors.red.withOpacity(0.2),
+          width: 1.5,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: Colors.red.withOpacity(0.15),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+          BoxShadow(
+            color: Colors.red.withOpacity(0.1),
+            blurRadius: 40,
+            offset: const Offset(0, 20),
           ),
         ],
       ),
-      child: TextFormField(
-        controller: controller,
-        obscureText: isPassword,
-        keyboardType: keyboardType,
-        style: const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w500,
-        ),
-        decoration: InputDecoration(
-          labelText: label,
-          labelStyle: TextStyle(
-            color: Colors.grey.shade600,
-            fontSize: 16,
-          ),
-          prefixIcon: Container(
-            margin: const EdgeInsets.all(12),
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [kPrimaryColor.withOpacity(0.1), kPrimaryColor.withOpacity(0.05)],
-              ),
-              borderRadius: BorderRadius.circular(10),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _isGoogleLoggingIn ? null : _loginWithGoogle,
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: _isGoogleLoggingIn
+                ? Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    color: Colors.red.shade600,
+                    strokeWidth: 2.5,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Text(
+                  'Connecting...',
+                  style: TextStyle(
+                    color: Colors.red.shade600,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 17,
+                  ),
+                ),
+              ],
+            )
+                : Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // ✅ PREMIUM GOOGLE G LOGO
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(6),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Text(
+                      'G',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.red.shade600,
+                        fontFamily: 'Product Sans', // Google's font
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Text(
+                  'Continue with Google',
+                  style: TextStyle(
+                    color: Colors.red.shade700,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 17,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ],
             ),
-            child: Icon(
-              icon,
-              color: kPrimaryColor,
-              size: 20,
-            ),
           ),
-          filled: true,
-          fillColor: Colors.white,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(color: Colors.grey.shade200),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(color: Colors.grey.shade200),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(color: kPrimaryColor, width: 2),
-          ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
         ),
       ),
+    );
+  }
+
+  Widget _buildPhoneLoginButton() {
+    return Container(
+      width: double.infinity,
+      height: 64,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        gradient: LinearGradient(
+          colors: [
+            Colors.blue.shade400,
+            Colors.blue.shade200,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(
+          color: Colors.blue.withOpacity(0.2),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.blue.withOpacity(0.15),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+          BoxShadow(
+            color: Colors.blue.withOpacity(0.1),
+            blurRadius: 40,
+            offset: const Offset(0, 20),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _navigateToPhoneLogin,
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.phone_android_rounded,
+                    color: Colors.blue.shade600,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Text(
+                  'Continue with Phone',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 17,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPremiumFooter() {
+    return Column(
+      children: [
+        Container(
+          height: 1,
+          width: 80,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Colors.transparent,
+                Colors.grey.shade300,
+                Colors.transparent,
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        Text(
+          'Secure • Fast • Reliable',
+          style: TextStyle(
+            color: Colors.grey.shade500,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 2,
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _buildFeatureIcon(Icons.security_rounded, 'Secure'),
+            const SizedBox(width: 32),
+            _buildFeatureIcon(Icons.flash_on_rounded, 'Fast'),
+            const SizedBox(width: 32),
+            _buildFeatureIcon(Icons.verified_rounded, 'Trusted'),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFeatureIcon(IconData icon, String label) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: kPrimaryColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(
+            icon,
+            color: kPrimaryColor,
+            size: 20,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.grey.shade600,
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
     );
   }
 }

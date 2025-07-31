@@ -44,6 +44,14 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
     with TickerProviderStateMixin {
   final supabase = Supabase.instance.client;
 
+  // ✅ RESPONSIVE: Screen size variables
+  late double screenWidth;
+  late double screenHeight;
+  late bool isSmallScreen;
+  late bool isTablet;
+  late double cardMargin;
+  late double cardPadding;
+
   // Billing details from database
   Map<String, dynamic>? billingDetails;
   bool isLoadingBilling = true;
@@ -57,7 +65,6 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
   late AnimationController _confettiController;
   late AnimationController _pulseController;
   late AnimationController _backgroundController;
-  // ✅ NEW: Expansion animation controller
   late AnimationController _expansionController;
 
   // Background animations
@@ -94,6 +101,19 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
     _initializeAnimations();
     _loadBillingDetails();
     _startAnimationSequence();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // ✅ RESPONSIVE: Initialize screen dimensions
+    final screenSize = MediaQuery.of(context).size;
+    screenWidth = screenSize.width;
+    screenHeight = screenSize.height;
+    isSmallScreen = screenWidth < 360;
+    isTablet = screenWidth > 600;
+    cardMargin = isSmallScreen ? 12.0 : 16.0;
+    cardPadding = isSmallScreen ? 16.0 : 20.0;
   }
 
   void _initializeAnimations() {
@@ -349,8 +369,8 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
         backgroundColor: Colors.transparent,
         elevation: 0,
         child: Container(
-          padding: const EdgeInsets.all(24),
-          margin: const EdgeInsets.symmetric(horizontal: 20),
+          padding: EdgeInsets.all(cardPadding * 1.2),
+          margin: EdgeInsets.symmetric(horizontal: cardMargin * 1.25),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(24),
@@ -372,8 +392,8 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
             children: [
               // Success Icon
               Container(
-                width: 80,
-                height: 80,
+                width: isSmallScreen ? 60 : 80,
+                height: isSmallScreen ? 60 : 80,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
@@ -390,44 +410,47 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                     ),
                   ],
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.check_circle_rounded,
                   color: Colors.white,
-                  size: 40,
+                  size: isSmallScreen ? 30 : 40,
                 ),
               ),
 
-              const SizedBox(height: 20),
+              SizedBox(height: cardPadding),
 
               // Title
               Text(
                 'Order Confirmed!',
                 style: TextStyle(
-                  fontSize: 22,
+                  fontSize: isSmallScreen ? 18 : 22,
                   fontWeight: FontWeight.bold,
                   color: kPrimaryColor,
                 ),
                 textAlign: TextAlign.center,
               ),
 
-              const SizedBox(height: 12),
+              SizedBox(height: cardPadding * 0.6),
 
               // Subtitle
               Text(
                 'Your order has been placed successfully.\nWhat would you like to do next?',
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: isSmallScreen ? 12 : 14,
                   color: Colors.grey.shade600,
                   height: 1.4,
                 ),
                 textAlign: TextAlign.center,
               ),
 
-              const SizedBox(height: 24),
+              SizedBox(height: cardPadding * 1.2),
 
               // Order ID Badge
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: EdgeInsets.symmetric(
+                  horizontal: cardPadding * 0.8,
+                  vertical: cardPadding * 0.4,
+                ),
                 decoration: BoxDecoration(
                   color: kPrimaryColor.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
@@ -442,13 +465,13 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                     Icon(
                       Icons.receipt_long,
                       color: kPrimaryColor,
-                      size: 16,
+                      size: isSmallScreen ? 14 : 16,
                     ),
-                    const SizedBox(width: 6),
+                    SizedBox(width: cardPadding * 0.3),
                     Text(
                       'Order: ${widget.orderId.length > 15 ? widget.orderId.substring(0, 15) + '...' : widget.orderId}',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: isSmallScreen ? 10 : 12,
                         color: kPrimaryColor,
                         fontWeight: FontWeight.w600,
                       ),
@@ -457,7 +480,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                 ),
               ),
 
-              const SizedBox(height: 28),
+              SizedBox(height: cardPadding * 1.4),
 
               // Action Buttons
               Column(
@@ -470,15 +493,15 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                         Navigator.of(context).pop(false);
                         _navigateToOrdersScreen(); // ✅ FIXED: Navigate to OrdersScreen
                       },
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.shopping_bag_rounded,
                         color: Colors.white,
-                        size: 20,
+                        size: isSmallScreen ? 16 : 20,
                       ),
-                      label: const Text(
+                      label: Text(
                         'Continue Shopping',
                         style: TextStyle(
-                          fontSize: 16,
+                          fontSize: isSmallScreen ? 14 : 16,
                           fontWeight: FontWeight.w600,
                           color: Colors.white,
                         ),
@@ -489,9 +512,9 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
                         ),
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 14,
-                          horizontal: 24,
+                        padding: EdgeInsets.symmetric(
+                          vertical: isSmallScreen ? 12 : 14,
+                          horizontal: isSmallScreen ? 20 : 24,
                         ),
                         elevation: 4,
                         shadowColor: kPrimaryColor.withOpacity(0.3),
@@ -499,7 +522,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                     ),
                   ),
 
-                  const SizedBox(height: 12),
+                  SizedBox(height: cardPadding * 0.6),
 
                   // Stay Here Button - Enhanced
                   SizedBox(
@@ -509,12 +532,12 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                       icon: Icon(
                         Icons.visibility_rounded,
                         color: Colors.grey.shade600,
-                        size: 20,
+                        size: isSmallScreen ? 16 : 20,
                       ),
                       label: Text(
                         'Stay Here',
                         style: TextStyle(
-                          fontSize: 16,
+                          fontSize: isSmallScreen ? 14 : 16,
                           fontWeight: FontWeight.w600,
                           color: Colors.grey.shade700,
                         ),
@@ -527,9 +550,9 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
                         ),
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 14,
-                          horizontal: 24,
+                        padding: EdgeInsets.symmetric(
+                          vertical: isSmallScreen ? 12 : 14,
+                          horizontal: isSmallScreen ? 20 : 24,
                         ),
                         backgroundColor: Colors.grey.shade50,
                       ),
@@ -538,7 +561,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                 ],
               ),
 
-              const SizedBox(height: 16),
+              SizedBox(height: cardPadding * 0.8),
 
               // Additional info
               Row(
@@ -547,15 +570,18 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                   Icon(
                     Icons.info_outline,
                     color: Colors.grey.shade400,
-                    size: 14,
+                    size: isSmallScreen ? 12 : 14,
                   ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'You can always view your order details later',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey.shade500,
-                      fontStyle: FontStyle.italic,
+                  SizedBox(width: cardPadding * 0.3),
+                  Flexible(
+                    child: Text(
+                      'You can always view your order details later',
+                      style: TextStyle(
+                        fontSize: isSmallScreen ? 9 : 11,
+                        color: Colors.grey.shade500,
+                        fontStyle: FontStyle.italic,
+                      ),
+                      textAlign: TextAlign.center,
                     ),
                   ),
                 ],
@@ -670,7 +696,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                   SafeArea(
                     child: SingleChildScrollView(
                       child: Padding(
-                        padding: const EdgeInsets.all(20),
+                        padding: EdgeInsets.all(cardMargin * 1.25),
                         child: SlideTransition(
                           position: _cardSlideAnimation,
                           child: ScaleTransition(
@@ -679,7 +705,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                               opacity: _backgroundFadeAnimation,
                               child: Container(
                                 width: double.infinity,
-                                padding: const EdgeInsets.all(24),
+                                padding: EdgeInsets.all(cardPadding * 1.2),
                                 decoration: BoxDecoration(
                                   color: Colors.white,
                                   borderRadius: BorderRadius.circular(24),
@@ -708,8 +734,8 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                           child: ScaleTransition(
                                             scale: _checkScaleAnimation,
                                             child: Container(
-                                              width: 100,
-                                              height: 100,
+                                              width: isSmallScreen ? 80 : 100,
+                                              height: isSmallScreen ? 80 : 100,
                                               decoration: BoxDecoration(
                                                 gradient: LinearGradient(
                                                   colors: [
@@ -726,10 +752,10 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                                   ),
                                                 ],
                                               ),
-                                              child: const Icon(
+                                              child: Icon(
                                                 Icons.check_rounded,
                                                 color: Colors.white,
-                                                size: 50,
+                                                size: isSmallScreen ? 40 : 50,
                                               ),
                                             ),
                                           ),
@@ -737,7 +763,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                       ),
                                     ),
 
-                                    const SizedBox(height: 24),
+                                    SizedBox(height: cardPadding * 1.2),
 
                                     // Success Title
                                     SlideTransition(
@@ -749,7 +775,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                             Text(
                                               'Order Placed',
                                               style: TextStyle(
-                                                fontSize: 22,
+                                                fontSize: isSmallScreen ? 18 : 22,
                                                 fontWeight: FontWeight.bold,
                                                 color: kPrimaryColor,
                                               ),
@@ -757,7 +783,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                             Text(
                                               'Successfully!',
                                               style: TextStyle(
-                                                fontSize: 22,
+                                                fontSize: isSmallScreen ? 18 : 22,
                                                 fontWeight: FontWeight.bold,
                                                 color: kPrimaryColor,
                                               ),
@@ -767,7 +793,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                       ),
                                     ),
 
-                                    const SizedBox(height: 20),
+                                    SizedBox(height: cardPadding),
 
                                     // Order ID
                                     SlideTransition(
@@ -775,9 +801,9 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                       child: FadeTransition(
                                         opacity: _subtitleFadeAnimation,
                                         child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 20,
-                                            vertical: 12,
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: cardPadding,
+                                            vertical: cardPadding * 0.6,
                                           ),
                                           decoration: BoxDecoration(
                                             color: kPrimaryColor.withOpacity(0.1),
@@ -788,16 +814,16 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                               Text(
                                                 'Order ID',
                                                 style: TextStyle(
-                                                  fontSize: 12,
+                                                  fontSize: isSmallScreen ? 10 : 12,
                                                   color: kPrimaryColor.withOpacity(0.8),
                                                   fontWeight: FontWeight.w600,
                                                 ),
                                               ),
-                                              const SizedBox(height: 4),
+                                              SizedBox(height: cardPadding * 0.2),
                                               Text(
                                                 widget.orderId,
                                                 style: TextStyle(
-                                                  fontSize: 16,
+                                                  fontSize: isSmallScreen ? 14 : 16,
                                                   color: kPrimaryColor,
                                                   fontWeight: FontWeight.bold,
                                                   letterSpacing: 0.5,
@@ -809,7 +835,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                       ),
                                     ),
 
-                                    const SizedBox(height: 24),
+                                    SizedBox(height: cardPadding * 1.2),
 
                                     // Order Details
                                     SlideTransition(
@@ -819,18 +845,18 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                         child: Column(
                                           children: [
                                             _buildOrderDetailsCard(),
-                                            const SizedBox(height: 16),
+                                            SizedBox(height: cardPadding * 0.8),
                                             _buildScheduleCard(),
-                                            const SizedBox(height: 16),
+                                            SizedBox(height: cardPadding * 0.8),
                                             _buildBillCard(),
-                                            const SizedBox(height: 16),
+                                            SizedBox(height: cardPadding * 0.8),
                                             _buildInfoCard(),
                                           ],
                                         ),
                                       ),
                                     ),
 
-                                    const SizedBox(height: 32),
+                                    SizedBox(height: cardPadding * 1.6),
 
                                     // ✅ ENHANCED Action Buttons with smooth animations
                                     SlideTransition(
@@ -844,15 +870,15 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                               width: double.infinity,
                                               child: ElevatedButton.icon(
                                                 onPressed: _navigateToOrderHistory,
-                                                icon: const Icon(
+                                                icon: Icon(
                                                   Icons.receipt_long_rounded,
                                                   color: Colors.white,
-                                                  size: 20,
+                                                  size: isSmallScreen ? 16 : 20,
                                                 ),
-                                                label: const Text(
+                                                label: Text(
                                                   'View Your Orders',
                                                   style: TextStyle(
-                                                    fontSize: 16,
+                                                    fontSize: isSmallScreen ? 14 : 16,
                                                     fontWeight: FontWeight.w600,
                                                     color: Colors.white,
                                                   ),
@@ -863,9 +889,9 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                                   shape: RoundedRectangleBorder(
                                                     borderRadius: BorderRadius.circular(16),
                                                   ),
-                                                  padding: const EdgeInsets.symmetric(
-                                                    vertical: 16,
-                                                    horizontal: 24,
+                                                  padding: EdgeInsets.symmetric(
+                                                    vertical: isSmallScreen ? 14 : 16,
+                                                    horizontal: isSmallScreen ? 20 : 24,
                                                   ),
                                                   elevation: 4,
                                                   shadowColor: kPrimaryColor.withOpacity(0.3),
@@ -873,7 +899,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                               ),
                                             ),
 
-                                            const SizedBox(height: 12),
+                                            SizedBox(height: cardPadding * 0.6),
 
                                             // ✅ NEW: Continue Shopping Button (goes to OrdersScreen)
                                             SizedBox(
@@ -883,12 +909,12 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                                 icon: Icon(
                                                   Icons.shopping_bag_outlined,
                                                   color: kPrimaryColor,
-                                                  size: 20,
+                                                  size: isSmallScreen ? 16 : 20,
                                                 ),
                                                 label: Text(
                                                   'Continue Shopping',
                                                   style: TextStyle(
-                                                    fontSize: 16,
+                                                    fontSize: isSmallScreen ? 14 : 16,
                                                     fontWeight: FontWeight.w600,
                                                     color: kPrimaryColor,
                                                   ),
@@ -901,9 +927,9 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                                   shape: RoundedRectangleBorder(
                                                     borderRadius: BorderRadius.circular(16),
                                                   ),
-                                                  padding: const EdgeInsets.symmetric(
-                                                    vertical: 16,
-                                                    horizontal: 24,
+                                                  padding: EdgeInsets.symmetric(
+                                                    vertical: isSmallScreen ? 14 : 16,
+                                                    horizontal: isSmallScreen ? 20 : 24,
                                                   ),
                                                   backgroundColor: Colors.transparent,
                                                 ),
@@ -914,7 +940,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                                       ),
                                     ),
 
-                                    const SizedBox(height: 10),
+                                    SizedBox(height: cardPadding * 0.5),
                                   ],
                                 ),
                               ),
@@ -936,7 +962,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
   // ✅ ENHANCED Order Details Card with expandable functionality
   Widget _buildOrderDetailsCard() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(cardPadding * 0.8),
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
         borderRadius: BorderRadius.circular(16),
@@ -947,32 +973,35 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
         children: [
           Row(
             children: [
-              Icon(Icons.receipt_long, color: kPrimaryColor, size: 20),
-              const SizedBox(width: 8),
-              const Text(
+              Icon(Icons.receipt_long, color: kPrimaryColor, size: isSmallScreen ? 18 : 20),
+              SizedBox(width: cardPadding * 0.4),
+              Text(
                 'Order Details',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 14 : 16,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: cardPadding * 0.6),
 
           // Always show first 3 items
           ...widget.cartItems.take(3).map((item) => Padding(
-            padding: const EdgeInsets.only(bottom: 8),
+            padding: EdgeInsets.only(bottom: cardPadding * 0.4),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
                   child: Text(
                     '${item['product_name']} x${item['product_quantity']}',
-                    style: const TextStyle(fontSize: 14),
+                    style: TextStyle(fontSize: isSmallScreen ? 12 : 14),
                   ),
                 ),
                 Text(
                   '₹${item['total_price']?.toStringAsFixed(2) ?? '0.00'}',
-                  style: const TextStyle(
-                    fontSize: 14,
+                  style: TextStyle(
+                    fontSize: isSmallScreen ? 12 : 14,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -989,20 +1018,20 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                 opacity: _expansionAnimation,
                 child: Column(
                   children: widget.cartItems.skip(3).map((item) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
+                    padding: EdgeInsets.only(bottom: cardPadding * 0.4),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Expanded(
                           child: Text(
                             '${item['product_name']} x${item['product_quantity']}',
-                            style: const TextStyle(fontSize: 14),
+                            style: TextStyle(fontSize: isSmallScreen ? 12 : 14),
                           ),
                         ),
                         Text(
                           '₹${item['total_price']?.toStringAsFixed(2) ?? '0.00'}',
-                          style: const TextStyle(
-                            fontSize: 14,
+                          style: TextStyle(
+                            fontSize: isSmallScreen ? 12 : 14,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -1014,12 +1043,15 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
             ),
 
             // ✅ ENHANCED: Smooth toggle button with rotation animation
-            const SizedBox(height: 8),
+            SizedBox(height: cardPadding * 0.4),
             GestureDetector(
               onTap: _toggleOrderDetailsExpansion,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 300),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: EdgeInsets.symmetric(
+                  horizontal: cardPadding * 0.6,
+                  vertical: cardPadding * 0.4,
+                ),
                 decoration: BoxDecoration(
                   color: kPrimaryColor.withOpacity(_isOrderDetailsExpanded ? 0.1 : 0.05),
                   borderRadius: BorderRadius.circular(20),
@@ -1036,19 +1068,19 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
                           ? 'View Less'
                           : 'View ${widget.cartItems.length - 3} More Items',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: isSmallScreen ? 10 : 12,
                         color: kPrimaryColor,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(width: 4),
+                    SizedBox(width: cardPadding * 0.2),
                     AnimatedRotation(
                       duration: const Duration(milliseconds: 300),
                       turns: _isOrderDetailsExpanded ? 0.5 : 0.0,
                       child: Icon(
                         Icons.keyboard_arrow_down,
                         color: kPrimaryColor,
-                        size: 16,
+                        size: isSmallScreen ? 14 : 16,
                       ),
                     ),
                   ],
@@ -1063,7 +1095,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
 
   Widget _buildScheduleCard() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(cardPadding * 0.8),
       decoration: BoxDecoration(
         color: kPrimaryColor.withOpacity(0.05),
         borderRadius: BorderRadius.circular(16),
@@ -1074,33 +1106,36 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
         children: [
           Row(
             children: [
-              Icon(Icons.schedule, color: kPrimaryColor, size: 20),
-              const SizedBox(width: 8),
-              const Text(
+              Icon(Icons.schedule, color: kPrimaryColor, size: isSmallScreen ? 18 : 20),
+              SizedBox(width: cardPadding * 0.4),
+              Text(
                 'Schedule',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 14 : 16,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: cardPadding * 0.6),
           _buildScheduleRow(
             Icons.local_laundry_service,
             'Pickup',
             '${_formatDate(widget.pickupDate)} at ${widget.pickupSlot['display_time'] ?? '${widget.pickupSlot['start_time']} - ${widget.pickupSlot['end_time']}'}',
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: cardPadding * 0.4),
           _buildScheduleRow(
             Icons.local_shipping,
             'Delivery',
             '${_formatDate(widget.deliveryDate)} at ${widget.deliverySlot['display_time'] ?? '${widget.deliverySlot['start_time']} - ${widget.deliverySlot['end_time']}'}',
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: cardPadding * 0.4),
           _buildScheduleRow(
             Icons.flash_on,
             'Delivery Type',
             widget.isExpressDelivery ? 'Express Delivery' : 'Standard Delivery',
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: cardPadding * 0.4),
           _buildScheduleRow(
             Icons.location_on,
             'Address',
@@ -1115,8 +1150,8 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: kPrimaryColor, size: 16),
-        const SizedBox(width: 8),
+        Icon(icon, color: kPrimaryColor, size: isSmallScreen ? 14 : 16),
+        SizedBox(width: cardPadding * 0.4),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1124,15 +1159,15 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: isSmallScreen ? 10 : 12,
                   color: kPrimaryColor.withOpacity(0.8),
                   fontWeight: FontWeight.w600,
                 ),
               ),
               Text(
                 value,
-                style: const TextStyle(
-                  fontSize: 14,
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 12 : 14,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -1146,18 +1181,18 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
   Widget _buildBillCard() {
     if (isLoadingBilling) {
       return Container(
-        padding: const EdgeInsets.all(32),
+        padding: EdgeInsets.all(cardPadding * 1.6),
         decoration: BoxDecoration(
           color: Colors.green.shade50,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: Colors.green.shade200),
         ),
-        child: const Center(child: CircularProgressIndicator()),
+        child: Center(child: CircularProgressIndicator(color: kPrimaryColor)),
       );
     }
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(cardPadding * 0.8),
       decoration: BoxDecoration(
         color: Colors.green.shade50,
         borderRadius: BorderRadius.circular(16),
@@ -1168,15 +1203,18 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
         children: [
           Row(
             children: [
-              Icon(Icons.receipt, color: Colors.green.shade700, size: 20),
-              const SizedBox(width: 8),
-              const Text(
+              Icon(Icons.receipt, color: Colors.green.shade700, size: isSmallScreen ? 18 : 20),
+              SizedBox(width: cardPadding * 0.4),
+              Text(
                 'Bill Summary',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 14 : 16,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: cardPadding * 0.6),
 
           if (billingDetails != null) ...[
             _buildBillRow('Subtotal', '₹${billingDetails!['subtotal']?.toStringAsFixed(2) ?? '0.00'}'),
@@ -1200,13 +1238,13 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
               _buildBillRow('Coupon Applied', widget.appliedCouponCode!, color: Colors.green),
           ],
 
-          const Divider(height: 16),
+          Divider(height: cardPadding * 0.8),
           _buildBillRow(
             'Total Amount',
             '₹${billingDetails?['total_amount']?.toStringAsFixed(2) ?? widget.totalAmount.toStringAsFixed(2)}',
             isTotal: true,
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: cardPadding * 0.4),
           _buildBillRow('Payment Method', widget.paymentMethod == 'online' ? 'Online Payment' : 'Cash on Delivery'),
           if (widget.paymentId != null)
             _buildBillRow('Payment ID', widget.paymentId!),
@@ -1217,22 +1255,24 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
 
   Widget _buildBillRow(String label, String value, {Color? color, bool isTotal = false}) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+      padding: EdgeInsets.only(bottom: cardPadding * 0.2),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: isTotal ? 15 : 14,
-              fontWeight: isTotal ? FontWeight.bold : FontWeight.w500,
-              color: color ?? Colors.black87,
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: isTotal ? (isSmallScreen ? 13 : 15) : (isSmallScreen ? 12 : 14),
+                fontWeight: isTotal ? FontWeight.bold : FontWeight.w500,
+                color: color ?? Colors.black87,
+              ),
             ),
           ),
           Text(
             value,
             style: TextStyle(
-              fontSize: isTotal ? 15 : 14,
+              fontSize: isTotal ? (isSmallScreen ? 13 : 15) : (isSmallScreen ? 12 : 14),
               fontWeight: isTotal ? FontWeight.bold : FontWeight.w600,
               color: color ?? Colors.black87,
             ),
@@ -1244,7 +1284,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
 
   Widget _buildInfoCard() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(cardPadding * 0.8),
       decoration: BoxDecoration(
         color: Colors.blue.shade50,
         borderRadius: BorderRadius.circular(16),
@@ -1256,18 +1296,18 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
             Icons.schedule_rounded,
             'Your items will be picked up as scheduled',
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: cardPadding * 0.6),
           _buildInfoRow(
             Icons.notifications_active_rounded,
             'You\'ll receive updates via SMS and notifications',
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: cardPadding * 0.6),
           _buildInfoRow(
             Icons.support_agent_rounded,
             '24/7 customer support available',
           ),
           if (widget.isExpressDelivery) ...[
-            const SizedBox(height: 12),
+            SizedBox(height: cardPadding * 0.6),
             _buildInfoRow(
               Icons.flash_on_rounded,
               'Express delivery selected for faster service',
@@ -1282,7 +1322,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(6),
+          padding: EdgeInsets.all(isSmallScreen ? 4 : 6),
           decoration: BoxDecoration(
             color: Colors.blue.shade100,
             borderRadius: BorderRadius.circular(8),
@@ -1290,15 +1330,15 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
           child: Icon(
             icon,
             color: Colors.blue.shade700,
-            size: 16,
+            size: isSmallScreen ? 14 : 16,
           ),
         ),
-        const SizedBox(width: 12),
+        SizedBox(width: cardPadding * 0.6),
         Expanded(
           child: Text(
             text,
             style: TextStyle(
-              fontSize: 13,
+              fontSize: isSmallScreen ? 11 : 13,
               color: Colors.blue.shade700,
               fontWeight: FontWeight.w500,
             ),
@@ -1310,14 +1350,14 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
 
   Widget _buildBackgroundCircle(int index) {
     final random = (index * 234) % 1000;
-    final size = 60.0 + (random % 80);
+    final size = (isSmallScreen ? 40.0 : 60.0) + (random % (isSmallScreen ? 40 : 80));
     final left = (random % 100) / 100.0;
     final top = ((random * 3) % 100) / 100.0;
     final opacity = 0.02 + (random % 3) / 100.0;
 
     return Positioned(
-      left: MediaQuery.of(context).size.width * left - size / 2,
-      top: MediaQuery.of(context).size.height * top - size / 2,
+      left: screenWidth * left - size / 2,
+      top: screenHeight * top - size / 2,
       child: AnimatedBuilder(
         animation: _backgroundController,
         builder: (context, child) {
@@ -1346,7 +1386,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
   Widget _buildConfettiParticle(int index) {
     final random = (index * 456) % 1000;
     final startX = (random % 100) / 100.0;
-    final size = 4.0 + (random % 6);
+    final size = (isSmallScreen ? 3.0 : 4.0) + (random % (isSmallScreen ? 4 : 6));
     final colors = [
       kPrimaryColor,
       kPrimaryColor.withOpacity(0.8),
@@ -1356,8 +1396,8 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
     final color = colors[random % colors.length];
 
     return Positioned(
-      left: MediaQuery.of(context).size.width * startX,
-      top: -20 + (_confettiAnimation.value * (MediaQuery.of(context).size.height + 40)),
+      left: screenWidth * startX,
+      top: -20 + (_confettiAnimation.value * (screenHeight + 40)),
       child: Transform.rotate(
         angle: _confettiAnimation.value * 6.28 * 3,
         child: Container(

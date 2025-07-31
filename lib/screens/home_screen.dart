@@ -631,7 +631,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
               ),
               const SizedBox(width: 12),
               const Text(
-                'Our ',
+                'Our Categories ',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w800,
