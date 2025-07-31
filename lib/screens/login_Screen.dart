@@ -100,21 +100,32 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   void _handleIncomingLink(Uri uri) {
     print('🔗 Processing link: ${uri.toString()}');
 
-    if (uri.scheme == 'com.yuknow.ironly' && uri.host == 'auth-callback') {
+    // Handle both custom scheme and Supabase HTTPS redirects
+    if ((uri.scheme == 'com.yuknow.ironly' && uri.host == 'auth-callback') ||
+        (uri.scheme == 'https' && uri.host == 'qehtgclgjhzdlqcjujpp.supabase.co' && uri.path == '/auth/v1/callback')) {
       print('✅ OAuth callback detected');
 
       final fragment = uri.fragment;
+      final queryParams = uri.queryParameters;
+
       if (fragment.isNotEmpty) {
         final params = Uri.splitQueryString(fragment);
         final accessToken = params['access_token'];
+        final error = params['error'];
 
         if (accessToken != null) {
           print('✅ Access token found in callback');
           _handleOAuthSuccess();
-        } else {
-          print('❌ No access token in callback');
-          _handleOAuthError('No access token received');
+        } else if (error != null) {
+          print('❌ OAuth error in callback: $error');
+          _handleOAuthError(error);
         }
+      } else if (queryParams.containsKey('access_token')) {
+        print('✅ Access token found in query params');
+        _handleOAuthSuccess();
+      } else if (queryParams.containsKey('error')) {
+        print('❌ OAuth error in query params: ${queryParams['error']}');
+        _handleOAuthError(queryParams['error'] ?? 'Unknown error');
       }
     }
   }
@@ -162,13 +173,11 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           // Navigate to AppWrapper after a brief delay
           Future.delayed(const Duration(milliseconds: 1500), () {
             if (mounted) {
-              // ✅ NAVIGATE TO APP WRAPPER - NOT DIRECTLY TO HOME
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(builder: (_) => const AppWrapper()),
                     (route) => false,
               );
-
               print('✅ Navigated to AppWrapper for location verification');
             }
           });
@@ -183,16 +192,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     });
   }
 
-  Future<bool> _checkImageExists() async {
-    try {
-      await rootBundle.load('assets/images/google_logo.png');
-      return true;
-    } catch (e) {
-      print('❌ Google logo image not found: $e');
-      return false;
-    }
-  }
-
   Future<void> _loginWithGoogle() async {
     HapticFeedback.selectionClick();
 
@@ -203,19 +202,30 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     try {
       print('🔐 Starting Google OAuth...');
 
+      // ✅ UPDATED: Use your actual Supabase redirect URL
+      final redirectUrl = 'https://qehtgclgjhzdlqcjujpp.supabase.co/auth/v1/callback';
+
+      print('🔐 Using redirect URL: $redirectUrl');
+
       final authResponse = await supabase.auth.signInWithOAuth(
         OAuthProvider.google,
-        redirectTo: 'com.yuknow.ironly://auth-callback',
+        redirectTo: redirectUrl,
         authScreenLaunchMode: LaunchMode.externalApplication,
       );
 
-      print('🔐 OAuth initiated: ${authResponse.toString()}');
+      print('🔐 OAuth response: ${authResponse.toString()}');
 
     } catch (e) {
       setState(() {
         _isGoogleLoggingIn = false;
       });
-      _showMessage('Google login failed: ${e.toString()}', isError: true);
+
+      String errorMessage = e.toString();
+      if (errorMessage.contains('localhost') || errorMessage.contains('127.0.0.1')) {
+        errorMessage = 'Please configure OAuth redirect URL in Supabase dashboard';
+      }
+
+      _showMessage('Google login failed: $errorMessage', isError: true);
       print('❌ Google login error: $e');
     }
   }
@@ -261,6 +271,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
                 ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 2,
               ),
             ),
           ],
@@ -404,7 +416,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         ),
         const SizedBox(height: 32),
 
-        // Welcome Text with Gradient Effect
+        // Welcome Text with Gradient Effect - Fixed text wrapping
         ShaderMask(
           shaderCallback: (bounds) => LinearGradient(
             colors: [
@@ -425,18 +437,26 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
               letterSpacing: -0.5,
               height: 1.2,
             ),
+            overflow: TextOverflow.visible,
+            softWrap: true,
           ),
         ),
         const SizedBox(height: 16),
 
-        Text(
-          'Your premium laundry service awaits.\nSign in to continue your journey.',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Colors.grey.shade600,
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-            height: 1.5,
+        // Fixed subtitle with proper text wrapping
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+          child: Text(
+            'Your premium laundry service awaits.\nSign in to continue your journey.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.grey.shade600,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              height: 1.5,
+            ),
+            overflow: TextOverflow.visible,
+            softWrap: true,
           ),
         ),
       ],
@@ -494,12 +514,15 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                   ),
                 ),
                 const SizedBox(width: 16),
-                Text(
-                  'Connecting...',
-                  style: TextStyle(
-                    color: Colors.red.shade600,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 17,
+                Flexible(
+                  child: Text(
+                    'Connecting...',
+                    style: TextStyle(
+                      color: Colors.red.shade600,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 17,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -507,7 +530,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                 : Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // ✅ PREMIUM GOOGLE G LOGO
+                // Enhanced Google logo with proper image fallback
                 Container(
                   width: 28,
                   height: 28,
@@ -523,25 +546,37 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                     ],
                   ),
                   child: Center(
-                    child: Text(
-                      'G',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.red.shade600,
-                        fontFamily: 'Product Sans', // Google's font
-                      ),
+                    child: FutureBuilder<bool>(
+                      future: _checkImageExists(),
+                      builder: (context, snapshot) {
+                        if (snapshot.data == true) {
+                          return Image.asset(
+                            'assets/images/google_logo.png',
+                            width: 20,
+                            height: 20,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) {
+                              return _buildGoogleLogoFallback();
+                            },
+                          );
+                        } else {
+                          return _buildGoogleLogoFallback();
+                        }
+                      },
                     ),
                   ),
                 ),
                 const SizedBox(width: 16),
-                Text(
-                  'Continue with Google',
-                  style: TextStyle(
-                    color: Colors.red.shade700,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 17,
-                    letterSpacing: 0.3,
+                Flexible(
+                  child: Text(
+                    'Continue with Google',
+                    style: TextStyle(
+                      color: Colors.red.shade700,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 17,
+                      letterSpacing: 0.3,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -550,6 +585,49 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         ),
       ),
     );
+  }
+
+  // Enhanced Google logo fallback with better styling
+  Widget _buildGoogleLogoFallback() {
+    return Container(
+      width: 20,
+      height: 20,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(3),
+        gradient: LinearGradient(
+          colors: [
+            Colors.red.shade600,
+            Colors.orange.shade500,
+            Colors.yellow.shade500,
+            Colors.green.shade500,
+            Colors.blue.shade600,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Center(
+        child: Text(
+          'G',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+            fontFamily: 'Roboto',
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _checkImageExists() async {
+    try {
+      await rootBundle.load('assets/images/google_logo.png');
+      return true;
+    } catch (e) {
+      print('❌ Google logo image not found: $e');
+      return false;
+    }
   }
 
   Widget _buildPhoneLoginButton() {
@@ -606,13 +684,16 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                   ),
                 ),
                 const SizedBox(width: 16),
-                Text(
-                  'Continue with Phone',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 17,
-                    letterSpacing: 0.3,
+                Flexible(
+                  child: Text(
+                    'Continue with Phone',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 17,
+                      letterSpacing: 0.3,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -649,6 +730,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
             fontWeight: FontWeight.w600,
             letterSpacing: 2,
           ),
+          overflow: TextOverflow.visible,
+          softWrap: true,
         ),
         const SizedBox(height: 16),
 
@@ -667,30 +750,33 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   }
 
   Widget _buildFeatureIcon(IconData icon, String label) {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: kPrimaryColor.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
+    return Flexible(
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: kPrimaryColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              icon,
+              color: kPrimaryColor,
+              size: 20,
+            ),
           ),
-          child: Icon(
-            icon,
-            color: kPrimaryColor,
-            size: 20,
+          const SizedBox(height: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.grey.shade600,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+            overflow: TextOverflow.ellipsis,
           ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.grey.shade600,
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

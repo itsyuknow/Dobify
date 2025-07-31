@@ -1,5 +1,6 @@
-// ✅ UPDATED PREMIUM LOCATION SELECTION SCREEN
+// ✅ COMPLETE PREMIUM LOCATION SELECTION SCREEN WITH ENHANCED DESIGN
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
@@ -43,10 +44,12 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
   late AnimationController _pulseController;
   late AnimationController _bounceController;
   late AnimationController _scaleController;
+  late AnimationController _slideController;
 
   late Animation<double> _pulseAnimation;
   late Animation<double> _bounceAnimation;
   late Animation<double> _scaleAnimation;
+  late Animation<Offset> _slideAnimation;
 
   // Auth subscription
   StreamSubscription<AuthState>? _authSubscription;
@@ -174,6 +177,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
       });
 
       _scaleController.forward();
+      _slideController.forward();
 
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) {
@@ -199,6 +203,11 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
       vsync: this,
     );
 
+    _slideController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
     _pulseAnimation = Tween<double>(
       begin: 0.8,
       end: 1.2,
@@ -221,6 +230,14 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
     ).animate(CurvedAnimation(
       parent: _scaleController,
       curve: Curves.elasticOut,
+    ));
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 1),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _slideController,
+      curve: Curves.easeOutCubic,
     ));
   }
 
@@ -296,6 +313,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
               Marker(
                 markerId: const MarkerId('selected_location'),
                 position: _selectedLocation!,
+                icon: _createCustomMarker(),
                 infoWindow: InfoWindow(title: 'Your Location', snippet: address),
               ),
             };
@@ -312,6 +330,10 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
       print('❌ Location error: $e');
       await _handleLocationError('Unable to get your location. Please try again.');
     }
+  }
+
+  BitmapDescriptor _createCustomMarker() {
+    return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
   }
 
   Future<void> _confirmLocationAndCheckService() async {
@@ -502,6 +524,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
           Marker(
             markerId: const MarkerId('selected_location'),
             position: location,
+            icon: _createCustomMarker(),
             infoWindow: const InfoWindow(title: 'Selected Location'),
           ),
         };
@@ -524,6 +547,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
               Marker(
                 markerId: const MarkerId('selected_location'),
                 position: location,
+                icon: _createCustomMarker(),
                 infoWindow: InfoWindow(title: 'Selected Location', snippet: address),
               ),
             };
@@ -585,6 +609,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
     _pulseController.dispose();
     _bounceController.dispose();
     _scaleController.dispose();
+    _slideController.dispose();
     _mapController?.dispose();
     _authSubscription?.cancel();
     _searchController.dispose();
@@ -593,31 +618,22 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    final mediaQuery = MediaQuery.of(context);
-    final bottomPadding = mediaQuery.padding.bottom;
-    final screenHeight = mediaQuery.size.height;
-    final screenWidth = mediaQuery.size.width;
-
-    // Calculate dynamic padding based on screen size
-    final dynamicBottomPadding = screenHeight < 600 ? 16.0 : 24.0;
-    final totalBottomPadding = bottomPadding + dynamicBottomPadding;
-
     // ✅ SHOW LOADING WHILE SUPABASE INITIALIZES
     if (!isSupabaseReady) {
       return Scaffold(
         body: Container(
-            decoration: _buildIronBackgroundGradient(),
+            decoration: _buildPremiumBackgroundGradient(),
             child: const Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  CircularProgressIndicator(color: kPrimaryColor),
+                  CircularProgressIndicator(color: Color(0xFF42A5F5)),
                   SizedBox(height: 20),
                   Text(
                     'Setting up ironXpress...',
                     style: TextStyle(
                       fontSize: 16,
-                      color: Colors.black54,
+                      color: Colors.white,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -631,18 +647,18 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
     if (_isCheckingSession) {
       return Scaffold(
         body: Container(
-            decoration: _buildIronBackgroundGradient(),
+            decoration: _buildPremiumBackgroundGradient(),
             child: const Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  CircularProgressIndicator(color: kPrimaryColor),
+                  CircularProgressIndicator(color: Colors.white),
                   SizedBox(height: 20),
                   Text(
                     'Checking your account...',
                     style: TextStyle(
                       fontSize: 16,
-                      color: Colors.black54,
+                      color: Colors.white,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -656,7 +672,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
     if (_isLocationStep) {
       return Scaffold(
         body: Container(
-          decoration: _buildIronBackgroundGradient(),
+          decoration: _buildPremiumBackgroundGradient(),
           child: _buildLocationScreen(),
         ),
       );
@@ -666,31 +682,31 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
     return const LoginScreen();
   }
 
-  BoxDecoration _buildIronBackgroundGradient() {
-    return BoxDecoration(
+  BoxDecoration _buildPremiumBackgroundGradient() {
+    return const BoxDecoration(
       gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
         colors: [
-          const Color(0xFF1565C0).withOpacity(0.1), // Electric blue
-          const Color(0xFF2196F3).withOpacity(0.05), // Blue
-          Colors.white.withOpacity(0.9),
-          const Color(0xFF42A5F5).withOpacity(0.02), // Light blue
+          Color(0xFF42A5F5), // Your exact primary color
+          Color(0xFF42A5F5), // Keep same color
+          Color(0xFF64B5F6), // Slightly lighter
+          Color(0xFF90CAF9), // Light blue
         ],
-        stops: const [0.0, 0.3, 0.7, 1.0],
+        stops: [0.0, 0.3, 0.7, 1.0],
       ),
     );
   }
 
   Widget _buildLocationScreen() {
     if (!_hasLocationChecked || _isLocationLoading) {
-      return _showMap ? _buildMapSelectionScreen() : _buildLocationDetectionScreen();
+      return _showMap ? _buildPremiumMapSelectionScreen() : _buildPremiumLocationDetectionScreen();
     }
 
-    return !_isServiceAvailable ? _buildServiceNotAvailableScreen() : _buildLocationDetectionScreen();
+    return !_isServiceAvailable ? _buildServiceNotAvailableScreen() : _buildPremiumLocationDetectionScreen();
   }
 
-  Widget _buildLocationDetectionScreen() {
+  Widget _buildPremiumLocationDetectionScreen() {
     return ScaleTransition(
       scale: _scaleAnimation,
       child: Container(
@@ -705,61 +721,71 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                 return Transform.scale(
                   scale: _pulseAnimation.value,
                   child: Container(
-                    width: 140,
-                    height: 140,
+                    width: 160,
+                    height: 160,
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(
+                      gradient: RadialGradient(
                         colors: [
-                          const Color(0xFF1565C0).withOpacity(0.2),
-                          const Color(0xFF2196F3).withOpacity(0.05),
+                          Colors.white.withOpacity(0.3),
+                          Colors.white.withOpacity(0.1),
+                          Colors.transparent,
                         ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+                        stops: const [0.0, 0.7, 1.0],
                       ),
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF1565C0).withOpacity(0.2),
-                          blurRadius: 30,
-                          offset: const Offset(0, 15),
+                          color: Colors.white.withOpacity(0.3),
+                          blurRadius: 40,
+                          spreadRadius: 10,
                         ),
                       ],
                     ),
                     child: const Icon(
                       Icons.iron,
-                      size: 70,
-                      color: Color(0xFF1565C0),
+                      size: 80,
+                      color: Colors.white,
                     ),
                   ),
                 );
               },
             ),
-            const SizedBox(height: 40),
+            const SizedBox(height: 50),
             ShaderMask(
               shaderCallback: (bounds) => const LinearGradient(
-                colors: [Color(0xFF1565C0), Color(0xFF2196F3)],
+                colors: [Colors.white, Color(0xFFE3F2FD)],
               ).createShader(bounds),
               child: const Text(
                 'Setting up ironXpress area',
                 style: TextStyle(
-                  fontSize: 28,
+                  fontSize: 32,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
+                textAlign: TextAlign.center,
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 40),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.9),
-                borderRadius: BorderRadius.circular(15),
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.white.withOpacity(0.2),
+                    Colors.white.withOpacity(0.1),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.3),
+                  width: 1,
+                ),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.1),
-                    blurRadius: 10,
-                    offset: const Offset(0, 5),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
                   ),
                 ],
               ),
@@ -767,30 +793,39 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                 _currentLocation,
                 style: const TextStyle(
                   fontSize: 16,
-                  color: Colors.black87,
+                  color: Colors.white,
                   fontWeight: FontWeight.w500,
                 ),
                 textAlign: TextAlign.center,
               ),
             ),
-            const SizedBox(height: 40),
+            const SizedBox(height: 50),
             if (_isLocationLoading)
               Container(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.9),
+                  gradient: RadialGradient(
+                    colors: [
+                      Colors.white.withOpacity(0.2),
+                      Colors.white.withOpacity(0.05),
+                    ],
+                  ),
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 15,
-                      offset: const Offset(0, 8),
+                      color: Colors.white.withOpacity(0.2),
+                      blurRadius: 30,
+                      spreadRadius: 5,
                     ),
                   ],
                 ),
-                child: const CircularProgressIndicator(
-                  color: Color(0xFF1565C0),
-                  strokeWidth: 3,
+                child: const SizedBox(
+                  height: 32,
+                  width: 32,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 3,
+                  ),
                 ),
               ),
           ],
@@ -799,21 +834,23 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildMapSelectionScreen() {
+  Widget _buildPremiumMapSelectionScreen() {
     final mediaQuery = MediaQuery.of(context);
     final screenHeight = mediaQuery.size.height;
-    final screenWidth = mediaQuery.size.width;
     final bottomPadding = mediaQuery.padding.bottom;
+    final topPadding = mediaQuery.padding.top;
 
     // Calculate dynamic values based on screen size
-    final bottomSheetHeight = screenHeight * 0.35;
-    final buttonBottomPadding = screenHeight < 600 ? 16.0 : 24.0;
+    final bottomSheetHeight = screenHeight * 0.25;
+    final buttonBottomPadding = screenHeight < 600 ? 12.0 : 16.0;
     final totalBottomPadding = bottomPadding + buttonBottomPadding;
+    final searchBarTop = topPadding + 10;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
+          // Google Maps
           GoogleMap(
             onMapCreated: (GoogleMapController controller) {
               _mapController = controller;
@@ -829,211 +866,327 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
             zoomControlsEnabled: false,
             mapToolbarEnabled: false,
             padding: EdgeInsets.only(
-              top: screenHeight * 0.15,
+              top: searchBarTop + 60,
               bottom: bottomSheetHeight,
             ),
           ),
 
-          // Fixed location pin at center
-          Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(50),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
-                        blurRadius: 10,
-                        spreadRadius: 2,
-                        offset: const Offset(0, 5),
-                      ),
-                    ],
-                  ),
-                  child: const Icon(
-                    Icons.location_pin,
-                    size: 48,
-                    color: Color(0xFF1565C0),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1565C0),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Search bar at top
+          // Premium Search Bar
           Positioned(
-            top: 60,
+            top: searchBarTop,
             left: 16,
             right: 16,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 10,
-                    offset: const Offset(0, 5),
+            child: SlideTransition(
+              position: _slideAnimation,
+              child: Container(
+                height: 50,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      const Color(0xFF42A5F5).withOpacity(0.95),
+                      const Color(0xFF42A5F5).withOpacity(0.9),
+                    ],
                   ),
-                ],
-              ),
-              child: TypeAheadField<Location>(
-                controller: _searchController,
-                builder: (context, controller, focusNode) {
-                  return TextField(
-                    controller: controller,
-                    focusNode: focusNode,
-                    decoration: InputDecoration(
-                      hintText: 'Search for area, street name...',
-                      hintStyle: TextStyle(
-                        color: Colors.grey.shade500,
-                        fontSize: 16,
-                      ),
-                      border: InputBorder.none,
-                      prefixIcon: Icon(
-                        Icons.search,
-                        color: Colors.grey.shade600,
-                      ),
-                      suffixIcon: controller.text.isNotEmpty
-                          ? IconButton(
-                        icon: Icon(
-                          Icons.close,
-                          color: Colors.grey.shade600,
-                        ),
-                        onPressed: () {
-                          controller.clear();
-                          // Removed setState since controller is managed internally
-                        },
-                      )
-                          : null,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.2),
+                    width: 1,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 15,
+                      offset: const Offset(0, 5),
                     ),
-                    style: const TextStyle(
-                      fontSize: 16,
-                      color: Colors.black87,
-                    ),
-                  );
-                },
-                suggestionsCallback: (pattern) async {
-                  if (pattern.length < 3) return [];
-                  try {
-                    return await locationFromAddress(pattern);
-                  } catch (e) {
-                    return [];
-                  }
-                },
-                itemBuilder: (context, Location suggestion) {
-                  return FutureBuilder<List<Placemark>>(
-                    future: placemarkFromCoordinates(suggestion.latitude, suggestion.longitude),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) {
-                        return const ListTile(
-                          leading: Icon(Icons.location_on),
-                          title: Text('Loading address...'),
-                        );
-                      }
-                      final placemark = snapshot.data!.first;
-                      return ListTile(
-                        leading: const Icon(Icons.location_on),
-                        title: Text(
-                          placemark.street?.isNotEmpty == true
-                              ? '${placemark.street}, ${placemark.locality}'
-                              : placemark.locality ?? 'Unknown location',
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: TypeAheadField<Location>(
+                    controller: _searchController,
+                    builder: (context, controller, focusNode) {
+                      return TextField(
+                        controller: controller,
+                        focusNode: focusNode,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
                         ),
-                        subtitle: Text(
-                            '${placemark.subAdministrativeArea ?? ''} ${placemark.postalCode ?? ''}'
+                        textAlignVertical: TextAlignVertical.center,
+                        decoration: InputDecoration(
+                          hintText: 'Search area, street...',
+                          hintStyle: TextStyle(
+                            color: Colors.white.withOpacity(0.7),
+                            fontSize: 15,
+                          ),
+                          border: InputBorder.none,
+                          prefixIcon: Icon(
+                            Icons.search_rounded,
+                            color: Colors.white.withOpacity(0.8),
+                            size: 20,
+                          ),
+                          suffixIcon: controller.text.isNotEmpty
+                              ? GestureDetector(
+                            onTap: () {
+                              controller.clear();
+                              FocusScope.of(context).unfocus();
+                              setState(() {});
+                            },
+                            child: Container(
+                              margin: const EdgeInsets.all(6),
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(
+                                Icons.close_rounded,
+                                color: Colors.white,
+                                size: 14,
+                              ),
+                            ),
+                          )
+                              : null,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 0,
+                          ),
+                          isDense: true,
                         ),
                       );
                     },
-                  );
-                },
-                onSelected: (Location selectedLocation) async {
-                  final placemarks = await placemarkFromCoordinates(
-                    selectedLocation.latitude,
-                    selectedLocation.longitude,
-                  );
+                    suggestionsCallback: (pattern) async {
+                      if (pattern.length < 2) return [];
+                      try {
+                        final locations = await locationFromAddress(pattern);
+                        return locations.take(3).toList(); // Limited to 3 suggestions
+                      } catch (e) {
+                        return [];
+                      }
+                    },
+                    itemBuilder: (context, Location suggestion) {
+                      return FutureBuilder<List<Placemark>>(
+                        future: placemarkFromCoordinates(suggestion.latitude, suggestion.longitude),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData) {
+                            return Container(
+                              padding: const EdgeInsets.all(12),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          const Color(0xFF42A5F5).withOpacity(0.2),
+                                          const Color(0xFF42A5F5).withOpacity(0.1),
+                                        ],
+                                      ),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Icon(
+                                      Icons.location_on_rounded,
+                                      color: Color(0xFF42A5F5),
+                                      size: 16,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  const Expanded(
+                                    child: Text(
+                                      'Loading...',
+                                      style: TextStyle(
+                                        color: Colors.black87,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+                          final placemark = snapshot.data!.first;
+                          String mainAddress = '';
+                          String subAddress = '';
 
-                  if (placemarks.isEmpty) return;
+                          if (placemark.street?.isNotEmpty == true) {
+                            mainAddress = placemark.street!;
+                            if (placemark.subLocality?.isNotEmpty == true) {
+                              mainAddress = '$mainAddress, ${placemark.subLocality}';
+                            }
+                            subAddress = '${placemark.locality ?? ''} ${placemark.postalCode ?? ''}'.trim();
+                          } else if (placemark.subLocality?.isNotEmpty == true) {
+                            mainAddress = placemark.subLocality!;
+                            subAddress = '${placemark.locality ?? ''} ${placemark.postalCode ?? ''}'.trim();
+                          } else {
+                            mainAddress = placemark.locality ?? 'Unknown location';
+                            subAddress = '${placemark.administrativeArea ?? ''} ${placemark.postalCode ?? ''}'.trim();
+                          }
 
-                  final placemark = placemarks.first;
-                  final latLng = LatLng(
-                    selectedLocation.latitude,
-                    selectedLocation.longitude,
-                  );
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        const Color(0xFF00BCD4).withOpacity(0.2),
+                                        const Color(0xFF26C6DA).withOpacity(0.1),
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Icon(
+                                    Icons.location_on_rounded,
+                                    color: Color(0xFF42A5F5),
+                                    size: 16,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        mainAddress,
+                                        style: const TextStyle(
+                                          color: Colors.black87,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      if (subAddress.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 2),
+                                          child: Text(
+                                            subAddress,
+                                            style: TextStyle(
+                                              color: Colors.grey.shade600,
+                                              fontSize: 12,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      );
+                    },
+                    onSelected: (Location selectedLocation) async {
+                      final placemarks = await placemarkFromCoordinates(
+                        selectedLocation.latitude,
+                        selectedLocation.longitude,
+                      );
 
-                  _mapController?.animateCamera(
-                    CameraUpdate.newCameraPosition(
-                      CameraPosition(
-                        target: latLng,
-                        zoom: 15.0,
+                      if (placemarks.isEmpty) return;
+
+                      final placemark = placemarks.first;
+                      final latLng = LatLng(
+                        selectedLocation.latitude,
+                        selectedLocation.longitude,
+                      );
+
+                      _mapController?.animateCamera(
+                        CameraUpdate.newCameraPosition(
+                          CameraPosition(
+                            target: latLng,
+                            zoom: 16.0,
+                          ),
+                        ),
+                      );
+
+                      await _onMapTap(latLng);
+                      _searchController.clear();
+
+                      String selectedAddress = '';
+                      if (placemark.street?.isNotEmpty == true) {
+                        selectedAddress = '${placemark.street}, ${placemark.locality ?? ''}';
+                      } else if (placemark.subLocality?.isNotEmpty == true) {
+                        selectedAddress = '${placemark.subLocality}, ${placemark.locality ?? ''}';
+                      } else {
+                        selectedAddress = placemark.locality ?? 'Selected location';
+                      }
+
+                      setState(() {
+                        _selectedAddress = selectedAddress;
+                      });
+                    },
+                    emptyBuilder: (context) => const SizedBox.shrink(), // Don't show empty widget
+                    loadingBuilder: (context) => Container(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: const Color(0xFF42A5F5),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Searching...',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey.shade700,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  );
-
-                  await _onMapTap(latLng);
-                  _searchController.clear();
-
-                  setState(() {
-                    _selectedAddress = placemark.street?.isNotEmpty == true
-                        ? '${placemark.street}, ${placemark.locality}'
-                        : placemark.locality ?? 'Selected location';
-                  });
-                },
-                // ✅ FIXED: Changed from noItemsFoundBuilder to emptyBuilder
-                emptyBuilder: (context) => const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Text(
-                    'No locations found',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey,
-                    ),
-                  ),
-                ),
-                // ✅ FIXED: Updated loadingBuilder syntax
-                loadingBuilder: (context) => const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                    errorBuilder: (context, error) => Container(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        'No locations found',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey.shade600,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
-                      SizedBox(width: 12),
-                      Text('Searching...'),
-                    ],
+                    ),
+                    decorationBuilder: (context, child) {
+                      return Material(
+                        type: MaterialType.card,
+                        elevation: 6,
+                        borderRadius: BorderRadius.circular(12),
+                        shadowColor: Colors.black.withOpacity(0.15),
+                        child: Container(
+                          constraints: BoxConstraints(
+                            maxHeight: screenHeight * 0.3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: const Color(0xFF42A5F5).withOpacity(0.1),
+                              width: 1,
+                            ),
+                          ),
+                          child: child,
+                        ),
+                      );
+                    },
+                    offset: const Offset(0, 6),
                   ),
                 ),
-                // ✅ NEW: Added decoration for suggestions dropdown
-                decorationBuilder: (context, child) {
-                  return Material(
-                    type: MaterialType.card,
-                    elevation: 4,
-                    borderRadius: BorderRadius.circular(8),
-                    child: child,
-                  );
-                },
-                // ✅ NEW: Position offset for suggestions
-                offset: const Offset(0, 12),
-                // ✅ NEW: Constraints for suggestions height
-                constraints: const BoxConstraints(maxHeight: 500),
               ),
             ),
           ),
-          // My location button
+
+          // Premium My Location Button
           Positioned(
             bottom: bottomSheetHeight + totalBottomPadding + 20,
             right: 16,
@@ -1049,7 +1202,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                     CameraUpdate.newCameraPosition(
                       CameraPosition(
                         target: currentLatLng,
-                        zoom: 15.0,
+                        zoom: 16.0,
                       ),
                     ),
                   );
@@ -1061,128 +1214,207 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                 width: 48,
                 height: 48,
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  gradient: LinearGradient(
+                    colors: [
+                      const Color(0xFF42A5F5),
+                      const Color(0xFF42A5F5),
+                    ],
+                  ),
                   borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.3),
+                    width: 2,
+                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 10,
-                      offset: const Offset(0, 5),
+                      color: const Color(0xFF42A5F5).withOpacity(0.4),
+                      blurRadius: 15,
+                      offset: const Offset(0, 6),
                     ),
                   ],
                 ),
                 child: const Icon(
-                  Icons.my_location,
-                  color: Color(0xFF1565C0),
+                  Icons.my_location_rounded,
+                  color: Colors.white,
                   size: 24,
                 ),
               ),
             ),
           ),
 
-          // Bottom sheet with address and confirm button
+          // Premium Bottom Sheet
           Positioned(
             bottom: 0,
             left: 0,
             right: 0,
-            child: Container(
-              height: bottomSheetHeight,
-              padding: EdgeInsets.only(
-                left: 24,
-                right: 24,
-                top: 24,
-                bottom: totalBottomPadding,
-              ),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(24),
-                  topRight: Radius.circular(24),
+            child: SlideTransition(
+              position: _slideAnimation,
+              child: Container(
+                constraints: BoxConstraints(
+                  minHeight: bottomSheetHeight,
+                  maxHeight: screenHeight * 0.35,
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 25,
-                    offset: const Offset(0, -10),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1565C0).withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(
-                          Icons.place,
-                          color: Color(0xFF1565C0),
-                          size: 20,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      const Text(
-                        'Your Location',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
-                        ),
-                      ),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      const Color(0xFF42A5F5).withOpacity(0.95),
+                      const Color(0xFF42A5F5).withOpacity(0.9),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    _selectedAddress.isNotEmpty ? _selectedAddress : 'Move map to select location',
-                    style: const TextStyle(
-                      fontSize: 15,
-                      color: Colors.black54,
-                      height: 1.4,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(24),
+                    topRight: Radius.circular(24),
                   ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: ElevatedButton(
-                      onPressed: _selectedLocation != null && !_isLocationLoading
-                          ? _confirmLocationAndCheckService
-                          : null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF1565C0),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.2),
+                    width: 1,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 25,
+                      offset: const Offset(0, -10),
+                    ),
+                  ],
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      left: 20,
+                      right: 20,
+                      top: 20,
+                      bottom: math.max(totalBottomPadding, 16),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Drag Handle
+                        Center(
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.4),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
                         ),
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: _isLocationLoading
-                          ? const SizedBox(
-                        height: 24,
-                        width: 24,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
+                        const SizedBox(height: 16),
+
+                        // Location Header
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                gradient: RadialGradient(
+                                  colors: [
+                                    Colors.white.withOpacity(0.3),
+                                    Colors.white.withOpacity(0.1),
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.place_rounded,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Text(
+                              'Delivery Location',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
                         ),
-                      )
-                          : const Text(
-                        'Confirm Location',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
+                        const SizedBox(height: 12),
+
+                        // Address Display
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.2),
+                              width: 1,
+                            ),
+                          ),
+                          child: Text(
+                            _selectedAddress.isNotEmpty ? _selectedAddress : 'Move map to select location',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Colors.white,
+                              height: 1.3,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                      ),
+                        const SizedBox(height: 16),
+
+                        // Premium Confirm Button
+                        SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: ElevatedButton(
+                            onPressed: _selectedLocation != null && !_isLocationLoading
+                                ? _confirmLocationAndCheckService
+                                : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: const Color(0xFF42A5F5),
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            child: _isLocationLoading
+                                ? SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                color: const Color(0xFF42A5F5),
+                                strokeWidth: 2,
+                              ),
+                            )
+                                : const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.check_circle_rounded,
+                                  color: Color(0xFF42A5F5),
+                                  size: 20,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Confirm Location',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF42A5F5),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
+                ),
               ),
             ),
           ),
@@ -1196,8 +1428,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
     final screenHeight = mediaQuery.size.height;
     final bottomPadding = mediaQuery.padding.bottom;
 
-    // Calculate dynamic values based on screen size
-    final buttonBottomPadding = screenHeight < 600 ? 16.0 : 24.0;
+    final buttonBottomPadding = screenHeight < 600 ? 12.0 : 16.0;
     final totalBottomPadding = bottomPadding + buttonBottomPadding;
 
     return Container(
@@ -1225,30 +1456,30 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                     return Transform.scale(
                       scale: _bounceAnimation.value,
                       child: Container(
-                        width: 140,
-                        height: 140,
+                        width: 160,
+                        height: 160,
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(
+                          gradient: RadialGradient(
                             colors: [
-                              Colors.orange.withOpacity(0.2),
-                              Colors.orange.withOpacity(0.05),
+                              Colors.orange.withOpacity(0.3),
+                              Colors.orange.withOpacity(0.1),
+                              Colors.transparent,
                             ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
+                            stops: const [0.0, 0.7, 1.0],
                           ),
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.orange.withOpacity(0.2),
-                              blurRadius: 30,
-                              offset: const Offset(0, 15),
+                              color: Colors.orange.withOpacity(0.3),
+                              blurRadius: 40,
+                              spreadRadius: 10,
                             ),
                           ],
                         ),
                         child: const Icon(
                           Icons.iron_outlined,
-                          size: 70,
-                          color: Colors.orange,
+                          size: 80,
+                          color: Colors.white,
                         ),
                       ),
                     );
@@ -1257,34 +1488,43 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                 const SizedBox(height: 40),
                 ShaderMask(
                   shaderCallback: (bounds) => LinearGradient(
-                    colors: [Colors.orange, Colors.orange.withOpacity(0.8)],
+                    colors: [Colors.white, Colors.orange.withOpacity(0.8)],
                   ).createShader(bounds),
                   child: const Text(
                     'IronXpress Not Available',
                     style: TextStyle(
-                      fontSize: 30,
+                      fontSize: 32,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                     ),
                     textAlign: TextAlign.center,
                   ),
                 ),
-                const SizedBox(height: 16),
-                const Text(
+                const SizedBox(height: 20),
+                Text(
                   'We don\'t provide our services in this area yet, but we\'re expanding rapidly!',
                   style: TextStyle(
                     fontSize: 18,
-                    color: Colors.black54,
+                    color: Colors.white.withOpacity(0.9),
                     height: 1.5,
                   ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 40),
                 Container(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.white.withOpacity(0.2),
+                        Colors.white.withOpacity(0.1),
+                      ],
+                    ),
                     borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.3),
+                      width: 1,
+                    ),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withOpacity(0.1),
@@ -1298,8 +1538,11 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF1565C0), Color(0xFF2196F3)],
+                          gradient: RadialGradient(
+                            colors: [
+                              Colors.white.withOpacity(0.3),
+                              Colors.white.withOpacity(0.1),
+                            ],
                           ),
                           borderRadius: BorderRadius.circular(15),
                         ),
@@ -1315,7 +1558,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                           _selectedAddress.isNotEmpty ? _selectedAddress : _currentLocation,
                           style: const TextStyle(
                             fontSize: 16,
-                            color: Colors.black87,
+                            color: Colors.white,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -1328,7 +1571,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                   children: [
                     SizedBox(
                       width: double.infinity,
-                      height: 56,
+                      height: 48,
                       child: ElevatedButton(
                         onPressed: () {
                           _bounceController.reset();
@@ -1340,34 +1583,34 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                           });
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF1565C0),
-                          foregroundColor: Colors.white,
+                          backgroundColor: Colors.white,
+                          foregroundColor: const Color(0xFF42A5F5),
                           elevation: 0,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
+                            borderRadius: BorderRadius.circular(12),
                           ),
                         ),
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.map, color: Colors.white),
-                            SizedBox(width: 12),
+                            Icon(Icons.map_rounded, color: Color(0xFF42A5F5), size: 20),
+                            SizedBox(width: 8),
                             Text(
                               'Try Different Location',
                               style: TextStyle(
-                                fontSize: 18,
+                                fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.white,
+                                color: Color(0xFF42A5F5),
                               ),
                             ),
                           ],
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
-                      height: 56,
+                      height: 48,
                       child: OutlinedButton(
                         onPressed: () {
                           _bounceController.reset();
@@ -1377,23 +1620,23 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                           _checkLocationAndService();
                         },
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFF1565C0),
-                          side: const BorderSide(color: Color(0xFF1565C0), width: 2),
+                          foregroundColor: Colors.white,
+                          side: BorderSide(color: Colors.white.withOpacity(0.5), width: 2),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
+                            borderRadius: BorderRadius.circular(12),
                           ),
                         ),
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.refresh, color: Color(0xFF1565C0)),
-                            SizedBox(width: 12),
+                            Icon(Icons.refresh_rounded, color: Colors.white, size: 20),
+                            SizedBox(width: 8),
                             Text(
                               'Check Again',
                               style: TextStyle(
-                                fontSize: 18,
+                                fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: Color(0xFF1565C0),
+                                color: Colors.white,
                               ),
                             ),
                           ],
@@ -1402,7 +1645,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                     ),
                   ],
                 ),
-                const SizedBox(height: 40),
+                const SizedBox(height: 20),
               ],
             ),
           ),

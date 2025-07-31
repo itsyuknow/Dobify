@@ -96,13 +96,11 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
           // Navigate to AppWrapper after successful login
           Future.delayed(const Duration(milliseconds: 500), () {
             if (mounted) {
-              // ✅ NAVIGATE TO APP WRAPPER - NOT DIRECTLY TO HOME
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(builder: (_) => const AppWrapper()),
                     (route) => false,
               );
-
               print('✅ Navigated to AppWrapper for location verification');
             }
           });
@@ -276,6 +274,9 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
                 ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 3,
+                softWrap: true,
               ),
             ),
           ],
@@ -470,7 +471,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
         ),
         const SizedBox(height: 28),
 
-        // Title with gradient effect
+        // Title with gradient effect - Fixed text wrapping
         ShaderMask(
           shaderCallback: (bounds) => LinearGradient(
             colors: [
@@ -486,21 +487,29 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
               color: Colors.white,
               letterSpacing: -0.5,
             ),
+            overflow: TextOverflow.visible,
+            softWrap: true,
+            textAlign: TextAlign.center,
           ),
         ),
         const SizedBox(height: 16),
 
-        // Subtitle
-        Text(
-          _otpSent
-              ? 'Enter the 6-digit verification code\nsent to ${phoneController.text.trim()}'
-              : 'Enter your phone number to receive\na verification code',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Colors.grey.shade600,
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-            height: 1.5,
+        // Subtitle - Fixed text wrapping with proper padding
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+          child: Text(
+            _otpSent
+                ? 'Enter the 6-digit verification code\nsent to ${phoneController.text.trim()}'
+                : 'Enter your phone number to receive\na verification code',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.grey.shade600,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              height: 1.5,
+            ),
+            overflow: TextOverflow.visible,
+            softWrap: true,
           ),
         ),
       ],
@@ -716,13 +725,16 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
                   ),
                 ),
                 SizedBox(width: 16),
-                Text(
-                  'Sending...',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    letterSpacing: 0.5,
+                Flexible(
+                  child: Text(
+                    'Sending...',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      letterSpacing: 0.5,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -736,13 +748,16 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
                   size: 24,
                 ),
                 SizedBox(width: 12),
-                Text(
-                  'Send Verification Code',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    letterSpacing: 0.5,
+                Flexible(
+                  child: Text(
+                    'Send Verification Code',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      letterSpacing: 0.5,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -800,13 +815,16 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
                   ),
                 ),
                 SizedBox(width: 16),
-                Text(
-                  'Verifying...',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    letterSpacing: 0.5,
+                Flexible(
+                  child: Text(
+                    'Verifying...',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      letterSpacing: 0.5,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -820,13 +838,16 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
                   size: 24,
                 ),
                 SizedBox(width: 12),
-                Text(
-                  'Verify & Sign In',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    letterSpacing: 0.5,
+                Flexible(
+                  child: Text(
+                    'Verify & Sign In',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      letterSpacing: 0.5,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -847,6 +868,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
             fontSize: 15,
             fontWeight: FontWeight.w500,
           ),
+          overflow: TextOverflow.visible,
+          softWrap: true,
         ),
         const SizedBox(height: 8),
 
@@ -865,6 +888,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
               ),
+              overflow: TextOverflow.ellipsis,
             ),
           )
         else
@@ -892,12 +916,15 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
                         size: 18,
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        'Resend Code',
-                        style: TextStyle(
-                          color: kPrimaryColor,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
+                      Flexible(
+                        child: Text(
+                          'Resend Code',
+                          style: TextStyle(
+                            color: kPrimaryColor,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
@@ -925,12 +952,15 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(
-              "Prefer other options? ",
-              style: TextStyle(
-                color: Colors.grey.shade600,
-                fontSize: 15,
-                fontWeight: FontWeight.w500,
+            Flexible(
+              child: Text(
+                "Prefer other options? ",
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
             GestureDetector(
@@ -947,6 +977,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> with TickerProvider
                   decoration: TextDecoration.underline,
                   decorationColor: kPrimaryColor,
                 ),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],

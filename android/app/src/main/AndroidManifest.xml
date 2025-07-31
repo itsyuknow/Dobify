@@ -14,7 +14,6 @@
     <uses-permission android:name="com.google.android.c2dm.permission.RECEIVE" />
 
     <!-- Permissions for Authentication -->
-
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.GET_ACCOUNTS" />
     <uses-permission android:name="android.permission.USE_CREDENTIALS" />
@@ -83,14 +82,27 @@
             </intent-filter>
 
             <!--
-              ✅ CORRECTED INTENT FILTER FOR SUPABASE OAUTH REDIRECT
-              This filter captures the com.yuknow.ironly://auth-callback URL.
+              ✅ FIXED: Intent filter for custom scheme (your original setup)
+              This handles: com.yuknow.ironly://auth-callback
             -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="com.yuknow.ironly" android:host="auth-callback" />
+            </intent-filter>
+
+            <!--
+              ✅ NEW: Intent filter for Supabase HTTPS redirect
+              This handles: https://qehtgclgjhzdlqcjujpp.supabase.co/auth/v1/callback
+            -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https"
+                    android:host="qehtgclgjhzdlqcjujpp.supabase.co"
+                    android:path="/auth/v1/callback" />
             </intent-filter>
 
         </activity>
