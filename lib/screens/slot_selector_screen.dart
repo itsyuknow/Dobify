@@ -1979,7 +1979,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                     style: TextStyle(
                       fontSize: isSmallScreen ? 9 : 11,
                       fontWeight: FontWeight.w600,
-                      color: Colors.red.shade800, // ✅ CHANGED: Dark red text
+                      color: Colors.green.shade800, // ✅ CHANGED: Dark red text
                     ),
                   ),
                 ),
