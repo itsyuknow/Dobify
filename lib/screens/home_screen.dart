@@ -46,7 +46,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
   int _notificationCount = 0;
 
   final PageController _bannerPageController = PageController(
-      viewportFraction: 0.94);
+      viewportFraction: 1.0); // ✅ REDUCED FROM 0.94 TO 0.92 FOR NARROWER BANNERS
 
   // Animation controllers
   late AnimationController _fadeController;
@@ -64,7 +64,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
 
   void _initializeAnimations() {
     _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
+      duration: const Duration(milliseconds: 200),
       vsync: this,
     );
 
@@ -333,9 +333,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
-          borderRadius: const BorderRadius.vertical(
-            bottom: Radius.circular(24),
-          ),
+          // ✅ REMOVED BORDER RADIUS TO MAKE HEADER STRAIGHT
           boxShadow: [
             BoxShadow(
               color: kPrimaryColor.withOpacity(0.3),
@@ -345,9 +343,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
           ],
         ),
       ),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
-      ),
+      // ✅ REMOVED SHAPE PROPERTY TO MAKE HEADER STRAIGHT
       actions: [
         // ✅ PREMIUM SMOOTH CART ICON
         Container(
@@ -662,7 +658,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
         ],
       ),
       child: SizedBox(
-        height: 250,
+        height: 200,
         child: _carouselImages.isEmpty
             ? Center(
           child: Container(

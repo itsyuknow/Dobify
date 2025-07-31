@@ -1970,16 +1970,16 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                     vertical: isSmallScreen ? 3 : 4,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.red.shade50, // ✅ CHANGED: Light red background
+                    color: Colors.green, // ✅ CHANGED: Light red background
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.red.shade800.withOpacity(0.3)), // ✅ CHANGED: Dark red border
+                    border: Border.all(color: Colors.green.withOpacity(0.3)), // ✅ CHANGED: Dark red border
                   ),
                   child: Text(
                     '+₹${(expressDeliveryFee - standardDeliveryFee).toStringAsFixed(0)} extra',
                     style: TextStyle(
                       fontSize: isSmallScreen ? 9 : 11,
                       fontWeight: FontWeight.w600,
-                      color: Colors.green.shade800, // ✅ CHANGED: Dark red text
+                      color: Colors.white, // ✅ CHANGED: Dark red text
                     ),
                   ),
                 ),
