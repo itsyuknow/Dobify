@@ -1,10 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Minimum SDK version updated to 23 to meet Firebase Auth KTX requirement -->
+    <!-- Minimum SDK version updated to 23 -->
     <uses-sdk android:minSdkVersion="23" />
 
-    <!-- ✅ Required permissions -->
+    <!-- Required permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
@@ -13,9 +13,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="com.google.android.c2dm.permission.RECEIVE" />
 
-    <!-- ✅ ADD THESE FOR AUTHENTICATION -->
-    <uses-permission android:name="android.permission.READ_SMS" />
-    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <!-- Permissions for Authentication -->
+
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.GET_ACCOUNTS" />
     <uses-permission android:name="android.permission.USE_CREDENTIALS" />
@@ -27,11 +26,11 @@
         android:allowBackup="false"
         android:requestLegacyExternalStorage="true">
 
-        <!-- ✅ Google Maps API Key -->
+        <!-- Google Maps API Key -->
         <meta-data android:name="com.google.android.geo.API_KEY"
             android:value="AIzaSyDNNBEcTzdgnS3kwCG1xbctiU0kGkvkVK8"/>
 
-        <!-- ✅ Firebase Configuration -->
+        <!-- Firebase Configuration -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@mipmap/ic_launcher" />
@@ -39,12 +38,12 @@
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="ironxpress_notifications" />
 
-        <!-- ✅ ADD GOOGLE SIGN-IN CONFIGURATION -->
+        <!-- Google Sign-In Configuration -->
         <meta-data
             android:name="com.google.android.gms.version"
             android:value="@integer/google_play_services_version" />
 
-        <!-- ✅ Firebase Messaging Service -->
+        <!-- Firebase Messaging Service -->
         <service
             android:name="io.flutter.plugins.firebase.messaging.FlutterFirebaseMessagingService"
             android:exported="false">
@@ -53,14 +52,12 @@
             </intent-filter>
         </service>
 
-        <!-- ✅ ADD GOOGLE SIGN-IN ACTIVITY -->
+        <!-- Google Sign-In Activities -->
         <activity
             android:name="com.google.android.gms.auth.api.signin.internal.SignInHubActivity"
             android:excludeFromRecents="true"
             android:exported="false"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
-
-        <!-- ✅ ADD GOOGLE SERVICES ACTIVITY -->
         <activity
             android:name="com.google.android.gms.common.api.GoogleApiActivity"
             android:exported="false"
@@ -70,7 +67,6 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
-            android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
@@ -80,33 +76,23 @@
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
 
+            <!-- Intent filter for launching the app normally -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- ✅ Handle notification clicks -->
+            <!--
+              ✅ CORRECTED INTENT FILTER FOR SUPABASE OAUTH REDIRECT
+              This filter captures the com.yuknow.ironly://auth-callback URL.
+            -->
             <intent-filter>
-                <action android:name="FLUTTER_NOTIFICATION_CLICK" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-
-            <!-- ✅ SUPABASE AUTH REDIRECT - Using your actual Supabase URL -->
-            <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https"
-                    android:host="qehtgcgjhzdlqcjujpp.supabase.co" />
+                <data android:scheme="com.yuknow.ironly" android:host="auth-callback" />
             </intent-filter>
 
-            <!-- ✅ CUSTOM URL SCHEME FOR SUPABASE AUTH -->
-            <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="com.yuknow.ironly" />
-            </intent-filter>
         </activity>
 
         <!-- Flutter plugin registration -->
@@ -115,14 +101,24 @@
             android:value="2" />
     </application>
 
-    <!-- Allows Flutter engine to detect text-processing apps -->
+    <!--
+      ✅ CORRECTED QUERIES BLOCK
+      Added intent for url_launcher to open web browsers on Android 11+
+    -->
     <queries>
+        <!-- Allows url_launcher to open browser URLs -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+
+        <!-- Allows Flutter engine to detect text-processing apps -->
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />
         </intent>
 
-        <!-- ✅ ADD QUERIES FOR GOOGLE SIGN-IN -->
+        <!-- Required for Google Sign-In -->
         <package android:name="com.google.android.gms" />
         <package android:name="com.android.vending" />
     </queries>
