@@ -663,11 +663,12 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
           MaterialPageRoute(builder: (_) => OrdersScreen(category: title)),
         );
       },
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(20),
       child: Container(
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.08),
@@ -691,9 +692,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                 Expanded(
                   flex: 3,
                   child: ClipRRect(
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(16),
-                    ),
+                    borderRadius: BorderRadius.circular(16),
                     child: isNetwork
                         ? CachedNetworkImage(
                       imageUrl: imagePath,
@@ -702,9 +701,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                       placeholder: (context, url) => Container(
                         decoration: BoxDecoration(
                           color: Colors.grey.shade100,
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(16),
-                          ),
+                          borderRadius: BorderRadius.circular(16),
                         ),
                         child: Center(
                           child: CircularProgressIndicator(
@@ -716,9 +713,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                       errorWidget: (context, url, error) => Container(
                         decoration: BoxDecoration(
                           color: Colors.grey.shade100,
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(16),
-                          ),
+                          borderRadius: BorderRadius.circular(16),
                         ),
                         child: const Center(
                           child: Icon(
@@ -737,29 +732,22 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                   ),
                 ),
 
+                const SizedBox(height: 12),
+
                 // Text Content with proper spacing
-                Expanded(
-                  flex: 1,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          title,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                            color: Colors.black87,
-                            letterSpacing: 0.2,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                      color: Colors.black87,
+                      letterSpacing: 0.2,
                     ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
                   ),
                 ),
               ],
@@ -768,8 +756,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
             // Label Tag - Positioned top right
             if (label != null && label.isNotEmpty)
               Positioned(
-                top: 8,
-                right: 8,
+                top: 4,
+                right: 4,
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
