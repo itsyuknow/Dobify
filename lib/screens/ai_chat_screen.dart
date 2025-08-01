@@ -15,6 +15,7 @@ class _ChatMessage {
   final String role; // 'user' or 'assistant'
   final String content;
   final DateTime timestamp;
+
   _ChatMessage({
     required this.role,
     required this.content,
@@ -38,10 +39,6 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
-  // ✅ API Configuration
-  static const String _baseUrl = 'https://qehtgclgjhzdlqcjujpp.supabase.co';
-  static const String _apiKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo';
-
   @override
   void initState() {
     super.initState();
@@ -50,11 +47,6 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
     fetchSupportPhone();
     _initializeAnimations();
     _addWelcomeMessage();
-
-    // Test API connectivity on startup
-    Future.delayed(const Duration(seconds: 2), () {
-      _testApiConnectivity();
-    });
   }
 
   void _initializeAnimations() {
@@ -95,7 +87,6 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
     });
   }
 
-  // ✅ FIXED UUID GENERATION
   String _generateConversationId() {
     const uuid = Uuid();
     return uuid.v4();
@@ -106,54 +97,36 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
     return uuid.v4();
   }
 
-  // ✅ IMPROVED ERROR HANDLING FOR SUPPORT PHONE
   Future<void> fetchSupportPhone() async {
     try {
-      print('Fetching support phone...');
       final response = await http.get(
-        Uri.parse('$_baseUrl/rest/v1/ui_contacts?key=eq.support'),
+        Uri.parse('https://qehtglgjhzdlqcjujpp.supabase.co/rest/v1/ui_contacts?key=eq.support'),
         headers: {
-          'apikey': _apiKey,
-          'Authorization': 'Bearer $_apiKey',
-          'Content-Type': 'application/json',
+          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
+          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
         },
-      ).timeout(const Duration(seconds: 10));
-
-      print('Support phone response status: ${response.statusCode}');
-      print('Support phone response body: ${response.body}');
+      );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data is List && data.isNotEmpty) {
-          setState(() {
-            supportPhone = data[0]['value'];
-          });
-          print('Support phone fetched: $supportPhone');
-        } else {
-          print('No support phone data found');
+          if (mounted) {
+            setState(() {
+              supportPhone = data[0]['value'];
+            });
+          }
         }
-      } else {
-        print('Failed to fetch support phone: ${response.statusCode}');
-        print('Error body: ${response.body}');
       }
     } catch (e) {
-      print('Error fetching support phone: $e');
+      debugPrint('Error fetching support phone: $e');
     }
   }
 
-  // ✅ IMPROVED MESSAGE SENDING WITH COMPREHENSIVE DEBUGGING
   Future<void> _sendMessage(String userMessage) async {
     if (userMessage.trim().isEmpty) return;
 
-    final trimmedMessage = userMessage.trim();
-    print('🚀 SENDING MESSAGE');
-    print('📝 Message: $trimmedMessage');
-    print('🔑 Conversation ID: $conversationId');
-    print('👤 User ID: $userId');
-    print('🌐 API URL: $_baseUrl/functions/v1/chat');
-
     setState(() {
-      _messages.add(_ChatMessage(role: 'user', content: trimmedMessage));
+      _messages.add(_ChatMessage(role: 'user', content: userMessage.trim()));
       _isLoading = true;
     });
     _controller.clear();
@@ -164,221 +137,91 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
     });
 
     try {
-      final requestBody = {
-        "conversation_id": conversationId,
-        "user_id": userId,
-        "message": trimmedMessage,
-      };
-
-      print('📦 Request Body: ${jsonEncode(requestBody)}');
-      print('🔐 API Key (first 20 chars): ${_apiKey.substring(0, 20)}...');
-
       final response = await http.post(
-        Uri.parse('$_baseUrl/functions/v1/chat'),
+        Uri.parse('https://qehtglgjhzdlqcjujpp.supabase.co/functions/v1/chat'),
         headers: {
-          'Authorization': 'Bearer $_apiKey',
+          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'User-Agent': 'Flutter-IronBot/1.0',
         },
-        body: jsonEncode(requestBody),
-      ).timeout(const Duration(seconds: 30));
-
-      print('📡 RESPONSE RECEIVED');
-      print('📊 Status Code: ${response.statusCode}');
-      print('📋 Response Headers: ${response.headers}');
-      print('📄 Response Body: ${response.body}');
-      print('📏 Response Length: ${response.body.length}');
+        body: jsonEncode({
+          "conversation_id": conversationId,
+          "user_id": userId,
+          "message": userMessage.trim(),
+        }),
+      );
 
       if (response.statusCode == 200) {
-        try {
-          final data = json.decode(response.body);
-          print('✅ Parsed Response Data: $data');
-
-          final botResponse = data['response'] ?? data['message'] ?? 'Sorry, I could not process your request.';
-
+        final data = jsonDecode(response.body);
+        if (mounted) {
           setState(() {
             _messages.add(_ChatMessage(
               role: 'assistant',
-              content: botResponse.toString().trim(),
-            ));
-          });
-          _scrollToBottom();
-        } catch (parseError) {
-          print('❌ JSON Parse Error: $parseError');
-          setState(() {
-            _messages.add(_ChatMessage(
-              role: 'assistant',
-              content: 'Received invalid response format from server.',
+              content: (data['response'] ?? data['message'] ?? 'Sorry, I could not process your request.').toString().trim(),
             ));
           });
         }
+        _scrollToBottom();
       } else {
-        // Enhanced error handling with response body details
-        print('❌ ERROR RESPONSE');
-        print('Status: ${response.statusCode}');
-        print('Body: ${response.body}');
-
-        String errorMessage;
-        String technicalDetails = '';
-
-        // Try to parse error response
-        try {
-          final errorData = json.decode(response.body);
-          technicalDetails = errorData['error'] ?? errorData['message'] ?? '';
-          print('🔍 Error Details: $technicalDetails');
-        } catch (e) {
-          technicalDetails = response.body;
+        if (mounted) {
+          setState(() {
+            _messages.add(_ChatMessage(
+              role: 'assistant',
+              content: 'Sorry, I encountered an error. Please try again later.',
+            ));
+          });
         }
-
-        switch (response.statusCode) {
-          case 400:
-            errorMessage = 'Bad Request: Invalid message format or missing parameters.';
-            if (technicalDetails.isNotEmpty) {
-              errorMessage += '\nDetails: $technicalDetails';
-            }
-            break;
-          case 401:
-            errorMessage = 'Unauthorized: Invalid API key or expired token.';
-            break;
-          case 403:
-            errorMessage = 'Forbidden: Access denied. Check your permissions.';
-            break;
-          case 404:
-            errorMessage = 'Not Found: Chat function not deployed or incorrect URL.';
-            break;
-          case 429:
-            errorMessage = 'Rate Limited: Too many requests. Please wait.';
-            break;
-          case 500:
-            errorMessage = 'Internal Server Error: Issue with the chat function.';
-            if (technicalDetails.isNotEmpty) {
-              errorMessage += '\nServer Details: $technicalDetails';
-            }
-            break;
-          case 502:
-            errorMessage = 'Bad Gateway: Function deployment or connection issue.';
-            break;
-          case 503:
-            errorMessage = 'Service Unavailable: Function temporarily down.';
-            break;
-          case 504:
-            errorMessage = 'Gateway Timeout: Function took too long to respond.';
-            break;
-          default:
-            errorMessage = 'HTTP Error ${response.statusCode}: Unexpected server response.';
-            if (technicalDetails.isNotEmpty) {
-              errorMessage += '\nDetails: $technicalDetails';
-            }
-        }
-
+        _showErrorSnackBar('Error: ${response.statusCode}');
+      }
+    } catch (e) {
+      if (mounted) {
         setState(() {
           _messages.add(_ChatMessage(
             role: 'assistant',
-            content: errorMessage,
+            content: "I'm sorry, I'm having trouble connecting right now. Please check your internet connection and try again.",
           ));
         });
-        _showErrorSnackBar('Server Error (${response.statusCode})');
       }
-    } catch (e) {
-      print('💥 EXCEPTION OCCURRED');
-      print('Exception Type: ${e.runtimeType}');
-      print('Exception Details: $e');
-      print('Stack Trace: ${StackTrace.current}');
-
-      String errorMessage;
-
-      if (e.toString().contains('TimeoutException')) {
-        errorMessage = "⏰ Request timed out after 30 seconds.\n\nThis usually means:\n• The server is overloaded\n• Your internet is slow\n• The function is taking too long to process";
-      } else if (e.toString().contains('SocketException')) {
-        errorMessage = "🌐 No internet connection.\n\nPlease check:\n• WiFi/Mobile data is on\n• You have internet access\n• Try again in a moment";
-      } else if (e.toString().contains('FormatException')) {
-        errorMessage = "📄 Invalid response format from server.\n\nThe server returned malformed data.";
-      } else if (e.toString().contains('HandshakeException')) {
-        errorMessage = "🔒 SSL/TLS connection failed.\n\nThis might be a network security issue.";
-      } else {
-        errorMessage = "❌ Unexpected error occurred.\n\nError: ${e.toString()}";
-      }
-
-      setState(() {
-        _messages.add(_ChatMessage(
-          role: 'assistant',
-          content: errorMessage,
-        ));
-      });
-      _showErrorSnackBar('Connection Error');
+      _showErrorSnackBar('Connection failed. Please try again.');
     }
 
-    setState(() => _isLoading = false);
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
     _scrollToBottom();
-  }
-
-  // ✅ ADD FUNCTION TO TEST API CONNECTIVITY
-  Future<void> _testApiConnectivity() async {
-    print('🧪 TESTING API CONNECTIVITY');
-    try {
-      final testResponse = await http.get(
-        Uri.parse('$_baseUrl/rest/v1/'),
-        headers: {
-          'apikey': _apiKey,
-          'Authorization': 'Bearer $_apiKey',
-        },
-      ).timeout(const Duration(seconds: 10));
-
-      print('🔍 Base API Test - Status: ${testResponse.statusCode}');
-      print('🔍 Base API Test - Body: ${testResponse.body}');
-
-      // Test the functions endpoint specifically with proper OPTIONS request
-      final functionsResponse = await http.Request(
-        'OPTIONS',
-        Uri.parse('$_baseUrl/functions/v1/chat'),
-      )
-        ..headers.addAll({
-          'Authorization': 'Bearer $_apiKey',
-          'Content-Type': 'application/json',
-        });
-
-      final streamedResponse = await functionsResponse.send();
-      final response = await http.Response.fromStream(streamedResponse);
-
-      print('🔍 Functions Test - Status: ${response.statusCode}');
-      print('🔍 Functions Test - Headers: ${response.headers}');
-
-    } catch (e) {
-      print('🔍 Connectivity Test Failed: $e');
-    }
   }
 
   void _scrollToBottom() {
     if (_scrollController.hasClients) {
       Future.delayed(const Duration(milliseconds: 100), () {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent + 100,
-          duration: const Duration(milliseconds: 400),
-          curve: Curves.easeOutCubic,
-        );
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent + 100,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeOutCubic,
+          );
+        }
       });
     }
   }
 
   void _showErrorSnackBar(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(Icons.error_outline, color: Colors.white, size: 20),
-            const SizedBox(width: 12),
-            Expanded(child: Text(message)),
-          ],
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error_outline, color: Colors.white, size: 20),
+              const SizedBox(width: 12),
+              Expanded(child: Text(message)),
+            ],
+          ),
+          backgroundColor: Colors.red.shade600,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
         ),
-        backgroundColor: Colors.red.shade600,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(16),
-        duration: const Duration(seconds: 4),
-      ),
-    );
+      );
+    }
   }
 
   // ✅ PREMIUM MESSAGE BUBBLE
@@ -696,7 +539,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
             ),
             child: IconButton(
               icon: _isLoading
-                  ? SizedBox(
+                  ? const SizedBox(
                 width: 20,
                 height: 20,
                 child: CircularProgressIndicator(
@@ -704,7 +547,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                   strokeWidth: 2,
                 ),
               )
-                  : Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                  : const Icon(Icons.send_rounded, color: Colors.white, size: 20),
               onPressed: _isLoading ? null : () {
                 final text = _controller.text.trim();
                 if (text.isNotEmpty) {
@@ -804,58 +647,6 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
       ),
       actions: [
-        // Debug menu for testing
-        PopupMenuButton<String>(
-          icon: Icon(Icons.more_vert, color: Colors.white),
-          onSelected: (value) {
-            switch (value) {
-              case 'test_connection':
-                _testApiConnectivity();
-                break;
-              case 'clear_chat':
-                setState(() {
-                  _messages.clear();
-                  _addWelcomeMessage();
-                });
-                break;
-              case 'show_debug':
-                _showDebugInfo();
-                break;
-            }
-          },
-          itemBuilder: (context) => [
-            const PopupMenuItem(
-              value: 'test_connection',
-              child: Row(
-                children: [
-                  Icon(Icons.wifi_find, size: 20),
-                  SizedBox(width: 8),
-                  Text('Test Connection'),
-                ],
-              ),
-            ),
-            const PopupMenuItem(
-              value: 'clear_chat',
-              child: Row(
-                children: [
-                  Icon(Icons.clear_all, size: 20),
-                  SizedBox(width: 8),
-                  Text('Clear Chat'),
-                ],
-              ),
-            ),
-            const PopupMenuItem(
-              value: 'show_debug',
-              child: Row(
-                children: [
-                  Icon(Icons.bug_report, size: 20),
-                  SizedBox(width: 8),
-                  Text('Debug Info'),
-                ],
-              ),
-            ),
-          ],
-        ),
         if (supportPhone != null)
           Container(
             margin: const EdgeInsets.only(right: 12),
@@ -875,83 +666,6 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
             ),
           ),
       ],
-    );
-  }
-
-  // ✅ SHOW DEBUG INFORMATION
-  void _showDebugInfo() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Debug Information'),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildDebugRow('Base URL', _baseUrl),
-              _buildDebugRow('API Key (first 20)', '${_apiKey.substring(0, 20)}...'),
-              _buildDebugRow('Conversation ID', conversationId),
-              _buildDebugRow('User ID', userId),
-              _buildDebugRow('Support Phone', supportPhone ?? 'Not loaded'),
-              _buildDebugRow('Messages Count', '${_messages.length}'),
-              _buildDebugRow('Is Loading', '$_isLoading'),
-              const SizedBox(height: 16),
-              const Text(
-                'Common Server Error Solutions:',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                '1. Check if Edge Function is deployed\n'
-                    '2. Verify API key has correct permissions\n'
-                    '3. Check function logs in Supabase dashboard\n'
-                    '4. Ensure function accepts POST requests\n'
-                    '5. Verify CORS settings\n'
-                    '6. Check function timeout settings',
-                style: TextStyle(fontSize: 12),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _testApiConnectivity();
-            },
-            child: const Text('Test Now'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDebugRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 120,
-            child: Text(
-              '$label:',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-            ),
-          ),
-          Expanded(
-            child: SelectableText(
-              value,
-              style: const TextStyle(fontSize: 12),
-            ),
-          ),
-        ],
-      ),
     );
   }
 

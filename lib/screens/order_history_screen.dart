@@ -1022,27 +1022,20 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
         title: Text(
           'Order History',
           style: TextStyle(
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w600, // Changed from w800 to w600
             fontSize: isSmallScreen ? 18 : 20,
+            color: Colors.white, // Added white color for text
           ),
         ),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        backgroundColor: Colors.blue, // Changed from Colors.white to Colors.blue
+        foregroundColor: Colors.white, // Changed from Colors.black to Colors.white
         elevation: 0,
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
-          icon: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: kPrimaryColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            // ✅ FIXED: Correct arrow icon shape and color
-            child: Icon(
-              Icons.arrow_back_ios_new_rounded, // Better arrow shape
-              color: kPrimaryColor,
-              size: 18, // Slightly larger for better visibility
-            ),
+          icon: Icon(
+            Icons.arrow_back, // Changed from Icons.arrow_back_ios_new_rounded to Icons.arrow_back
+            color: Colors.white, // Changed to white
+            size: 24, // Standard size
           ),
         ),
       ),

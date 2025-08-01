@@ -285,15 +285,17 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       appBar: _buildAppBar(),
-      body: FadeTransition(
-        opacity: _fadeAnimation,
-        child: SlideTransition(
-          position: _slideAnimation,
-          child: Column(
-            children: [
-              _buildFilterTabs(),
-              Expanded(child: _buildNotificationsList()),
-            ],
+      body: SafeArea(
+        child: FadeTransition(
+          opacity: _fadeAnimation,
+          child: SlideTransition(
+            position: _slideAnimation,
+            child: Column(
+              children: [
+                _buildFilterTabs(),
+                Expanded(child: _buildNotificationsList()),
+              ],
+            ),
           ),
         ),
       ),
@@ -311,44 +313,24 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       elevation: 0,
       leading: IconButton(
         onPressed: () => Navigator.pop(context),
-        icon: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.2),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: const Icon(Icons.arrow_back_ios_rounded, size: 16),
-        ),
+        icon: const Icon(Icons.arrow_back, size: 24),
       ),
       actions: [
-        if (unreadCount > 0)
-          Container(
-            margin: const EdgeInsets.only(right: 8),
-            child: TextButton.icon(
-              onPressed: _markAllAsRead,
-              icon: const Icon(Icons.done_all_rounded, color: Colors.white, size: 18),
-              label: const Text(
-                'Mark all read',
-                style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-              ),
-              style: TextButton.styleFrom(
-                backgroundColor: Colors.white.withOpacity(0.2),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              ),
-            ),
-          ),
         PopupMenuButton<String>(
-          icon: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(Icons.more_vert_rounded, color: Colors.white, size: 18),
-          ),
+          icon: const Icon(Icons.more_vert, color: Colors.white, size: 24),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           itemBuilder: (context) => [
+            if (unreadCount > 0)
+              PopupMenuItem(
+                value: 'mark_all_read',
+                child: Row(
+                  children: [
+                    Icon(Icons.done_all_rounded, color: Colors.blue.shade600, size: 20),
+                    const SizedBox(width: 12),
+                    Text('Mark All Read', style: TextStyle(color: Colors.blue.shade600, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
             PopupMenuItem(
               value: 'clear_all',
               child: Row(
@@ -361,7 +343,9 @@ class _NotificationsScreenState extends State<NotificationsScreen>
             ),
           ],
           onSelected: (value) {
-            if (value == 'clear_all') {
+            if (value == 'mark_all_read') {
+              _markAllAsRead();
+            } else if (value == 'clear_all') {
               _clearAllNotifications();
             }
           },
@@ -373,7 +357,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
 
   Widget _buildFilterTabs() {
     return Container(
-      margin: const EdgeInsets.all(16),
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
@@ -488,51 +472,55 @@ class _NotificationsScreenState extends State<NotificationsScreen>
 
     if (filteredNotifications.isEmpty) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(32),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.grey.shade100, Colors.grey.shade50],
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(32),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.grey.shade100, Colors.grey.shade50],
+                  ),
+                  borderRadius: BorderRadius.circular(24),
                 ),
-                borderRadius: BorderRadius.circular(24),
+                child: Icon(
+                  selectedFilter == 'Unread'
+                      ? Icons.mark_email_read_rounded
+                      : Icons.notifications_off_rounded,
+                  size: 80,
+                  color: Colors.grey.shade400,
+                ),
               ),
-              child: Icon(
-                selectedFilter == 'Unread'
-                    ? Icons.mark_email_read_rounded
-                    : Icons.notifications_off_rounded,
-                size: 80,
-                color: Colors.grey.shade400,
+              const SizedBox(height: 24),
+              Text(
+                _getEmptyMessage(),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black87,
+                ),
+                textAlign: TextAlign.center,
               ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              _getEmptyMessage(),
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: Colors.black87,
+              const SizedBox(height: 8),
+              Text(
+                _getEmptySubtitle(),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey.shade600,
+                  height: 1.4,
+                ),
+                textAlign: TextAlign.center,
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _getEmptySubtitle(),
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade600,
-                height: 1.4,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
+            ],
+          ),
         ),
       );
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       itemCount: filteredNotifications.length,
       itemBuilder: (context, index) {
         final notification = filteredNotifications[index];

@@ -573,8 +573,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                     style: TextStyle(
                       color: Colors.red.shade700,
                       fontWeight: FontWeight.w700,
-                      fontSize: 17,
-                      letterSpacing: 0.3,
+                      fontSize: 12,
+                      letterSpacing: 0.2,
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -690,8 +690,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w700,
-                      fontSize: 17,
-                      letterSpacing: 0.3,
+                      fontSize: 12,
+                      letterSpacing: 0.2,
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),

@@ -21,6 +21,7 @@ dependencies:
   # ✅ Core dependencies (already included)
   flutter_rating_bar: ^4.0.1
   http: ^1.1.0
+  uuid: ^4.1.0
   carousel_slider: ^5.1.1
   cached_network_image: ^3.3.1
   material_design_icons_flutter: ^7.0.7296

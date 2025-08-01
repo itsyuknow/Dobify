@@ -107,72 +107,29 @@ class _SupportScreenState extends State<SupportScreen> with TickerProviderStateM
     }
   }
 
-  // ✅ PREMIUM APP BAR WITH PHONE CALL
-  PreferredSizeWidget _buildPremiumAppBar() {
+  // ✅ SIMPLE APP BAR (SAME AS NOTIFICATIONS)
+  PreferredSizeWidget _buildAppBar() {
     return AppBar(
-      title: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [kPrimaryColor.withOpacity(0.2), kPrimaryColor.withOpacity(0.1)],
-              ),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(Icons.headset_mic_rounded, color: kPrimaryColor, size: 20),
-          ),
-          const SizedBox(width: 12),
-          const Text(
-            'Customer Support',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-              fontSize: 20,
-            ),
-          ),
-        ],
+      title: const Text(
+        'Customer Support',
+        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20),
       ),
-      backgroundColor: Colors.transparent,
+      backgroundColor: kPrimaryColor,
       foregroundColor: Colors.white,
       elevation: 0,
-      flexibleSpace: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: const BorderRadius.vertical(
-            bottom: Radius.circular(24),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: kPrimaryColor.withOpacity(0.3),
-              blurRadius: 20,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-      ),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
+      leading: IconButton(
+        onPressed: () => Navigator.pop(context),
+        icon: const Icon(Icons.arrow_back, size: 24),
       ),
       actions: [
         // ✅ PHONE CALL BUTTON
         if (supportPhone != null)
-          Container(
-            margin: const EdgeInsets.only(right: 12),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-            ),
-            child: IconButton(
-              icon: Icon(Icons.phone_rounded, color: Colors.green.shade600, size: 20),
-              tooltip: 'Call $supportPhone',
-              onPressed: _makePhoneCall,
-            ),
+          IconButton(
+            icon: const Icon(Icons.phone, color: Colors.white, size: 24),
+            tooltip: 'Call Support',
+            onPressed: _makePhoneCall,
           ),
+        const SizedBox(width: 8),
       ],
     );
   }
@@ -492,20 +449,22 @@ class _SupportScreenState extends State<SupportScreen> with TickerProviderStateM
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: _buildPremiumAppBar(),
-      body: _isLoading
-          ? _buildLoadingWidget()
-          : FadeTransition(
-        opacity: _fadeAnimation,
-        child: SlideTransition(
-          position: _slideAnimation,
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                const SizedBox(height: 20),
-                _buildSupportCard(),
-                const SizedBox(height: 20),
-              ],
+      appBar: _buildAppBar(),
+      body: SafeArea(
+        child: _isLoading
+            ? _buildLoadingWidget()
+            : FadeTransition(
+          opacity: _fadeAnimation,
+          child: SlideTransition(
+            position: _slideAnimation,
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  const SizedBox(height: 20),
+                  _buildSupportCard(),
+                  const SizedBox(height: 20),
+                ],
+              ),
             ),
           ),
         ),

@@ -1,4 +1,3 @@
-// ✅ PREMIUM HOME SCREEN - Enhanced UI with Proper Notifications & Cart Count
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -13,9 +12,7 @@ import '../utils/globals.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../widgets/custom_bottom_nav.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-
-// ✅ Import your FIXED DeliveryAddressWidget
-import '/widgets/delivery_address_widget.dart'; // Update this import path
+import '/widgets/delivery_address_widget.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -41,14 +38,9 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
 
   String? _backgroundUrl;
   List<Map<String, dynamic>> _contacts = [];
-
-  // ✅ NOTIFICATION COUNT STATE
   int _notificationCount = 0;
 
-  final PageController _bannerPageController = PageController(
-      viewportFraction: 1.0); // ✅ REDUCED FROM 0.94 TO 0.92 FOR NARROWER BANNERS
-
-  // Animation controllers
+  final PageController _bannerPageController = PageController(viewportFraction: 1.0);
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
 
@@ -59,7 +51,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     _bannerPageController.addListener(_onBannerPageChanged);
     _loadAllContent();
     _fetchCartCount();
-    _fetchNotificationCount(); // ✅ FETCH NOTIFICATION COUNT
+    _fetchNotificationCount();
   }
 
   void _initializeAnimations() {
@@ -105,8 +97,6 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
         _categories = List<Map<String, dynamic>>.from(response);
         _isCategoriesLoading = false;
       });
-
-      print('✅ Categories loaded: ${_categories.length} items');
     } catch (e) {
       print('❌ Error loading categories: $e');
       setState(() {
@@ -162,7 +152,6 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
           .select('key, label, value, icon, link, color');
 
       final filtered = List<Map<String, dynamic>>.from(data).where((c) {
-        // ✅ ONLY SHOW SPECIFIC CONTACTS
         final key = c['key']?.toString().toLowerCase() ?? '';
         return ['facebook', 'website', 'instagram'].contains(key) &&
             (c['label']?.toString().isNotEmpty ?? false) &&
@@ -227,7 +216,6 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     super.dispose();
   }
 
-  // ✅ FIXED CART COUNT FUNCTION
   Future<void> _fetchCartCount() async {
     final userId = supabase.auth.currentUser?.id;
     if (userId == null) {
@@ -248,14 +236,12 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
       );
 
       cartCountNotifier.value = totalCount;
-      print('🛒 Cart count updated: $totalCount');
     } catch (e) {
       print('❌ Error fetching cart count: $e');
       cartCountNotifier.value = 0;
     }
   }
 
-  // ✅ FETCH NOTIFICATION COUNT
   Future<void> _fetchNotificationCount() async {
     final userId = supabase.auth.currentUser?.id;
     if (userId == null) {
@@ -273,8 +259,6 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
       setState(() {
         _notificationCount = response.length;
       });
-
-      print('🔔 Notification count updated: $_notificationCount');
     } catch (e) {
       print('❌ Error fetching notification count: $e');
       setState(() => _notificationCount = 0);
@@ -283,13 +267,6 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
 
   void _onItemTapped(int index) {
     setState(() => _selectedIndex = index);
-  }
-
-  // ✅ CALLBACK FUNCTION - Called when DeliveryAddressWidget updates location
-  void _onDeliveryLocationUpdated() {
-    print('🔄 HomeScreen: Delivery location updated, refreshing home content...');
-    // The DeliveryAddressWidget handles its own refresh via real-time subscription
-    // You can add additional refresh logic here if needed
   }
 
   @override
@@ -302,7 +279,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     ];
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade50, // ✅ PREMIUM BACKGROUND
+      backgroundColor: Colors.grey.shade50,
       appBar: _buildPremiumAppBar(),
       body: AnimatedSwitcher(
         duration: const Duration(milliseconds: 300),
@@ -312,7 +289,6 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     );
   }
 
-  // ✅ PREMIUM APP BAR DESIGN WITH SMOOTH ICONS
   PreferredSizeWidget _buildPremiumAppBar() {
     return AppBar(
       title: const Text(
@@ -333,7 +309,6 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
-          // ✅ REMOVED BORDER RADIUS TO MAKE HEADER STRAIGHT
           boxShadow: [
             BoxShadow(
               color: kPrimaryColor.withOpacity(0.3),
@@ -343,11 +318,9 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
           ],
         ),
       ),
-      // ✅ REMOVED SHAPE PROPERTY TO MAKE HEADER STRAIGHT
       actions: [
-        // ✅ PREMIUM SMOOTH CART ICON
         Container(
-          margin: const EdgeInsets.only(right: 6),
+          margin: const EdgeInsets.only(right: 8),
           child: ValueListenableBuilder<int>(
             valueListenable: cartCountNotifier,
             builder: (_, count, __) {
@@ -429,10 +402,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
             },
           ),
         ),
-
-        // ✅ PREMIUM SMOOTH NOTIFICATION ICON
         Container(
-          margin: const EdgeInsets.only(right: 6),
+          margin: const EdgeInsets.only(right: 8),
           child: Stack(
             alignment: Alignment.center,
             children: [
@@ -509,10 +480,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
             ],
           ),
         ),
-
-        // ✅ PREMIUM SMOOTH SUPPORT ICON
         Container(
-          margin: const EdgeInsets.only(right: 12),
+          margin: const EdgeInsets.only(right: 16),
           child: Container(
             width: 42,
             height: 42,
@@ -570,34 +539,20 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                 colorBlendMode: BlendMode.srcATop,
               ),
             ),
-
-          // ✅ PREMIUM SCROLLVIEW
           SingleChildScrollView(
             physics: const BouncingScrollPhysics(),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 16),
-
-                // ✅ DELIVERY ADDRESS WIDGET
                 const DeliveryAddressWidget(),
-
-                const SizedBox(height: 24),
-
-                // Banner carousel
+                const SizedBox(height: 16),
                 _buildPremiumBannerCarousel(),
-
-                const SizedBox(height: 28),
-
-                // Categories section
+                const SizedBox(height: 16),
                 _buildPremiumCategoriesSection(),
-
-                const SizedBox(height: 28),
-
-                // Contact tiles section
+                const SizedBox(height: 16),
                 _buildPremiumContactSection(),
-
-                const SizedBox(height: 36), // Extra bottom padding
+                const SizedBox(height: 36),
               ],
             ),
           ),
@@ -606,7 +561,6 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     );
   }
 
-  // ✅ PREMIUM CATEGORIES SECTION
   Widget _buildPremiumCategoriesSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -627,7 +581,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
               ),
               const SizedBox(width: 12),
               const Text(
-                'Our Categories ',
+                'Our Categories',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w800,
@@ -639,8 +593,224 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
           ),
         ),
         const SizedBox(height: 16),
-        _buildPremiumCategoryGrid(),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: _isCategoriesLoading
+              ? Center(
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              child: CircularProgressIndicator(
+                color: kPrimaryColor,
+                strokeWidth: 3,
+              ),
+            ),
+          )
+              : _categories.isEmpty
+              ? Center(
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              child: Text(
+                'No categories available',
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+          )
+              : GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+              childAspectRatio: 0.85,
+            ),
+            itemCount: _categories.length,
+            itemBuilder: (context, index) {
+              final cat = _categories[index];
+              final title = cat['name'];
+              final imageUrl = cat['image_url'];
+              final feature = _categoryFeatures.firstWhere(
+                    (f) => f['key'] == title,
+                orElse: () => {},
+              );
+
+              if (feature['is_visible'] == false) {
+                return const SizedBox.shrink();
+              }
+
+              return _buildPremiumCategoryCard(
+                title,
+                imageUrl,
+                isNetwork: true,
+                label: feature['label'],
+              );
+            },
+          ),
+        ),
       ],
+    );
+  }
+
+  Widget _buildPremiumCategoryCard(String title, String imagePath,
+      {bool isNetwork = false, String? label}) {
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => OrdersScreen(category: title)),
+        );
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+              spreadRadius: 0,
+            ),
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Stack(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Image Container with rounded corners
+                Expanded(
+                  flex: 3,
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(16),
+                    ),
+                    child: isNetwork
+                        ? CachedNetworkImage(
+                      imageUrl: imagePath,
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      placeholder: (context, url) => Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(16),
+                          ),
+                        ),
+                        child: Center(
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: kPrimaryColor,
+                          ),
+                        ),
+                      ),
+                      errorWidget: (context, url, error) => Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(16),
+                          ),
+                        ),
+                        child: const Center(
+                          child: Icon(
+                            Icons.image_not_supported,
+                            size: 30,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ),
+                    )
+                        : Image.asset(
+                      imagePath,
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                    ),
+                  ),
+                ),
+
+                // Text Content with proper spacing
+                Expanded(
+                  flex: 1,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                            color: Colors.black87,
+                            letterSpacing: 0.2,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            // Label Tag - Positioned top right
+            if (label != null && label.isNotEmpty)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: label.toLowerCase() == 'popular'
+                          ? [Colors.orange.shade500, Colors.orange.shade700]
+                          : label.toLowerCase() == 'new'
+                          ? [Colors.green.shade500, Colors.green.shade700]
+                          : [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: (label.toLowerCase() == 'popular'
+                            ? Colors.orange
+                            : label.toLowerCase() == 'new'
+                            ? Colors.green
+                            : kPrimaryColor)
+                            .withOpacity(0.3),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -758,68 +928,6 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     );
   }
 
-  // ✅ PREMIUM CATEGORY GRID
-  Widget _buildPremiumCategoryGrid() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: _isCategoriesLoading
-          ? Center(
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          child: CircularProgressIndicator(
-            color: kPrimaryColor,
-            strokeWidth: 3,
-          ),
-        ),
-      )
-          : _categories.isEmpty
-          ? Center(
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          child: Text(
-            'No categories available',
-            style: TextStyle(
-              color: Colors.grey.shade600,
-              fontSize: 16,
-            ),
-          ),
-        ),
-      )
-          : GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 20,
-          childAspectRatio: 0.85,
-        ),
-        itemCount: _categories.length,
-        itemBuilder: (context, index) {
-          final cat = _categories[index];
-          final title = cat['name'];
-          final imageUrl = cat['image_url'];
-          final feature = _categoryFeatures.firstWhere(
-                (f) => f['key'] == title,
-            orElse: () => {},
-          );
-
-          if (feature['is_visible'] == false) {
-            return const SizedBox.shrink();
-          }
-
-          return _buildPremiumCategoryCard(
-            title,
-            imageUrl,
-            isNetwork: true,
-            label: feature['label'],
-          );
-        },
-      ),
-    );
-  }
-
-  // ✅ PREMIUM CONTACT SECTION
   Widget _buildPremiumContactSection() {
     if (_contacts.isEmpty) return const SizedBox.shrink();
 
@@ -881,7 +989,6 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     );
   }
 
-  // ✅ PREMIUM CONTACT TILE - CONSISTENT DESIGN FOR ALL ICONS
   Widget _buildPremiumContactTile(Map<String, dynamic> contact) {
     final key = contact['key']?.toString().toLowerCase() ?? '';
     final color = _getPremiumColor(key);
@@ -953,7 +1060,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
       case 'website':
         return Icons.language_rounded;
       case 'instagram':
-        return Icons.camera_alt_rounded; // ✅ PREMIUM INSTAGRAM ICON
+        return Icons.camera_alt_rounded;
       case 'facebook':
         return Icons.facebook_rounded;
       default:
@@ -982,160 +1089,5 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     } else {
       print('❌ Could not launch: $url');
     }
-  }
-
-  // ✅ PREMIUM CATEGORY CARD
-  Widget _buildPremiumCategoryCard(String title, String imagePath,
-      {bool isNetwork = false, String? label}) {
-    return InkWell(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => OrdersScreen(category: title)),
-        );
-      },
-      borderRadius: BorderRadius.circular(24),
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Colors.white,
-              Colors.grey.shade50,
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: kPrimaryColor.withOpacity(0.1),
-            width: 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 20,
-              offset: const Offset(0, 8),
-              spreadRadius: 2,
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // ✅ PREMIUM IMAGE CONTAINER
-              Flexible(
-                flex: 3,
-                child: Container(
-                  width: double.infinity,
-                  constraints: const BoxConstraints(
-                    minHeight: 80,
-                    maxHeight: 100,
-                  ),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        kPrimaryColor.withOpacity(0.05),
-                        kPrimaryColor.withOpacity(0.02),
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  padding: const EdgeInsets.all(8),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: isNetwork
-                        ? CachedNetworkImage(
-                      imageUrl: imagePath,
-                      fit: BoxFit.contain,
-                      placeholder: (context, url) =>
-                          Container(
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade100,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Center(
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: kPrimaryColor,
-                              ),
-                            ),
-                          ),
-                      errorWidget: (context, url, error) =>
-                          Container(
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade100,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Icon(
-                              Icons.image,
-                              size: 40,
-                              color: Colors.grey,
-                            ),
-                          ),
-                    )
-                        : Image.asset(
-                      imagePath,
-                      fit: BoxFit.contain,
-                    ),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 12),
-
-              // ✅ PREMIUM TITLE
-              Flexible(
-                flex: 1,
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                    color: Colors.black87,
-                    letterSpacing: 0.2,
-                  ),
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-
-              // ✅ PREMIUM LABEL
-              if (label != null && label.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Colors.red, Colors.red.shade700],
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.red.withOpacity(0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Text(
-                    label,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
   }
 }
