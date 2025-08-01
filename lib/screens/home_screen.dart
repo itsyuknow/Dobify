@@ -566,14 +566,17 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
             children: [
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [kPrimaryColor.withOpacity(0.2), kPrimaryColor.withOpacity(0.1)],
+                    colors: [
+                      kPrimaryColor.withOpacity(0.2),
+                      kPrimaryColor.withOpacity(0.1)
+                    ],
                   ),
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -592,29 +595,23 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
             ],
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 14),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           child: _isCategoriesLoading
               ? Center(
-            child: Container(
+            child: Padding(
               padding: const EdgeInsets.all(20),
-              child: CircularProgressIndicator(
-                color: kPrimaryColor,
-                strokeWidth: 3,
-              ),
+              child: CircularProgressIndicator(color: kPrimaryColor, strokeWidth: 3),
             ),
           )
               : _categories.isEmpty
               ? Center(
-            child: Container(
+            child: Padding(
               padding: const EdgeInsets.all(20),
               child: Text(
                 'No categories available',
-                style: TextStyle(
-                  color: Colors.grey.shade600,
-                  fontSize: 16,
-                ),
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
               ),
             ),
           )
@@ -622,10 +619,10 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              childAspectRatio: 0.85,
+              crossAxisCount: 3,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 12,
+              childAspectRatio: 0.80, // Back to original ratio to keep card dimensions
             ),
             itemCount: _categories.length,
             itemBuilder: (context, index) {
@@ -654,6 +651,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     );
   }
 
+
+
   Widget _buildPremiumCategoryCard(String title, String imagePath,
       {bool isNetwork = false, String? label}) {
     return InkWell(
@@ -663,12 +662,12 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
           MaterialPageRoute(builder: (_) => OrdersScreen(category: title)),
         );
       },
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(10),
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(6), // Reduced from 12
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(10),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.08),
@@ -693,55 +692,62 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                   flex: 3,
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(16),
-                    child: isNetwork
-                        ? CachedNetworkImage(
-                      imageUrl: imagePath,
-                      fit: BoxFit.cover,
+                    child: Container(
                       width: double.infinity,
-                      placeholder: (context, url) => Container(
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Center(
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: kPrimaryColor,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: isNetwork
+                          ? CachedNetworkImage(
+                        imageUrl: imagePath,
+                        fit: BoxFit.contain,
+                        width: double.infinity,
+                        placeholder: (context, url) => Container(
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: kPrimaryColor,
+                            ),
                           ),
                         ),
-                      ),
-                      errorWidget: (context, url, error) => Container(
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: const Center(
-                          child: Icon(
-                            Icons.image_not_supported,
-                            size: 30,
-                            color: Colors.grey,
+                        errorWidget: (context, url, error) => Container(
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.image_not_supported,
+                              size: 30,
+                              color: Colors.grey,
+                            ),
                           ),
                         ),
+                      )
+                          : Image.asset(
+                        imagePath,
+                        fit: BoxFit.contain,
+                        width: double.infinity,
                       ),
-                    )
-                        : Image.asset(
-                      imagePath,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
                     ),
                   ),
                 ),
 
-                const SizedBox(height: 12),
+                const SizedBox(height: 8), // Reduced from 12
 
                 // Text Content with proper spacing
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), // Reduced padding
                   child: Text(
                     title,
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
-                      fontSize: 15,
+                      fontSize: 14, // Slightly smaller
                       color: Colors.black87,
                       letterSpacing: 0.2,
                     ),
@@ -857,25 +863,23 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                         imageUrl: _carouselImages[index],
                         fit: BoxFit.cover,
                         width: double.infinity,
-                        placeholder: (context, url) =>
-                            Container(
-                              color: Colors.grey.shade100,
-                              child: Center(
-                                child: CircularProgressIndicator(
-                                  color: kPrimaryColor,
-                                  strokeWidth: 2,
-                                ),
-                              ),
+                        placeholder: (context, url) => Container(
+                          color: Colors.grey.shade100,
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              color: kPrimaryColor,
+                              strokeWidth: 2,
                             ),
-                        errorWidget: (context, url, error) =>
-                            Container(
-                              color: Colors.grey.shade100,
-                              child: const Icon(
-                                Icons.broken_image,
-                                color: Colors.grey,
-                                size: 50,
-                              ),
-                            ),
+                          ),
+                        ),
+                        errorWidget: (context, url, error) => Container(
+                          color: Colors.grey.shade100,
+                          child: const Icon(
+                            Icons.broken_image,
+                            color: Colors.grey,
+                            size: 50,
+                          ),
+                        ),
                       ),
                     ),
                   );
@@ -887,26 +891,27 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
               mainAxisAlignment: MainAxisAlignment.center,
               children: List.generate(
                 _carouselImages.length,
-                    (index) =>
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 300),
-                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                      height: 8,
-                      width: _currentBannerIndex == index ? 32 : 8,
-                      decoration: BoxDecoration(
-                        gradient: _currentBannerIndex == index
-                            ? LinearGradient(colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.7)])
-                            : LinearGradient(colors: [Colors.grey.shade300, Colors.grey.shade300]),
-                        borderRadius: BorderRadius.circular(4),
-                        boxShadow: _currentBannerIndex == index ? [
-                          BoxShadow(
-                            color: kPrimaryColor.withOpacity(0.3),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ] : [],
+                    (index) => AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  height: 8,
+                  width: _currentBannerIndex == index ? 32 : 8,
+                  decoration: BoxDecoration(
+                    gradient: _currentBannerIndex == index
+                        ? LinearGradient(colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.7)])
+                        : LinearGradient(colors: [Colors.grey.shade300, Colors.grey.shade300]),
+                    borderRadius: BorderRadius.circular(4),
+                    boxShadow: _currentBannerIndex == index
+                        ? [
+                      BoxShadow(
+                        color: kPrimaryColor.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
                       ),
-                    ),
+                    ]
+                        : [],
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: 8),
