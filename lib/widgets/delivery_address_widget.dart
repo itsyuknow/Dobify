@@ -61,22 +61,22 @@ class _DeliveryAddressWidgetState extends State<DeliveryAddressWidget>
 
   void _initializePremiumAnimations() {
     _shimmerController = AnimationController(
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 2500),
       vsync: this,
     );
 
     _pulseController = AnimationController(
-      duration: const Duration(milliseconds: 2000),
+      duration: const Duration(milliseconds: 1500),
       vsync: this,
     );
 
     _glowController = AnimationController(
-      duration: const Duration(milliseconds: 3000),
+      duration: const Duration(milliseconds: 800),
       vsync: this,
     );
 
     _iconController = AnimationController(
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 700),
       vsync: this,
     );
 
@@ -325,25 +325,108 @@ class _DeliveryAddressWidgetState extends State<DeliveryAddressWidget>
 
                     // ✅ FIXED MAIN CONTENT - Better space management
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          // Premium location icon container
-                          _buildPremiumLocationIcon(),
-                          const SizedBox(width: 14),
-
-                          // ✅ FLEXIBLE ADDRESS CONTENT - Prevents overflow
-                          Expanded(
-                            child: _buildAddressContent(),
+                          // ⬇️ Wrap in a vertically-centered column to center-align the icon
+                          Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              _buildPremiumLocationIcon(),
+                            ],
                           ),
-
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _isLocationLoading
+                                    ? _buildPremiumShimmerText(width: 180, height: 16)
+                                    : Text(
+                                  _userLocation,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 15.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: kPrimaryColor,
+                                    letterSpacing: -0.2,
+                                    height: 1.2,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                _isLocationLoading
+                                    ? _buildPremiumShimmerText(width: 140, height: 12)
+                                    : Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: _isServiceAvailable
+                                          ? [
+                                        kPrimaryColor.withOpacity(0.08),
+                                        kPrimaryColor.withOpacity(0.03),
+                                      ]
+                                          : [
+                                        Colors.orange.withOpacity(0.08),
+                                        Colors.orange.withOpacity(0.03),
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: _isServiceAvailable
+                                          ? kPrimaryColor.withOpacity(0.15)
+                                          : Colors.orange.withOpacity(0.15),
+                                      width: 0.8,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        _isServiceAvailable
+                                            ? Icons.electric_bolt_rounded
+                                            : Icons.warning_rounded,
+                                        size: 12,
+                                        color: _isServiceAvailable ? kPrimaryColor : Colors.orange,
+                                      ),
+                                      const SizedBox(width: 3),
+                                      Flexible(
+                                        child: Text(
+                                          _isServiceAvailable
+                                              ? 'Choose our Express delivery  $_eta'
+                                              : 'Service not available',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 11.5,
+                                            color: _isServiceAvailable
+                                                ? kPrimaryColor.withOpacity(0.85)
+                                                : Colors.orange.shade700,
+                                            fontWeight: FontWeight.w600,
+                                            letterSpacing: 0.1,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                           const SizedBox(width: 10),
-
-                          // Premium edit button
-                          _buildPremiumEditButton(),
+                          Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              _buildPremiumEditButton(),
+                            ],
+                          ),
                         ],
                       ),
                     ),
+
+
                   ],
                 ),
               ),
@@ -429,6 +512,7 @@ class _DeliveryAddressWidgetState extends State<DeliveryAddressWidget>
   }
 
   // ✅ FIXED ADDRESS CONTENT - Better text handling
+  // ✅ FIXED ADDRESS CONTENT - Better text handling
   Widget _buildAddressContent() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -443,10 +527,10 @@ class _DeliveryAddressWidgetState extends State<DeliveryAddressWidget>
             _userLocation,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 15.5,
               fontWeight: FontWeight.w700,
-              color: Colors.black87,
+              color: kPrimaryColor, // ✅ CHANGED TO BLUE COLOR
               letterSpacing: -0.2,
               height: 1.2,
             ),
@@ -515,6 +599,7 @@ class _DeliveryAddressWidgetState extends State<DeliveryAddressWidget>
       ],
     );
   }
+
 
   Widget _buildPremiumEditButton() {
     if (_isLocationLoading) return const SizedBox.shrink();

@@ -123,7 +123,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
       final nextIndex = (_currentBannerIndex + 1) % _carouselImages.length;
       _bannerPageController.animateToPage(
         nextIndex,
-        duration: const Duration(milliseconds: 450),
+        duration: const Duration(milliseconds: 500),
         curve: Curves.easeInOut,
       );
     });
@@ -565,93 +565,142 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+                spreadRadius: 0,
+              ),
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
           child: Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      kPrimaryColor.withOpacity(0.2),
-                      kPrimaryColor.withOpacity(0.1)
+                      kPrimaryColor,
+                      kPrimaryColor.withOpacity(0.8),
                     ],
                   ),
                   borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: kPrimaryColor.withOpacity(0.3),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
-                child: Icon(Icons.category_outlined, color: kPrimaryColor, size: 20),
+                child: Icon(Icons.category_outlined, color: Colors.white, size: 22),
               ),
               const SizedBox(width: 12),
-              const Text(
-                'Our Categories',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.3,
-                  color: Colors.black87,
+              ShaderMask(
+                shaderCallback: (bounds) => LinearGradient(
+                  colors: [
+                    kPrimaryColor,
+                    kPrimaryColor.withOpacity(0.8),
+                  ],
+                ).createShader(bounds),
+                child: const Text(
+                  'Our Categories',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.5,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 16),
+
+        /// 👇 Staggered layout to match the new image
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: _isCategoriesLoading
-              ? Center(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: CircularProgressIndicator(color: kPrimaryColor, strokeWidth: 3),
-            ),
-          )
-              : _categories.isEmpty
-              ? Center(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Text(
-                'No categories available',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            children: [
+              // First row - 2 cards side by side
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildStaggeredCategoryCard(0),
+                  const SizedBox(width: 32), // Increased gap
+                  _buildStaggeredCategoryCard(1),
+                ],
               ),
-            ),
-          )
-              : GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 12,
-              childAspectRatio: 0.80, // Back to original ratio to keep card dimensions
-            ),
-            itemCount: _categories.length,
-            itemBuilder: (context, index) {
-              final cat = _categories[index];
-              final title = cat['name'];
-              final imageUrl = cat['image_url'];
-              final feature = _categoryFeatures.firstWhere(
-                    (f) => f['key'] == title,
-                orElse: () => {},
-              );
+              const SizedBox(height: 16),
 
-              if (feature['is_visible'] == false) {
-                return const SizedBox.shrink();
-              }
+              // Second row - 2 cards side by side
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildStaggeredCategoryCard(2),
+                  const SizedBox(width: 32), // Increased gap
+                  _buildStaggeredCategoryCard(3),
+                ],
+              ),
+              const SizedBox(height: 16),
 
-              return _buildPremiumCategoryCard(
-                title,
-                imageUrl,
-                isNetwork: true,
-                label: feature['label'],
-              );
-            },
+              // Third row - cards left aligned (if more items exist)
+              if (_categories.length > 4)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildStaggeredCategoryCard(4),
+                    const SizedBox(width: 32),
+                    if (_categories.length > 5)
+                      _buildStaggeredCategoryCard(5)
+                    else
+                      SizedBox(width: 140), // Placeholder to maintain alignment
+                  ],
+                ),
+            ],
           ),
         ),
       ],
     );
   }
 
+  Widget _buildStaggeredCategoryCard(int index) {
+    if (index >= _categories.length) {
+      return const SizedBox.shrink();
+    }
 
+    final cat = _categories[index];
+    final title = cat['name'];
+    final imageUrl = cat['image_url'];
+    final feature = _categoryFeatures.firstWhere(
+          (f) => f['key'] == title,
+      orElse: () => {},
+    );
+
+    if (feature['is_visible'] == false) {
+      return const SizedBox.shrink();
+    }
+
+    return _buildPremiumCategoryCard(
+      title,
+      imageUrl,
+      isNetwork: true,
+      label: feature['label'],
+    );
+  }
 
   Widget _buildPremiumCategoryCard(String title, String imagePath,
       {bool isNetwork = false, String? label}) {
@@ -662,16 +711,18 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
           MaterialPageRoute(builder: (_) => OrdersScreen(category: title)),
         );
       },
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(16),
       child: Container(
-        padding: const EdgeInsets.all(6), // Reduced from 12
+        width: 140, // Fixed width for consistency
+        height: 180, // Increased height to accommodate 1:1 image + title
+        padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.08),
-              blurRadius: 12,
+              blurRadius: 10,
               offset: const Offset(0, 4),
               spreadRadius: 0,
             ),
@@ -687,16 +738,16 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Image Container with rounded corners
-                Expanded(
-                  flex: 3,
+                // Image section - 1:1 aspect ratio
+                Container(
+                  width: 124, // 140 - 16 (padding)
+                  height: 124, // Same as width for 1:1 ratio
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(12),
                     child: Container(
-                      width: double.infinity,
                       decoration: BoxDecoration(
                         color: Colors.grey.shade50,
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(12),
                       ),
                       child: isNetwork
                           ? CachedNetworkImage(
@@ -704,28 +755,9 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                         fit: BoxFit.contain,
                         width: double.infinity,
                         placeholder: (context, url) => Container(
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Center(
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: kPrimaryColor,
-                            ),
-                          ),
-                        ),
-                        errorWidget: (context, url, error) => Container(
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
+                          color: Colors.grey.shade100,
                           child: const Center(
-                            child: Icon(
-                              Icons.image_not_supported,
-                              size: 30,
-                              color: Colors.grey,
-                            ),
+                            child: CircularProgressIndicator(),
                           ),
                         ),
                       )
@@ -738,37 +770,42 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                   ),
                 ),
 
-                const SizedBox(height: 8), // Reduced from 12
+                const SizedBox(height: 8),
 
-                // Text Content with proper spacing
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), // Reduced padding
-                  child: Text(
-                    title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14, // Slightly smaller
-                      color: Colors.black87,
-                      letterSpacing: 0.2,
+                // Title section
+                Expanded(
+                  child: Center(
+                    child: ShaderMask(
+                      shaderCallback: (bounds) => LinearGradient(
+                        colors: [
+                          kPrimaryColor,
+                          kPrimaryColor.withOpacity(0.8),
+                        ],
+                      ).createShader(bounds),
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          color: Colors.white,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                      ),
                     ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
                   ),
                 ),
               ],
             ),
 
-            // Label Tag - Positioned top right
+            // Label badge - made smaller
             if (label != null && label.isNotEmpty)
               Positioned(
                 top: 4,
                 right: 4,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: label.toLowerCase() == 'popular'
@@ -777,7 +814,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                           ? [Colors.green.shade500, Colors.green.shade700]
                           : [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
                     ),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                     boxShadow: [
                       BoxShadow(
                         color: (label.toLowerCase() == 'popular'
@@ -786,8 +823,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                             ? Colors.green
                             : kPrimaryColor)
                             .withOpacity(0.3),
-                        blurRadius: 6,
-                        offset: const Offset(0, 2),
+                        blurRadius: 4,
+                        offset: const Offset(0, 1),
                       ),
                     ],
                   ),
@@ -795,9 +832,9 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                     label,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
+                      fontSize: 8,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.2,
                     ),
                   ),
                 ),
@@ -812,12 +849,18 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+            spreadRadius: 0,
+          ),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -856,7 +899,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 2),
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(16),
                       child: isVideo
                           ? VideoPlayer(_videoControllers[index]!)
                           : CachedNetworkImage(
@@ -961,13 +1004,21 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                 child: Icon(Icons.connect_without_contact, color: kPrimaryColor, size: 22),
               ),
               const SizedBox(width: 12),
-              const Text(
-                'Connect With Us',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.3,
-                  color: Colors.black87,
+              ShaderMask(
+                shaderCallback: (bounds) => LinearGradient(
+                  colors: [
+                    kPrimaryColor,
+                    kPrimaryColor.withOpacity(0.8),
+                  ],
+                ).createShader(bounds),
+                child: const Text(
+                  'Connect With Us',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.3,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ],
