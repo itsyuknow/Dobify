@@ -618,7 +618,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                 child: const Text(
                   'Our Categories',
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 17,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.5,
                     color: Colors.white,
@@ -1012,11 +1012,11 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                   ],
                 ).createShader(bounds),
                 child: const Text(
-                  'Connect With Us',
+                  'Follow Us',
                   style: TextStyle(
-                    fontSize: 20,
+                    fontSize: 17,
                     fontWeight: FontWeight.w800,
-                    letterSpacing: 0.3,
+                    letterSpacing: 0.5,
                     color: Colors.white,
                   ),
                 ),
