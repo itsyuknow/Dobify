@@ -89,6 +89,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       },
     );
 
+    // Check for initial link when app starts
     _appLinks.getInitialLink().then((Uri? uri) {
       if (uri != null) {
         print('📱 Initial deep link: $uri');
@@ -97,40 +98,38 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     });
   }
 
-  void _handleIncomingLink(Uri uri) {
+  void _handleIncomingLink(Uri uri) async {
     print('🔗 Processing link: ${uri.toString()}');
 
-    // Handle both custom scheme and Supabase HTTPS redirects
-    if ((uri.scheme == 'com.yuknow.ironly' && uri.host == 'auth-callback') ||
-        (uri.scheme == 'https' && uri.host == 'qehtgclgjhzdlqcjujpp.supabase.co' && uri.path == '/auth/v1/callback')) {
-      print('✅ OAuth callback detected');
+    // ✅ FIXED: Let Supabase handle OAuth callbacks automatically
+    // Don't manually process OAuth callbacks - Supabase will handle them
+    if (uri.scheme == 'com.yuknow.ironly' && uri.host == 'oauth-callback') {
+      print('✅ OAuth callback received - letting Supabase handle it automatically');
 
-      final fragment = uri.fragment;
-      final queryParams = uri.queryParameters;
-
-      if (fragment.isNotEmpty) {
-        final params = Uri.splitQueryString(fragment);
-        final accessToken = params['access_token'];
-        final error = params['error'];
-
-        if (accessToken != null) {
-          print('✅ Access token found in callback');
-          _handleOAuthSuccess();
-        } else if (error != null) {
-          print('❌ OAuth error in callback: $error');
-          _handleOAuthError(error);
-        }
-      } else if (queryParams.containsKey('access_token')) {
-        print('✅ Access token found in query params');
-        _handleOAuthSuccess();
-      } else if (queryParams.containsKey('error')) {
-        print('❌ OAuth error in query params: ${queryParams['error']}');
-        _handleOAuthError(queryParams['error'] ?? 'Unknown error');
+      // Just show a processing message
+      if (mounted) {
+        _showMessage('🔄 Processing authentication...', isError: false);
       }
+
+      // Optional: Set a timeout to reset loading state if needed
+      Timer(const Duration(seconds: 10), () {
+        if (mounted && _isGoogleLoggingIn) {
+          setState(() {
+            _isGoogleLoggingIn = false;
+          });
+        }
+      });
+
+      return; // Don't process manually - let Supabase handle it
     }
+
+    // Handle other types of deep links here if needed
+    print('🔗 Non-OAuth deep link: $uri');
   }
 
   void _handleOAuthSuccess() {
+    if (!mounted) return;
+
     setState(() {
       _isGoogleLoggingIn = false;
     });
@@ -139,6 +138,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   }
 
   void _handleOAuthError(String error) {
+    if (!mounted) return;
+
     setState(() {
       _isGoogleLoggingIn = false;
     });
@@ -202,27 +203,41 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     try {
       print('🔐 Starting Google OAuth...');
 
-      // ✅ UPDATED: Use your actual Supabase redirect URL
-      final redirectUrl = 'https://qehtgclgjhzdlqcjujpp.supabase.co/auth/v1/callback';
+      // ✅ FIXED: Use your existing custom scheme
+      const String redirectUrl = 'com.yuknow.ironly://oauth-callback';
 
       print('🔐 Using redirect URL: $redirectUrl');
 
+      // ✅ FIXED: Simplified OAuth call - let Supabase handle the complexity
       final authResponse = await supabase.auth.signInWithOAuth(
         OAuthProvider.google,
         redirectTo: redirectUrl,
         authScreenLaunchMode: LaunchMode.externalApplication,
       );
 
-      print('🔐 OAuth response: ${authResponse.toString()}');
+      print('🔐 OAuth initiated successfully');
+
+      // Don't handle success here - let the deep link handler and auth listener handle it
+      // The success will be handled by _handleIncomingLink -> _setupAuthListener
 
     } catch (e) {
+      if (!mounted) return;
+
       setState(() {
         _isGoogleLoggingIn = false;
       });
 
       String errorMessage = e.toString();
-      if (errorMessage.contains('localhost') || errorMessage.contains('127.0.0.1')) {
+
+      // Handle specific error cases
+      if (errorMessage.contains('OAuth state mismatch')) {
+        errorMessage = 'Authentication session expired. Please try again.';
+      } else if (errorMessage.contains('localhost') || errorMessage.contains('127.0.0.1')) {
         errorMessage = 'Please configure OAuth redirect URL in Supabase dashboard';
+      } else if (errorMessage.contains('CANCELLED')) {
+        errorMessage = 'Login was cancelled';
+      } else if (errorMessage.contains('PlatformException')) {
+        errorMessage = 'Unable to launch authentication. Please try again.';
       }
 
       _showMessage('Google login failed: $errorMessage', isError: true);
@@ -254,6 +269,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   }
 
   void _showMessage(String message, {required bool isError}) {
+    if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -416,7 +433,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         ),
         const SizedBox(height: 32),
 
-        // Welcome Text with Gradient Effect - Fixed text wrapping
+        // Welcome Text with Gradient Effect
         ShaderMask(
           shaderCallback: (bounds) => LinearGradient(
             colors: [
@@ -443,7 +460,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         ),
         const SizedBox(height: 16),
 
-        // Fixed subtitle with proper text wrapping
+        // Subtitle
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8.0),
           child: Text(
@@ -573,7 +590,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                     style: TextStyle(
                       color: Colors.red.shade700,
                       fontWeight: FontWeight.w700,
-                      fontSize: 12,
+                      fontSize: 17,
                       letterSpacing: 0.2,
                     ),
                     overflow: TextOverflow.ellipsis,
@@ -606,7 +623,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           end: Alignment.bottomRight,
         ),
       ),
-      child: Center(
+      child: const Center(
         child: Text(
           'G',
           style: TextStyle(
@@ -690,7 +707,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w700,
-                      fontSize: 12,
+                      fontSize: 17,
                       letterSpacing: 0.2,
                     ),
                     overflow: TextOverflow.ellipsis,

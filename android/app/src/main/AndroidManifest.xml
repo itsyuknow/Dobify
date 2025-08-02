@@ -82,18 +82,31 @@
             </intent-filter>
 
             <!--
-              ✅ FIXED: Intent filter for custom scheme (your original setup)
+              ✅ FIXED: Custom scheme intent filters (NO autoVerify for custom schemes)
               This handles: com.yuknow.ironly://auth-callback
             -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="com.yuknow.ironly" android:host="auth-callback" />
+                <data android:scheme="com.yuknow.ironly" />
+                <data android:host="auth-callback" />
             </intent-filter>
 
             <!--
-              ✅ NEW: Intent filter for Supabase HTTPS redirect
+              ✅ FIXED: Custom scheme OAuth callbacks (NO autoVerify for custom schemes)
+              This handles: com.yuknow.ironly://oauth-callback
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.yuknow.ironly" />
+                <data android:host="oauth-callback" />
+            </intent-filter>
+
+            <!--
+              ✅ CORRECT: Supabase HTTPS redirect (valid domain with autoVerify)
               This handles: https://qehtgclgjhzdlqcjujpp.supabase.co/auth/v1/callback
             -->
             <intent-filter android:autoVerify="true">
@@ -102,7 +115,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https"
                     android:host="qehtgclgjhzdlqcjujpp.supabase.co"
-                    android:path="/auth/v1/callback" />
+                    android:pathPrefix="/auth/v1/callback" />
             </intent-filter>
 
         </activity>
@@ -114,14 +127,20 @@
     </application>
 
     <!--
-      ✅ CORRECTED QUERIES BLOCK
-      Added intent for url_launcher to open web browsers on Android 11+
+      ✅ UPDATED QUERIES BLOCK
+      Enhanced for better OAuth and browser handling
     -->
     <queries>
         <!-- Allows url_launcher to open browser URLs -->
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />
+        </intent>
+
+        <!-- Allows url_launcher to open HTTP URLs (fallback) -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="http" />
         </intent>
 
         <!-- Allows Flutter engine to detect text-processing apps -->
@@ -133,5 +152,11 @@
         <!-- Required for Google Sign-In -->
         <package android:name="com.google.android.gms" />
         <package android:name="com.android.vending" />
+
+        <!-- Common browsers for OAuth -->
+        <package android:name="com.android.chrome" />
+        <package android:name="com.google.android.apps.chrome" />
+        <package android:name="org.mozilla.firefox" />
+        <package android:name="com.microsoft.emmx" />
     </queries>
 </manifest>
