@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:flutter_typeahead/flutter_typeahead.dart';
+
 import 'package:permission_handler/permission_handler.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'colors.dart'; // Replace with your actual theme import
@@ -130,55 +132,70 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
   void _showAddressOptions(Map<String, dynamic> address) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (BuildContext context) {
-        return Container(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Pill handle
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              if (!address['is_default'])
+
+                // Set as default
+                if (!address['is_default']) ...[
+                  ListTile(
+                    leading: const Icon(Icons.home_outlined),
+                    title: const Text('Set as default'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _setDefaultAddress(address['id']);
+                    },
+                  ),
+                ],
+
+                // Edit address
                 ListTile(
-                  leading: const Icon(Icons.home_outlined),
-                  title: const Text('Set as default'),
+                  leading: const Icon(Icons.edit_outlined),
+                  title: const Text('Edit address'),
                   onTap: () {
                     Navigator.pop(context);
-                    _setDefaultAddress(address['id']);
+                    _openAddAddressScreen(address);
                   },
                 ),
-              ListTile(
-                leading: const Icon(Icons.edit_outlined),
-                title: const Text('Edit address'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _openAddAddressScreen(address);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.red),
-                title: const Text('Delete address', style: TextStyle(color: Colors.red)),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showDeleteConfirmation(address);
-                },
-              ),
-            ],
+
+                // Delete address
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.red),
+                  title: const Text(
+                    'Delete address',
+                    style: TextStyle(color: Colors.red),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showDeleteConfirmation(address);
+                  },
+                ),
+              ],
+            ),
           ),
         );
       },
     );
   }
+
 
   void _showDeleteConfirmation(Map<String, dynamic> address) {
     showDialog(
@@ -656,7 +673,8 @@ class AddAddressScreen extends StatefulWidget {
   State<AddAddressScreen> createState() => _AddAddressScreenState();
 }
 
-class _AddAddressScreenState extends State<AddAddressScreen> {
+class _AddAddressScreenState extends State<AddAddressScreen> with TickerProviderStateMixin {
+
   final supabase = Supabase.instance.client;
   final _formKey = GlobalKey<FormState>();
 
@@ -669,7 +687,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
   final _pincodeController = TextEditingController();
   final _cityController = TextEditingController();
   final _stateController = TextEditingController();
-  final _searchController = TextEditingController();
+
 
   String selectedAddressType = 'Home';
   bool isDefault = false;
@@ -684,10 +702,33 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
   double? longitude;
   bool _showMap = false;
   bool _hasSelectedLocation = false;
-  GoogleMapController? _mapController;
+
   Set<Marker> _markers = {};
   bool _isLoadingAddress = false;
   bool _isSearching = false;
+
+  LatLng? _selectedLocation;
+  GoogleMapController? _mapController;
+  final TextEditingController _searchController = TextEditingController();
+
+  late AnimationController _slideController;
+  late Animation<Offset> _slideAnimation;
+  Position? _currentPosition;
+  String? _selectedAddress;
+
+  Future<void> _moveCameraAndSetLocation(LatLng latLng) async {
+    _selectedLocation = latLng;
+
+    if (_mapController != null) {
+      await _mapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(latLng, 16),
+      );
+    }
+
+    await _onMapTap(latLng); // fetch address and set selected
+  }
+
+
 
   @override
   void initState() {
@@ -703,7 +744,61 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
     if (widget.preselectedLocation != null) {
       _populateFromMapSelection();
     }
+
+    _slideController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 1),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _slideController,
+      curve: Curves.easeOutCubic,
+    ));
+    _slideController.forward();
   }
+
+  Future<void> _onMapTap(LatLng location) async {
+    setState(() {
+      _selectedLocation = location;
+    });
+
+    setState(() {
+      _isLoadingAddress = true;
+    });
+
+    try {
+      List<Placemark> placemarks = await placemarkFromCoordinates(
+        location.latitude,
+        location.longitude,
+      );
+
+      if (placemarks.isNotEmpty) {
+        final place = placemarks[0];
+        final address = '${place.street ?? ''}, ${place.locality ?? ''}, ${place
+            .postalCode ?? ''}';
+        setState(() {
+          _addressLine1Controller.text = place.street ?? '';
+          _cityController.text = place.locality ?? '';
+          _pincodeController.text = place.postalCode ?? '';
+          _stateController.text = place.administrativeArea ?? '';
+          latitude = location.latitude;
+          longitude = location.longitude;
+          _selectedAddress = address;
+        });
+      }
+    } catch (e) {
+      print('Error getting address from tap: $e');
+    } finally {
+      setState(() {
+        _isLoadingAddress = false;
+      });
+    }
+  }
+
+
+
 
   Future<void> _getCurrentLocationOnInit() async {
     try {
@@ -800,7 +895,9 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
   }
 
   Future<void> _searchLocation(String query) async {
-    if (query.trim().isEmpty) return;
+    if (query
+        .trim()
+        .isEmpty) return;
 
     setState(() {
       _isSearching = true;
@@ -881,7 +978,8 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        throw Exception('Location services are disabled. Please enable them in settings.');
+        throw Exception(
+            'Location services are disabled. Please enable them in settings.');
       }
 
       LocationPermission permission = await Geolocator.checkPermission();
@@ -1070,9 +1168,13 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
         'recipient_name': _recipientNameController.text.trim(),
         'phone_number': _phoneController.text.trim(),
         'address_line_1': _addressLine1Controller.text.trim(),
-        'address_line_2': _addressLine2Controller.text.trim().isEmpty
+        'address_line_2': _addressLine2Controller.text
+            .trim()
+            .isEmpty
             ? null : _addressLine2Controller.text.trim(),
-        'landmark': _landmarkController.text.trim().isEmpty
+        'landmark': _landmarkController.text
+            .trim()
+            .isEmpty
             ? null : _landmarkController.text.trim(),
         'pincode': _pincodeController.text.trim(),
         'city': _cityController.text.trim(),
@@ -1140,8 +1242,11 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
         title: Text(
           _showMap
               ? "Select Location"
-              : (widget.existingAddress != null ? "Edit Address" : "Add Address"),
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+              : (widget.existingAddress != null
+              ? "Edit Address"
+              : "Add Address"),
+          style: const TextStyle(
+              color: Colors.white, fontWeight: FontWeight.w600),
         ),
         iconTheme: const IconThemeData(color: Colors.white),
         leading: IconButton(
@@ -1180,504 +1285,596 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
   }
 
   Widget _buildMapView() {
-    return Stack(
-      children: [
-        GoogleMap(
-          onMapCreated: (controller) {
-            _mapController = controller;
-          },
-          initialCameraPosition: CameraPosition(
-            target: latitude != null && longitude != null
-                ? LatLng(latitude!, longitude!)
-                : const LatLng(28.6139, 77.2090),
-            zoom: 15,
-          ),
-          markers: _markers,
-          onTap: _addMarker,
-          myLocationEnabled: true,
-          myLocationButtonEnabled: false,
-        ),
+    final mediaQuery = MediaQuery.of(context);
+    final screenHeight = mediaQuery.size.height;
+    final topPadding = mediaQuery.padding.top;
+    final searchBarTop = topPadding + 10;
 
-        // Search bar
-        Positioned(
-          top: 16,
-          left: 16,
-          right: 16,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+    return Scaffold(
+      body: Stack(
+        children: [
+          GoogleMap(
+            onMapCreated: (GoogleMapController controller) {
+              _mapController = controller;
+            },
+            initialCameraPosition: CameraPosition(
+              target: _selectedLocation ?? LatLng(20.2961, 85.8245),
+              zoom: 15.0,
             ),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search for a location...',
-                prefixIcon: const Icon(Icons.search, color: Colors.blue),
-                suffixIcon: _isSearching
-                    ? const Padding(
-                  padding: EdgeInsets.all(12.0),
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.blue,
-                    ),
-                  ),
-                )
-                    : _searchController.text.isNotEmpty
-                    ? IconButton(
-                  icon: const Icon(Icons.clear, color: Colors.grey),
-                  onPressed: () {
-                    _searchController.clear();
-                  },
-                )
-                    : null,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                filled: true,
-                fillColor: Colors.white,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
+            myLocationEnabled: true,
+            myLocationButtonEnabled: false,
+            zoomControlsEnabled: false,
+            onCameraMove: (CameraPosition position) {
+              _selectedLocation = position.target;
+            },
+            onCameraIdle: () async {
+              if (_selectedLocation != null) {
+                await _onMapTap(_selectedLocation!);
+              }
+            },
+          ),
+
+          // Blue Pin in Center
+          Center(
+            child: IgnorePointer(
+              child: Image.asset(
+                'assets/images/blue_pin.png',
+                width: 70,
+                height: 70,
               ),
-              onSubmitted: _searchLocation,
-              textInputAction: TextInputAction.search,
             ),
           ),
-        ),
 
-        // Location status card
-        if (_markers.isNotEmpty)
+          // Search bar
           Positioned(
-            top: 80,
+            top: searchBarTop,
             left: 16,
             right: 16,
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.location_on, color: Colors.green, size: 16),
-                      const SizedBox(width: 8),
-                      const Text(
-                        'Location Selected',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 12,
-                          color: Colors.green,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_isLoadingAddress)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 4.0),
-                      child: Row(
-                        children: [
-                          SizedBox(
-                            width: 12,
-                            height: 12,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                          SizedBox(width: 8),
-                          Text(
-                            'Getting address...',
-                            style: TextStyle(fontSize: 12, color: Colors.black54),
-                          ),
-                        ],
-                      ),
-                    )
-                  else if (_addressLine1Controller.text.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4.0),
-                      child: Text(
-                        '${_addressLine1Controller.text}, ${_cityController.text}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.black54,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+            child: SlideTransition(
+              position: _slideAnimation,
+              child: Container(
+                height: 50,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.85),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 12,
+                      offset: const Offset(0, 6),
                     ),
-                ],
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: TypeAheadField<Location>(
+                    controller: _searchController,
+                    suggestionsCallback: (pattern) async {
+                      if (pattern.trim().isEmpty) return [];
+                      final results = await locationFromAddress(pattern);
+                      return results.take(5).toList();
+                    },
+                    itemBuilder: (context, location) {
+                      return ListTile(
+                        leading: const Icon(Icons.location_on, color: Colors.blue),
+                        title: Text(
+                          'Lat: ${location.latitude}, Lng: ${location.longitude}',
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                      );
+                    },
+                    onSelected: (location) async {
+                      final latLng = LatLng(location.latitude, location.longitude);
+                      await _moveCameraAndSetLocation(latLng);
+                      _searchController.clear();
+                    },
+                    builder: (context, controller, focusNode) {
+                      return TextField(
+                        controller: controller,
+                        focusNode: focusNode,
+                        style: const TextStyle(color: Colors.black),
+                        decoration: InputDecoration(
+                          hintText: 'Search area, street...',
+                          border: InputBorder.none,
+                          prefixIcon: const Icon(Icons.search, color: Color(0xFF42A5F5)),
+                          suffixIcon: controller.text.isNotEmpty
+                              ? IconButton(
+                            icon: const Icon(Icons.close, color: Color(0xFF42A5F5)),
+                            onPressed: () {
+                              controller.clear();
+                              FocusScope.of(context).unfocus();
+                            },
+                          )
+                              : null,
+                        ),
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
           ),
 
-        // Continue button
-        Positioned(
-          bottom: 16,
-          left: 16,
-          right: 16,
-          child: SafeArea(
-            child: ElevatedButton(
-              onPressed: _hasSelectedLocation && !_isLoadingAddress
-                  ? _proceedToForm
-                  : null,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: kPrimaryColor,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+          // Floating action button - current location
+          Positioned(
+            bottom: 180,
+            right: 16,
+            child: FloatingActionButton(
+              backgroundColor: Colors.white,
+              onPressed: () async {
+                try {
+                  _currentPosition = await Geolocator.getCurrentPosition();
+                  final latLng = LatLng(
+                    _currentPosition!.latitude,
+                    _currentPosition!.longitude,
+                  );
+                  await _moveCameraAndSetLocation(latLng);
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Could not get location: ${e.toString()}')),
+                  );
+                }
+              },
+              child: const Icon(Icons.my_location, color: Color(0xFF42A5F5)),
+            ),
+          ),
+
+          // Bottom sheet
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: SlideTransition(
+              position: _slideAnimation,
+              child: Container(
+                padding: EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  bottom: MediaQuery.of(context).padding.bottom + 20,
+                  top: 20,
                 ),
-                elevation: 8,
-              ),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    'Continue with this location',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
+                decoration: BoxDecoration(
+                  color: const Color(0xCC42A5F5),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(30),
+                    topRight: Radius.circular(30),
                   ),
-                  SizedBox(width: 8),
-                  Icon(Icons.arrow_forward, size: 20, color: Colors.white),
-                ],
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.25),
+                      blurRadius: 20,
+                      offset: const Offset(0, -8),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Pill
+                    Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 20),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.4),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+
+                    // Header
+                    Row(
+                      children: const [
+                        Icon(Icons.location_on, color: Colors.white, size: 24),
+                        SizedBox(width: 10),
+                        Text(
+                          'Delivery Location',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Address box
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white.withOpacity(0.4), width: 1),
+                      ),
+                      child: Text(
+                        _selectedAddress ?? 'Fetching address...',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // Confirm button
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton.icon(
+                        onPressed: _selectedLocation != null && !_isLoadingAddress
+                            ? _proceedToForm
+                            : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: const Color(0xFF42A5F5),
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                        ),
+                        icon: const Icon(Icons.check_circle, size: 20),
+                        label: const Text(
+                          'Confirm Location',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
+
+
+
+
+  Widget _loadingSuggestionTile() {
+    return ListTile(
+      leading: Icon(Icons.location_on, color: Color(0xFF42A5F5)),
+      title: Text('Loading...', style: TextStyle(color: Color(0xFF42A5F5))),
+    );
+  }
+
+
   Widget _buildFormView() {
     return Form(
-        key: _formKey,
-        child: Column(
-            children: [
-        Expanded(
-        child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-        if (latitude != null && longitude != null)
-        Container(
-    margin: const EdgeInsets.only(bottom: 16),
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-    color: Colors.green.shade50,
-    borderRadius: BorderRadius.circular(8),
-    border: Border.all(color: Colors.green.shade200),
-    ),
-    child: InkWell(
-    onTap: _goBackToMap,
-    child: Row(
-    children: [
-    Icon(Icons.location_on, color: Colors.green.shade600, size: 20),
-    const SizedBox(width: 8),
-    Expanded(
-    child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-    Text(
-    'Location selected from map',
-    style: TextStyle(
-    color: Colors.green.shade700,
-    fontWeight: FontWeight.w600,
-    fontSize: 12,
-    ),
-    ),
-    Text(
-    'Tap to change location',
-    style: TextStyle(
-    color: Colors.green.shade600,
-    fontSize: 11,
-    ),
-    ),
-    ],
-    ),
-    ),
-    Icon(
-    Icons.edit,
-    color: Colors.green.shade600,
-    size: 16,
-    ),
-    ],
-    ),
-    ),
-    ),
-
-    _buildSectionTitle('Contact Information'),
-    _buildTextField(
-    controller: _recipientNameController,
-    label: 'Full Name',
-    hint: 'Enter recipient name',
-    icon: Icons.person_outline,
-    validator: (value) {
-    if (value?.trim().isEmpty ?? true) {
-    return 'Name is required';
-    }
-    return null;
-    },
-    ),
-    const SizedBox(height: 16),
-    _buildTextField(
-    controller: _phoneController,
-    label: 'Phone Number',
-    hint: 'Enter 10-digit phone number',
-    icon: Icons.phone_outlined,
-    keyboardType: TextInputType.phone,
-    validator: (value) {
-    if (value?.trim().isEmpty ?? true) {
-    return 'Phone number is required';
-    }
-    if (value!.length != 10) {
-    return 'Enter valid 10-digit phone number';
-    }
-    return null;
-    },
-    ),
-    const SizedBox(height: 24),
-
-    _buildSectionTitle('Address Details'),
-    _buildTextField(
-    controller: _addressLine1Controller,
-    label: 'Address Line 1',
-    hint: 'House/Flat/Office No, Building Name',
-    icon: Icons.home_outlined,
-    validator: (value) {
-    if (value?.trim().isEmpty ?? true) {
-    return 'Address is required';
-    }
-    return null;
-    },
-    ),
-    const SizedBox(height: 16),
-    _buildTextField(
-    controller: _addressLine2Controller,
-    label: 'Address Line 2 (Optional)',
-    hint: 'Area, Street, Sector, Village',
-    icon: Icons.location_on_outlined,
-    ),
-    const SizedBox(height: 16),
-    _buildTextField(
-    controller: _landmarkController,
-    label: 'Landmark (Optional)',
-    hint: 'Nearby landmark',
-    icon: Icons.place_outlined,
-    ),
-    const SizedBox(height: 16),
-
-    Row(
-    children: [
-    Expanded(
-    flex: 2,
-    child: _buildTextField(
-    controller: _pincodeController,
-    label: 'Pincode',
-    hint: '000000',
-    icon: Icons.pin_drop_outlined,
-    keyboardType: TextInputType.number,
-    validator: (value) {
-    if (value?.trim().isEmpty ?? true) {
-    return 'Pincode is required';
-    }
-    if (value!.length != 6) {
-    return 'Enter valid 6-digit pincode';
-    }
-    return null;
-    },
-    onChanged: (value) {
-    if (value.length == 6) {
-    _checkServiceAvailability(value);
-    } else {
-    setState(() {
-    isServiceAvailable = true;
-    isCheckingService = false;
-    });
-    }
-    },
-    ),
-    ),
-    const SizedBox(width: 16),
-    Expanded(
-    flex: 3,
-    child: _buildTextField(
-    controller: _cityController,
-    label: 'City',
-    hint: 'Enter city',
-    icon: Icons.location_city_outlined,
-    validator: (value) {
-    if (value?.trim().isEmpty ?? true) {
-    return 'City is required';
-    }
-    return null;
-    },
-    ),
-    ),
-    ],
-    ),
-    const SizedBox(height: 16),
-    _buildTextField(
-    controller: _stateController,
-    label: 'State',
-    hint: 'Enter state',
-    icon: Icons.map_outlined,
-    validator: (value) {
-    if (value?.trim().isEmpty ?? true) {
-    return 'State is required';
-    }
-    return null;
-    },
-    ),
-
-
-              if (_pincodeController.text.length == 6) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isCheckingService
-                        ? Colors.orange.shade50
-                        : isServiceAvailable
-                        ? Colors.green.shade50
-                        : Colors.red.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: isCheckingService
-                          ? Colors.orange.shade200
-                          : isServiceAvailable
-                          ? Colors.green.shade200
-                          : Colors.red.shade200,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      if (isCheckingService)
-                        const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      else
-                        Icon(
-                          isServiceAvailable ? Icons.check_circle : Icons.cancel,
-                          color: isServiceAvailable ? Colors.green : Colors.red,
-                          size: 16,
+      key: _formKey,
+      child: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (latitude != null && longitude != null)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.green.shade200),
+                      ),
+                      child: InkWell(
+                        onTap: _goBackToMap,
+                        child: Row(
+                          children: [
+                            Icon(Icons.location_on,
+                                color: Colors.green.shade600, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Location selected from map',
+                                    style: TextStyle(
+                                      color: Colors.green.shade700,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Tap to change location',
+                                    style: TextStyle(
+                                      color: Colors.green.shade600,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              Icons.edit,
+                              color: Colors.green.shade600,
+                              size: 16,
+                            ),
+                          ],
                         ),
-                      const SizedBox(width: 8),
+                      ),
+                    ),
+
+                  _buildSectionTitle('Contact Information'),
+                  _buildTextField(
+                    controller: _recipientNameController,
+                    label: 'Full Name',
+                    hint: 'Enter recipient name',
+                    icon: Icons.person_outline,
+                    validator: (value) {
+                      if (value
+                          ?.trim()
+                          .isEmpty ?? true) {
+                        return 'Name is required';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    controller: _phoneController,
+                    label: 'Phone Number',
+                    hint: 'Enter 10-digit phone number',
+                    icon: Icons.phone_outlined,
+                    keyboardType: TextInputType.phone,
+                    validator: (value) {
+                      if (value
+                          ?.trim()
+                          .isEmpty ?? true) {
+                        return 'Phone number is required';
+                      }
+                      if (value!.length != 10) {
+                        return 'Enter valid 10-digit phone number';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 24),
+
+                  _buildSectionTitle('Address Details'),
+                  _buildTextField(
+                    controller: _addressLine1Controller,
+                    label: 'Address Line 1',
+                    hint: 'House/Flat/Office No, Building Name',
+                    icon: Icons.home_outlined,
+                    validator: (value) {
+                      if (value
+                          ?.trim()
+                          .isEmpty ?? true) {
+                        return 'Address is required';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    controller: _addressLine2Controller,
+                    label: 'Address Line 2 (Optional)',
+                    hint: 'Area, Street, Sector, Village',
+                    icon: Icons.location_on_outlined,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    controller: _landmarkController,
+                    label: 'Landmark (Optional)',
+                    hint: 'Nearby landmark',
+                    icon: Icons.place_outlined,
+                  ),
+                  const SizedBox(height: 16),
+
+                  Row(
+                    children: [
                       Expanded(
-                        child: Text(
-                          isCheckingService
-                              ? 'Checking service availability...'
-                              : isServiceAvailable
-                              ? 'Service available in this area'
-                              : 'Service not available in this pincode',
-                          style: TextStyle(
-                            color: isCheckingService
-                                ? Colors.orange.shade700
-                                : isServiceAvailable
-                                ? Colors.green.shade700
-                                : Colors.red.shade700,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
+                        flex: 2,
+                        child: _buildTextField(
+                          controller: _pincodeController,
+                          label: 'Pincode',
+                          hint: '000000',
+                          icon: Icons.pin_drop_outlined,
+                          keyboardType: TextInputType.number,
+                          validator: (value) {
+                            if (value
+                                ?.trim()
+                                .isEmpty ?? true) {
+                              return 'Pincode is required';
+                            }
+                            if (value!.length != 6) {
+                              return 'Enter valid 6-digit pincode';
+                            }
+                            return null;
+                          },
+                          onChanged: (value) {
+                            if (value.length == 6) {
+                              _checkServiceAvailability(value);
+                            } else {
+                              setState(() {
+                                isServiceAvailable = true;
+                                isCheckingService = false;
+                              });
+                            }
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        flex: 3,
+                        child: _buildTextField(
+                          controller: _cityController,
+                          label: 'City',
+                          hint: 'Enter city',
+                          icon: Icons.location_city_outlined,
+                          validator: (value) {
+                            if (value
+                                ?.trim()
+                                .isEmpty ?? true) {
+                              return 'City is required';
+                            }
+                            return null;
+                          },
                         ),
                       ),
                     ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    controller: _stateController,
+                    label: 'State',
+                    hint: 'Enter state',
+                    icon: Icons.map_outlined,
+                    validator: (value) {
+                      if (value
+                          ?.trim()
+                          .isEmpty ?? true) {
+                        return 'State is required';
+                      }
+                      return null;
+                    },
+                  ),
 
-              const SizedBox(height: 24),
-              _buildSectionTitle('Address Type'),
-              _buildAddressTypeSelector(),
-              const SizedBox(height: 16),
 
-              CheckboxListTile(
-                value: isDefault,
-                onChanged: (value) {
-                  setState(() {
-                    isDefault = value ?? false;
-                  });
-                },
-                title: const Text('Set as default address'),
-                subtitle: const Text('Use this address for future orders'),
-                activeColor: kPrimaryColor,
-                contentPadding: EdgeInsets.zero,
+                  if (_pincodeController.text.length == 6) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isCheckingService
+                            ? Colors.orange.shade50
+                            : isServiceAvailable
+                            ? Colors.green.shade50
+                            : Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isCheckingService
+                              ? Colors.orange.shade200
+                              : isServiceAvailable
+                              ? Colors.green.shade200
+                              : Colors.red.shade200,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          if (isCheckingService)
+                            const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          else
+                            Icon(
+                              isServiceAvailable ? Icons.check_circle : Icons
+                                  .cancel,
+                              color: isServiceAvailable ? Colors.green : Colors
+                                  .red,
+                              size: 16,
+                            ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              isCheckingService
+                                  ? 'Checking service availability...'
+                                  : isServiceAvailable
+                                  ? 'Service available in this area'
+                                  : 'Service not available in this pincode',
+                              style: TextStyle(
+                                color: isCheckingService
+                                    ? Colors.orange.shade700
+                                    : isServiceAvailable
+                                    ? Colors.green.shade700
+                                    : Colors.red.shade700,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 24),
+                  _buildSectionTitle('Address Type'),
+                  _buildAddressTypeSelector(),
+                  const SizedBox(height: 16),
+
+                  CheckboxListTile(
+                    value: isDefault,
+                    onChanged: (value) {
+                      setState(() {
+                        isDefault = value ?? false;
+                      });
+                    },
+                    title: const Text('Set as default address'),
+                    subtitle: const Text('Use this address for future orders'),
+                    activeColor: kPrimaryColor,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+
+                  const SizedBox(height: 32),
+                ],
               ),
-
-              const SizedBox(height: 32),
-            ],
-        ),
-        ),
-        ),
-              Container(
-                padding: EdgeInsets.fromLTRB(16, 16, 16, MediaQuery.of(context).padding.bottom + 16),
-                decoration: BoxDecoration(
-                  border: Border(top: BorderSide(color: Colors.grey.shade200)),
-                  color: Colors.white,
-                ),
-                child: SafeArea(
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: 60,
-                    child: ElevatedButton(
-                      onPressed: isLoading ? null : _saveAddress,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: kPrimaryColor,
-                        padding: const EdgeInsets.symmetric(vertical: 18),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30),
-                        ),
-                        elevation: 8,
-                        shadowColor: kPrimaryColor.withOpacity(0.3),
-                      ),
-                      child: isLoading
-                          ? const SizedBox(
-                        height: 24,
-                        width: 24,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 3,
-                        ),
-                      )
-                          : Text(
-                        widget.existingAddress != null ? 'Update Address' : 'Save Address',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
+            ),
+          ),
+          Container(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, MediaQuery
+                .of(context)
+                .padding
+                .bottom + 16),
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: Colors.grey.shade200)),
+              color: Colors.white,
+            ),
+            child: SafeArea(
+              child: SizedBox(
+                width: double.infinity,
+                height: 60,
+                child: ElevatedButton(
+                  onPressed: isLoading ? null : _saveAddress,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kPrimaryColor,
+                    padding: const EdgeInsets.symmetric(vertical: 18),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    elevation: 8,
+                    shadowColor: kPrimaryColor.withOpacity(0.3),
+                  ),
+                  child: isLoading
+                      ? const SizedBox(
+                    height: 24,
+                    width: 24,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 3,
+                    ),
+                  )
+                      : Text(
+                    widget.existingAddress != null
+                        ? 'Update Address'
+                        : 'Save Address',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      letterSpacing: 0.5,
                     ),
                   ),
                 ),
               ),
-            ],
-        ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1796,6 +1993,8 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
     _stateController.dispose();
     _searchController.dispose();
     _mapController?.dispose();
+    _slideController.dispose();
+
     super.dispose();
   }
 }
