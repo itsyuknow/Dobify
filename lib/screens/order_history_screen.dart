@@ -1008,10 +1008,8 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
   @override
   Widget build(BuildContext context) {
-    // ✅ RESPONSIVE: Get screen dimensions for universal phone display
     final screenSize = MediaQuery.of(context).size;
     final screenWidth = screenSize.width;
-    final screenHeight = screenSize.height;
     final isSmallScreen = screenWidth < 360;
     final cardMargin = isSmallScreen ? 8.0 : 16.0;
     final cardPadding = isSmallScreen ? 16.0 : 20.0;
@@ -1022,127 +1020,143 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
         title: Text(
           'Order History',
           style: TextStyle(
-            fontWeight: FontWeight.w600, // Changed from w800 to w600
+            fontWeight: FontWeight.w600,
             fontSize: isSmallScreen ? 18 : 20,
-            color: Colors.white, // Added white color for text
+            color: Colors.white,
           ),
         ),
-        backgroundColor: Colors.blue, // Changed from Colors.white to Colors.blue
-        foregroundColor: Colors.white, // Changed from Colors.black to Colors.white
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
           icon: Icon(
-            Icons.arrow_back, // Changed from Icons.arrow_back_ios_new_rounded to Icons.arrow_back
-            color: Colors.white, // Changed to white
-            size: 24, // Standard size
+            Icons.arrow_back,
+            color: Colors.white,
+            size: 24,
           ),
         ),
       ),
-      body: isLoading
-          ? Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(color: kPrimaryColor),
-            const SizedBox(height: 16),
-            Text(
-              'Loading your orders...',
-              style: TextStyle(
-                fontSize: isSmallScreen ? 14 : 16,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      )
-          : orders.isEmpty
-          ? Center(
-        child: SingleChildScrollView( // ✅ RESPONSIVE: Prevent overflow on small screens
-          padding: EdgeInsets.all(cardMargin),
+      body: SafeArea(
+        bottom: true,
+        child: isLoading
+            ? Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                padding: EdgeInsets.all(isSmallScreen ? 24 : 32),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [kPrimaryColor.withOpacity(0.1), Colors.purple.withOpacity(0.05)],
-                  ),
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: Icon(
-                  Icons.shopping_bag_outlined,
-                  size: isSmallScreen ? 60 : 80,
-                  color: kPrimaryColor,
-                ),
-              ),
-              const SizedBox(height: 24),
+              CircularProgressIndicator(color: kPrimaryColor),
+              const SizedBox(height: 16),
               Text(
-                'No Orders in Last 30 Days',
-                style: TextStyle(
-                  fontSize: isSmallScreen ? 20 : 24,
-                  fontWeight: FontWeight.w800,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Your recent order history will appear here.',
-                textAlign: TextAlign.center,
+                'Loading your orders...',
                 style: TextStyle(
                   fontSize: isSmallScreen ? 14 : 16,
-                  color: Colors.grey.shade600,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Container(
-                width: double.infinity,
-                constraints: BoxConstraints(maxWidth: screenWidth * 0.8),
-                child: ElevatedButton(
-                  // ✅ FIXED: Navigate to order_screen.dart instead of home
-                  onPressed: () {
-                    Navigator.of(context).pushNamedAndRemoveUntil('/orders', (route) => false);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kPrimaryColor,
-                    padding: EdgeInsets.symmetric(
-                      horizontal: isSmallScreen ? 24 : 32,
-                      vertical: isSmallScreen ? 12 : 16,
-                    ),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
-                  ),
-                  child: Text(
-                    'Start Shopping',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: isSmallScreen ? 14 : 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
           ),
-        ),
-      )
-          : FadeTransition(
-        opacity: _fadeAnimation,
-        child: RefreshIndicator(
-          onRefresh: _loadOrders,
-          color: kPrimaryColor,
-          child: ListView.builder(
+        )
+            : orders.isEmpty
+            ? Center(
+          child: SingleChildScrollView(
             padding: EdgeInsets.all(cardMargin),
-            itemCount: orders.length,
-            itemBuilder: (context, index) {
-              return _buildEnhancedOrderCard(orders[index], index, cardPadding, isSmallScreen);
-            },
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: EdgeInsets.all(isSmallScreen ? 24 : 32),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        kPrimaryColor.withOpacity(0.1),
+                        Colors.purple.withOpacity(0.05)
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Icon(
+                    Icons.shopping_bag_outlined,
+                    size: isSmallScreen ? 60 : 80,
+                    color: kPrimaryColor,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'No Orders in Last 30 Days',
+                  style: TextStyle(
+                    fontSize: isSmallScreen ? 20 : 24,
+                    fontWeight: FontWeight.w800,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Your recent order history will appear here.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: isSmallScreen ? 14 : 16,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Container(
+                  width: double.infinity,
+                  constraints:
+                  BoxConstraints(maxWidth: screenWidth * 0.8),
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).pushNamedAndRemoveUntil(
+                          '/orders', (route) => false);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: kPrimaryColor,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isSmallScreen ? 24 : 32,
+                        vertical: isSmallScreen ? 12 : 16,
+                      ),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(25)),
+                    ),
+                    child: Text(
+                      'Start Shopping',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: isSmallScreen ? 14 : 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        )
+            : FadeTransition(
+          opacity: _fadeAnimation,
+          child: RefreshIndicator(
+            onRefresh: _loadOrders,
+            color: kPrimaryColor,
+            child: ListView.builder(
+              padding: EdgeInsets.only(
+                left: cardMargin,
+                right: cardMargin,
+                top: cardMargin,
+                bottom: cardMargin +
+                    MediaQuery.of(context).padding.bottom,
+              ),
+              itemCount: orders.length,
+              itemBuilder: (context, index) {
+                return _buildEnhancedOrderCard(
+                    orders[index], index, cardPadding, isSmallScreen);
+              },
+            ),
           ),
         ),
       ),
     );
   }
+
 
   Widget _buildEnhancedOrderCard(Map<String, dynamic> order, int index, double cardPadding, bool isSmallScreen) {
     final orderItems = order['order_items'] as List<dynamic>? ?? [];
@@ -2494,14 +2508,20 @@ class _OrderDetailsSheet extends StatelessWidget {
     // ✅ RESPONSIVE: Get screen dimensions for universal phone display
     final screenSize = MediaQuery.of(context).size;
     final isSmallScreen = screenSize.width < 360;
+    final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
 
     return Container(
-      height: MediaQuery.of(context).size.height * 0.9,
+      // ✅ FIX: Use flexible height with constraints
+      constraints: BoxConstraints(
+        maxHeight: screenSize.height * 0.95,
+        minHeight: screenSize.height * 0.5,
+      ),
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           // Handle
           Container(
@@ -2565,10 +2585,15 @@ class _OrderDetailsSheet extends StatelessWidget {
             ),
           ),
 
-          // Content
-          Expanded(
+          // ✅ FIX: Flexible content with proper scrolling
+          Flexible(
             child: SingleChildScrollView(
-              padding: EdgeInsets.symmetric(horizontal: isSmallScreen ? 16 : 20),
+              physics: const BouncingScrollPhysics(),
+              padding: EdgeInsets.only(
+                left: isSmallScreen ? 16 : 20,
+                right: isSmallScreen ? 16 : 20,
+                bottom: bottomPadding + 20, // ✅ Add safe area padding
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -2782,7 +2807,8 @@ class _OrderDetailsSheet extends StatelessWidget {
                     ),
                   ),
 
-                  const SizedBox(height: 40),
+                  // ✅ FIX: Extra bottom spacing for safe scrolling
+                  SizedBox(height: isSmallScreen ? 60 : 80),
                 ],
               ),
             ),
@@ -3057,6 +3083,4 @@ class _OrderDetailsSheet extends StatelessWidget {
       return 'N/A';
     }
   }
-}
-
-// ✅ END OF COMPLETE ORDER HISTORY SCREEN CODE ✅
+}// ✅ END OF COMPLETE ORDER HISTORY SCREEN CODE ✅
