@@ -259,16 +259,15 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                       ),
                       const SizedBox(height: 12),
 
-                      // ✅ Title (no underline)
+                      // ✅ Title (consistent font)
                       Text(
                         "Coupon Applied!",
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
                           color: Colors.black87,
+                          fontFamily: 'YourAppFont', // <-- Use your app-wide font here
                           decoration: TextDecoration.none,
-                          decorationColor: Colors.transparent,
-                          decorationThickness: 0,
                         ),
                       ),
                       const SizedBox(height: 6),
@@ -287,6 +286,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                             fontWeight: FontWeight.w600,
                             fontSize: 14,
                             letterSpacing: 1.2,
+                            fontFamily: 'YourAppFont', // <-- consistent font
                             decoration: TextDecoration.none,
                           ),
                         ),
@@ -304,6 +304,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                             style: TextStyle(
                               fontSize: 13,
                               color: Colors.green.shade700,
+                              fontFamily: 'YourAppFont', // <-- consistent font
                               decoration: TextDecoration.none,
                             ),
                           ),
@@ -313,6 +314,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
                               color: Colors.green.shade800,
+                              fontFamily: 'YourAppFont', // <-- consistent font
                               decoration: TextDecoration.none,
                             ),
                           ),
@@ -335,6 +337,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
       });
     });
   }
+
 
 
   void _hideSuccessPopup() {

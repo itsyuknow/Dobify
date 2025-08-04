@@ -110,6 +110,7 @@ flutter:
     - assets/images/bedsheet.png
     - assets/images/towel.png
     - assets/images/iron_icon.png
+    - assets/images/blue_pin.png
 
     # ✅ Config file
     - .env

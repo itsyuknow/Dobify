@@ -521,9 +521,9 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                 children: [
                   _buildCompactProductImage(),
                   const SizedBox(height: 16),
-                  _buildProductInfo(),
-                  const SizedBox(height: 20),
-                  _buildServiceSelection(),
+                  _buildServiceSelection(),         // 🔁 MOVED UP
+                  const SizedBox(height: 16),
+                  _buildProductInfo(),              // 🔁 Moved down, now shows selected service description and total
                   const SizedBox(height: 20),
                   _buildQuantityAndPrice(),
                   const SizedBox(height: 24),
@@ -531,6 +531,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                   const SizedBox(height: 20),
                 ],
               ),
+
             ),
           );
         },
@@ -578,6 +579,15 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
 
   // ✅ REFINED: Clean product info
   Widget _buildProductInfo() {
+    final singleItemPrice = (_product!['product_price'] ?? 0) + _selectedServicePrice;
+
+    final selectedService = _services.firstWhere(
+          (s) => s['name'] == _selectedService,
+      orElse: () => {'service_full_description': 'No description available'},
+    );
+
+    final selectedServiceDesc = selectedService['service_full_description'] ?? 'No description available';
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -594,43 +604,30 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: kPrimaryColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: kPrimaryColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.currency_rupee, color: kPrimaryColor, size: 14),
+                Text(
+                  '$singleItemPrice',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: kPrimaryColor,
+                  ),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.currency_rupee, color: kPrimaryColor, size: 14),
-                    Text(
-                      '${_product!['product_price'] ?? 0}',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: kPrimaryColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'base price',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade600,
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(height: 12),
           Text(
-            _product!['description'] ??
-                'Premium quality item crafted with finest materials. Select service and quantity to proceed.',
+            selectedServiceDesc,
             style: TextStyle(
               fontSize: 14,
               color: Colors.grey.shade700,
@@ -641,6 +638,9 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       ),
     );
   }
+
+
+
 
   // ✅ ELEGANT: Compact service selection
   Widget _buildServiceSelection() {
@@ -675,7 +675,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w600,
-            color: Colors.grey.shade800,
+            color: Color(0xFF42A5F5),
           ),
         ),
         const SizedBox(height: 12),
@@ -705,13 +705,15 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                         color: selected ? kPrimaryColor : Colors.grey.shade300,
                         width: 1,
                       ),
-                      boxShadow: selected ? [
+                      boxShadow: selected
+                          ? [
                         BoxShadow(
                           color: kPrimaryColor.withOpacity(0.2),
                           blurRadius: 8,
                           offset: const Offset(0, 3),
                         ),
-                      ] : [
+                      ]
+                          : [
                         BoxShadow(
                           color: Colors.black.withOpacity(0.04),
                           blurRadius: 5,
@@ -728,25 +730,13 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                           color: selected ? Colors.white : kPrimaryColor,
                         ),
                         const SizedBox(width: 8),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              name,
-                              style: TextStyle(
-                                color: selected ? Colors.white : Colors.black87,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                              ),
-                            ),
-                            Text(
-                              '+₹$price',
-                              style: TextStyle(
-                                color: selected ? Colors.white70 : Colors.grey.shade600,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
+                        Text(
+                          name,
+                          style: TextStyle(
+                            color: selected ? Colors.white : Colors.black87,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
                         ),
                       ],
                     ),
@@ -759,6 +749,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       ],
     );
   }
+
 
   // ✅ COMPACT: Quantity and price in one row
   Widget _buildQuantityAndPrice() {
