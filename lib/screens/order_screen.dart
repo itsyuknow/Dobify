@@ -666,30 +666,27 @@ class _OrdersScreenState extends State<OrdersScreen>
     _qtyAnimControllers[productName]?.forward(from: 0.9);
   }
 
-  IconData _getServiceIcon(String? serviceName) {
-    switch (serviceName?.toLowerCase().trim()) {
-      case 'wash & iron':
-      case 'wash and iron':
-      case 'wash+iron':
-        return Icons.local_laundry_service_rounded;
-      case 'dry clean':
-      case 'dry cleaning':
-        return Icons.dry_cleaning_rounded;
-      case 'steam iron':
-      case 'ironing':
-      case 'iron':
-      case 'only iron':
-        return Icons.iron_rounded;
-      case 'pressing':
-        return Icons.compress;
-      case 'electric iron':
-        return Icons.iron_rounded;
-      case 'coal iron':
-        return Icons.local_fire_department_rounded;
+  IconData _getServiceIcon(String? iconString) {
+    switch (iconString) {
+      case 'cloud':
+        return Icons.cloud;
+      case 'flash_on':
+        return Icons.flash_on;
+      case 'local_fire_department':
+        return Icons.local_fire_department;
+      case 'water_drop':
+        return Icons.water_drop;
+      case 'bolt':
+        return Icons.bolt;
+      case 'local_laundry_service':
+        return Icons.local_laundry_service;
       default:
-        return Icons.cleaning_services_rounded;
+        return Icons.miscellaneous_services; // fallback icon
     }
   }
+
+
+
 
   Future<void> _showServiceSelectionPopup(Map<String, dynamic> product) async {
     final user = supabase.auth.currentUser;
@@ -801,7 +798,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                                     ),
                                     child: Icon(
                                       _getServiceIcon(iconName),
-                                      size: 18,
+                                      size: 20,
                                       color: kPrimaryColor,
                                     ),
                                   ),
@@ -825,6 +822,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                                         Row(
                                           children: [
                                             Expanded(
+                                              flex: 4,
                                               child: Text(
                                                 description,
                                                 style: TextStyle(
@@ -832,9 +830,11 @@ class _OrdersScreenState extends State<OrdersScreen>
                                                   color: Colors.grey.shade600,
                                                 ),
                                                 maxLines: 2,
-                                                overflow: TextOverflow.ellipsis,
+                                                overflow: TextOverflow.visible,
+                                                softWrap: true,
                                               ),
                                             ),
+
                                             if (tag.isNotEmpty)
                                               Container(
                                                 margin: const EdgeInsets.only(left: 6),
