@@ -215,303 +215,127 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
   }
 
   void _showSuccessPopup(String couponCode, double discountAmount) {
-    _overlayEntry = OverlayEntry(
-      builder: (context) => AnimatedBuilder(
-        animation: _popupController,
-        builder: (context, child) {
-          return FadeTransition(
-            opacity: _popupFadeAnimation,
-            child: Container(
-              color: Colors.black.withOpacity(0.7),
+    Future.delayed(const Duration(milliseconds: 100), () {
+      showGeneralDialog(
+        context: context,
+        barrierDismissible: true,
+        barrierLabel: '',
+        transitionDuration: const Duration(milliseconds: 300),
+        pageBuilder: (_, __, ___) => const SizedBox.shrink(),
+        transitionBuilder: (_, animation, __, ___) {
+          return ScaleTransition(
+            scale: CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
+            child: Opacity(
+              opacity: animation.value,
               child: Center(
-                child: ScaleTransition(
-                  scale: _popupScaleAnimation,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 50),
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(24),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.3),
-                          blurRadius: 40,
-                          offset: const Offset(0, 20),
+                child: Container(
+                  width: 240,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 24,
+                        offset: const Offset(0, 12),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // ✅ Success icon
+                      Container(
+                        width: 50,
+                        height: 50,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: LinearGradient(
+                            colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.85)],
+                          ),
                         ),
-                        BoxShadow(
-                          color: kPrimaryColor.withOpacity(0.4),
-                          blurRadius: 30,
-                          offset: const Offset(0, 15),
+                        child: const Icon(Icons.check_rounded, color: Colors.white, size: 28),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // ✅ Title (no underline)
+                      Text(
+                        "Coupon Applied!",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black87,
+                          decoration: TextDecoration.none,
+                          decorationColor: Colors.transparent,
+                          decorationThickness: 0,
                         ),
-                        BoxShadow(
-                          color: Colors.white,
-                          blurRadius: 5,
-                          offset: const Offset(0, -2),
+                      ),
+                      const SizedBox(height: 6),
+
+                      // ✅ Coupon code
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: kPrimaryColor.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        AnimatedBuilder(
-                          animation: _successController,
-                          builder: (context, child) {
-                            return Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                Transform.scale(
-                                  scale: 1.0 + (_successScaleAnimation.value * 0.3),
-                                  child: Container(
-                                    width: 80,
-                                    height: 80,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: kPrimaryColor.withOpacity(0.3 * _successOpacityAnimation.value),
-                                        width: 2,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                Transform.scale(
-                                  scale: 1.0 + (_successScaleAnimation.value * 0.15),
-                                  child: Container(
-                                    width: 70,
-                                    height: 70,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: kPrimaryColor.withOpacity(0.1 * _successOpacityAnimation.value),
-                                    ),
-                                  ),
-                                ),
-                                Transform.scale(
-                                  scale: _successScaleAnimation.value,
-                                  child: Container(
-                                    width: 60,
-                                    height: 60,
-                                    decoration: BoxDecoration(
-                                      color: kPrimaryColor,
-                                      shape: BoxShape.circle,
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: kPrimaryColor.withOpacity(0.5),
-                                          blurRadius: 25,
-                                          offset: const Offset(0, 10),
-                                        ),
-                                        BoxShadow(
-                                          color: kPrimaryColor.withOpacity(0.3),
-                                          blurRadius: 15,
-                                          offset: const Offset(0, 5),
-                                        ),
-                                      ],
-                                    ),
-                                    child: const Icon(
-                                      Icons.check_rounded,
-                                      color: Colors.white,
-                                      size: 28,
-                                    ),
-                                  ),
-                                ),
-                                ...List.generate(6, (index) {
-                                  final angle = (index * 60) * pi / 180;
-                                  final distance = 45.0;
-                                  return Transform.translate(
-                                    offset: Offset(
-                                      distance * cos(angle) * _successScaleAnimation.value,
-                                      distance * sin(angle) * _successScaleAnimation.value,
-                                    ),
-                                    child: Transform.scale(
-                                      scale: _successOpacityAnimation.value,
-                                      child: Container(
-                                        width: 4,
-                                        height: 4,
-                                        decoration: BoxDecoration(
-                                          color: kPrimaryColor.withOpacity(0.6),
-                                          shape: BoxShape.circle,
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                }),
-                              ],
-                            );
-                          },
+                        child: Text(
+                          couponCode,
+                          style: TextStyle(
+                            color: kPrimaryColor,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                            letterSpacing: 1.2,
+                            decoration: TextDecoration.none,
+                          ),
                         ),
-                        const SizedBox(height: 16),
-                        AnimatedBuilder(
-                          animation: _successController,
-                          builder: (context, child) {
-                            return Transform.translate(
-                              offset: Offset(0, 20 * (1 - _successOpacityAnimation.value)),
-                              child: FadeTransition(
-                                opacity: _successOpacityAnimation,
-                                child: ShaderMask(
-                                  shaderCallback: (bounds) => LinearGradient(
-                                    colors: [
-                                      kPrimaryColor,
-                                      kPrimaryColor.withOpacity(0.8),
-                                      kPrimaryColor,
-                                    ],
-                                    stops: const [0.0, 0.5, 1.0],
-                                  ).createShader(bounds),
-                                  child: const Text(
-                                    'Coupon Applied!',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w800,
-                                      color: Colors.white,
-                                      letterSpacing: 0.5,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 6),
-                        AnimatedBuilder(
-                          animation: _successController,
-                          builder: (context, child) {
-                            return Transform.translate(
-                              offset: Offset(0, 15 * (1 - _successOpacityAnimation.value)),
-                              child: FadeTransition(
-                                opacity: _successOpacityAnimation,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: kPrimaryColor.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    couponCode,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w700,
-                                      color: kPrimaryColor,
-                                      letterSpacing: 1.2,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        AnimatedBuilder(
-                          animation: _successController,
-                          builder: (context, child) {
-                            return Transform.translate(
-                              offset: Offset(0, 10 * (1 - _successOpacityAnimation.value)),
-                              child: FadeTransition(
-                                opacity: _successOpacityAnimation,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        Colors.green.withOpacity(0.1),
-                                        Colors.green.withOpacity(0.05),
-                                      ],
-                                    ),
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(
-                                      color: Colors.green.withOpacity(0.3),
-                                      width: 1,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(4),
-                                        decoration: BoxDecoration(
-                                          color: Colors.green,
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: const Icon(
-                                          Icons.savings_rounded,
-                                          color: Colors.white,
-                                          size: 16,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            'You Saved',
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.w600,
-                                              color: Colors.green.shade700,
-                                            ),
-                                          ),
-                                          AnimatedBuilder(
-                                            animation: _successController,
-                                            builder: (context, child) {
-                                              final animatedAmount = discountAmount * _successOpacityAnimation.value;
-                                              return Text(
-                                                '₹${animatedAmount.toStringAsFixed(2)}',
-                                                style: TextStyle(
-                                                  fontSize: 14,
-                                                  fontWeight: FontWeight.w800,
-                                                  color: Colors.green.shade800,
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 4),
-                        AnimatedBuilder(
-                          animation: _successController,
-                          builder: (context, child) {
-                            return Transform.scale(
-                              scale: _successOpacityAnimation.value,
-                              child: Container(
-                                width: 40,
-                                height: 3,
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      kPrimaryColor.withOpacity(0.3),
-                                      kPrimaryColor,
-                                      kPrimaryColor.withOpacity(0.3),
-                                    ],
-                                  ),
-                                  borderRadius: BorderRadius.circular(2),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // ✅ Savings message
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.savings_outlined, color: Colors.green.shade700, size: 18),
+                          const SizedBox(width: 6),
+                          Text(
+                            "You saved ",
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.green.shade700,
+                              decoration: TextDecoration.none,
+                            ),
+                          ),
+                          Text(
+                            "₹${discountAmount.toStringAsFixed(2)}",
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green.shade800,
+                              decoration: TextDecoration.none,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
           );
         },
-      ),
-    );
+      );
 
-    Overlay.of(context).insert(_overlayEntry!);
-    _popupController.forward();
-    _successController.forward();
-
-    Future.delayed(const Duration(milliseconds: 2200), () {
-      _hideSuccessPopup();
+      // ⏱️ Auto-close after 2 seconds
+      Future.delayed(const Duration(seconds: 2), () {
+        if (Navigator.of(context, rootNavigator: true).canPop()) {
+          Navigator.of(context, rootNavigator: true).pop();
+        }
+      });
     });
   }
+
 
   void _hideSuccessPopup() {
     if (_overlayEntry != null) {
@@ -1194,20 +1018,21 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                 ),
                 const SizedBox(height: 4),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: kPrimaryColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    "${item['service_type']?.toString() ?? ''} (+₹${item['service_price']?.toString() ?? '0'})",
+                    "${item['service_type']}",
                     style: TextStyle(
-                      fontSize: 10,
+                      fontSize: 13,
                       color: kPrimaryColor,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
+
               ],
             ),
           ),

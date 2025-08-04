@@ -747,7 +747,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      "${item['service_type']} (+₹${item['service_price']})",
+                      "${item['service_type']}", // Removed the (+₹...)
                       style: TextStyle(
                         fontSize: 13,
                         color: kPrimaryColor,
@@ -755,6 +755,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                       ),
                     ),
                   ),
+
                   const SizedBox(height: 8),
                   Text(
                     "₹${item['total_price']}",
