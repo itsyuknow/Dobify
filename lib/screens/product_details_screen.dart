@@ -583,10 +583,16 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
 
     final selectedService = _services.firstWhere(
           (s) => s['name'] == _selectedService,
-      orElse: () => {'service_full_description': 'No description available'},
+      orElse: () => {
+        'service_full_description': 'No description available',
+        'tag': '',
+        'service_description': ''
+      },
     );
 
     final selectedServiceDesc = selectedService['service_full_description'] ?? 'No description available';
+    final serviceDescription = selectedService['service_description'] ?? '';
+    final serviceTag = selectedService['tag'] ?? '';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -604,40 +610,80 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: kPrimaryColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.currency_rupee, color: kPrimaryColor, size: 14),
-                Text(
-                  '$singleItemPrice',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: kPrimaryColor,
+          /// Top row with price on right
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Tag label
+              if (serviceTag.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    serviceTag,
+                    style: const TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
-              ],
-            ),
+              // Price on the right
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: kPrimaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.currency_rupee, color: kPrimaryColor, size: 14),
+                    Text(
+                      '$singleItemPrice',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: kPrimaryColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
+
+          /// Service description subtitle
+          if (serviceDescription.isNotEmpty)
+            Text(
+              serviceDescription,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade800,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          const SizedBox(height: 8),
+
+          /// Full service description
           Text(
             selectedServiceDesc,
             style: TextStyle(
               fontSize: 14,
               color: Colors.grey.shade700,
-              height: 1.4,
+              height: 1.5,
             ),
+            textAlign: TextAlign.justify,
           ),
         ],
       ),
     );
   }
+
 
 
 
