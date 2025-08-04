@@ -91,7 +91,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
       final response = await supabase
           .from('categories')
           .select()
-          .eq('is_active', true);
+          .eq('is_active', true)
+          .order('sort_order', ascending: true); // 👈 ORDER BY sort_order
 
       setState(() {
         _categories = List<Map<String, dynamic>>.from(response);
@@ -105,6 +106,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
       });
     }
   }
+
 
   void _onBannerPageChanged() {
     int newPage = _bannerPageController.page?.round() ?? 0;
@@ -628,7 +630,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
             ],
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 40),
 
         /// 👇 Staggered layout to match the new image
         Padding(

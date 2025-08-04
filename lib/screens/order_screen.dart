@@ -775,8 +775,8 @@ class _OrdersScreenState extends State<OrdersScreen>
 
                           return GestureDetector(
                             onTap: () async {
-                              Navigator.pop(context); // ✅ Close popup first
-                              await _addToCartWithService(product, name, price); // ✅ Call existing logic
+                              Navigator.pop(context);
+                              await _addToCartWithService(product, name, price);
                             },
                             child: Container(
                               margin: const EdgeInsets.only(bottom: 12),
@@ -786,88 +786,89 @@ class _OrdersScreenState extends State<OrdersScreen>
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(color: Colors.grey.shade200, width: 1),
                               ),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                              child: Stack(
                                 children: [
-                                  // 🔹 Icon
-                                  Container(
-                                    padding: const EdgeInsets.all(6),
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: kPrimaryColor.withOpacity(0.1),
-                                    ),
-                                    child: Icon(
-                                      _getServiceIcon(iconName),
-                                      size: 20,
-                                      color: kPrimaryColor,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-
-                                  // 🔹 Text Content
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          name,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 13.5,
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                          maxLines: 1,
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      // Icon
+                                      Container(
+                                        padding: const EdgeInsets.all(6),
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: kPrimaryColor.withOpacity(0.1),
                                         ),
-                                        const SizedBox(height: 4),
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              flex: 4,
-                                              child: Text(
-                                                description,
-                                                style: TextStyle(
-                                                  fontSize: 11,
-                                                  color: Colors.grey.shade600,
-                                                ),
-                                                maxLines: 2,
-                                                overflow: TextOverflow.visible,
-                                                softWrap: true,
-                                              ),
-                                            ),
+                                        child: Icon(
+                                          _getServiceIcon(iconName),
+                                          size: 20,
+                                          color: kPrimaryColor,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
 
-                                            if (tag.isNotEmpty)
-                                              Container(
-                                                margin: const EdgeInsets.only(left: 6),
-                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.redAccent,
-                                                  borderRadius: BorderRadius.circular(10),
-                                                ),
-                                                child: Text(
-                                                  tag,
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 9.5,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
+                                      // Name & Description
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              name,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 13.5,
                                               ),
+                                              overflow: TextOverflow.ellipsis,
+                                              maxLines: 1,
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              description,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey.shade600,
+                                              ),
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
                                           ],
                                         ),
-                                      ],
-                                    ),
+                                      ),
+                                    ],
                                   ),
 
-                                  // 🔹 Price
-                                  Padding(
-                                    padding: const EdgeInsets.only(left: 6, top: 4),
-                                    child: Text(
-                                      '₹${totalPrice.toInt()}',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: kPrimaryColor,
-                                        fontWeight: FontWeight.bold,
-                                      ),
+                                  // Tag and Price at Top-Right
+                                  Positioned(
+                                    top: 0,
+                                    right: 0,
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        if (tag.isNotEmpty)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            decoration: BoxDecoration(
+                                              color: Colors.redAccent,
+                                              borderRadius: BorderRadius.circular(10),
+                                            ),
+                                            child: Text(
+                                              tag,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 9.5,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '₹${totalPrice.toInt()}',
+                                          style: TextStyle(
+                                            fontSize: 13.5,
+                                            fontWeight: FontWeight.bold,
+                                            color: kPrimaryColor,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ],
@@ -877,6 +878,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                         },
                       ),
                     ),
+
                     const SizedBox(height: 10),
                     TextButton(
                       onPressed: () => Navigator.pop(context),
