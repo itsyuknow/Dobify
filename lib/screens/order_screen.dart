@@ -709,9 +709,7 @@ class _OrdersScreenState extends State<OrdersScreen>
         showDialog(
           context: context,
           barrierDismissible: false,
-          builder: (context) => const Center(
-            child: CircularProgressIndicator(),
-          ),
+          builder: (context) => const Center(child: CircularProgressIndicator()),
         );
       }
 
@@ -723,9 +721,7 @@ class _OrdersScreenState extends State<OrdersScreen>
 
       final services = List<Map<String, dynamic>>.from(response);
 
-      if (mounted) {
-        Navigator.pop(context);
-      }
+      if (mounted) Navigator.pop(context);
 
       if (services.isEmpty) {
         if (mounted) {
@@ -738,7 +734,6 @@ class _OrdersScreenState extends State<OrdersScreen>
 
       debugPrint('✅ Services loaded: ${services.length}');
 
-      // ✅ Get base product price for display
       final basePrice = (product['product_price'] as num?)?.toDouble() ?? 0.0;
 
       if (mounted) {
@@ -746,15 +741,10 @@ class _OrdersScreenState extends State<OrdersScreen>
           context: context,
           builder: (BuildContext context) {
             return Dialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               child: Container(
                 padding: const EdgeInsets.all(20),
-                constraints: const BoxConstraints(
-                  maxWidth: 300,
-                  maxHeight: 400,
-                ),
+                constraints: const BoxConstraints(maxWidth: 300, maxHeight: 400),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -769,143 +759,124 @@ class _OrdersScreenState extends State<OrdersScreen>
                     const SizedBox(height: 8),
                     Text(
                       'Select service for ${product['product_name']}',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Colors.black54,
-                      ),
+                      style: const TextStyle(fontSize: 14, color: Colors.black54),
                       textAlign: TextAlign.center,
                     ),
-                    // ✅ NEW: Show base price here
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: kPrimaryColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: kPrimaryColor.withOpacity(0.3)),
-                      ),
-                      child: Text(
-                        'Base Price: ₹${basePrice.toInt()}',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: kPrimaryColor,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
+                    const SizedBox(height: 12),
                     Flexible(
                       child: ListView.builder(
                         shrinkWrap: true,
                         itemCount: services.length,
                         itemBuilder: (context, index) {
                           final service = services[index];
-                          final name = service['name'];
-                          final price = service['price'];
+                          final name = service['name'] ?? '';
+                          final price = service['price'] ?? 0;
+                          final description = service['service_description'] ?? '';
+                          final tag = service['tag'] ?? '';
+                          final iconName = service['icon_name'];
                           final totalPrice = basePrice + price;
 
-                          // ✅ Check if this is Electric Iron (base service)
-                          final isBaseService = name.toLowerCase().contains('electric iron') || price == 0;
-
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () async {
-                                  Navigator.pop(context);
-                                  await _addToCartWithService(product, name, price);
-                                },
+                          return GestureDetector(
+                            onTap: () async {
+                              Navigator.pop(context); // ✅ Close popup first
+                              await _addToCartWithService(product, name, price); // ✅ Call existing logic
+                            },
+                            child: Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
                                 borderRadius: BorderRadius.circular(12),
-                                child: Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: isBaseService ? kPrimaryColor.withOpacity(0.05) : Colors.grey.shade50,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: isBaseService ? kPrimaryColor.withOpacity(0.3) : Colors.grey.shade200,
-                                      width: isBaseService ? 2 : 1,
+                                border: Border.all(color: Colors.grey.shade200, width: 1),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // 🔹 Icon
+                                  Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: kPrimaryColor.withOpacity(0.1),
+                                    ),
+                                    child: Icon(
+                                      _getServiceIcon(iconName),
+                                      size: 18,
+                                      color: kPrimaryColor,
                                     ),
                                   ),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          color: kPrimaryColor.withOpacity(0.1),
+                                  const SizedBox(width: 10),
+
+                                  // 🔹 Text Content
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          name,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 13.5,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                          maxLines: 1,
                                         ),
-                                        child: Icon(
-                                          _getServiceIcon(name),
-                                          size: 20,
-                                          color: kPrimaryColor,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                        const SizedBox(height: 4),
+                                        Row(
                                           children: [
-                                            Row(
-                                              children: [
-                                                Text(
-                                                  name,
-                                                  style: const TextStyle(
-                                                    fontWeight: FontWeight.w600,
-                                                    fontSize: 14,
-                                                  ),
+                                            Expanded(
+                                              child: Text(
+                                                description,
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: Colors.grey.shade600,
                                                 ),
-                                                if (isBaseService) ...[
-                                                  const SizedBox(width: 6),
-                                                  Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                    decoration: BoxDecoration(
-                                                      color: kPrimaryColor,
-                                                      borderRadius: BorderRadius.circular(8),
-                                                    ),
-                                                    child: const Text(
-                                                      'DEFAULT',
-                                                      style: TextStyle(
-                                                        fontSize: 8,
-                                                        color: Colors.white,
-                                                        fontWeight: FontWeight.bold,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ],
-                                            ),
-                                            Text(
-                                              isBaseService
-                                                  ? '₹${totalPrice.toInt()}'
-                                                  : '₹${basePrice.toInt()} + ₹$price',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.grey.shade600,
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
                                               ),
                                             ),
+                                            if (tag.isNotEmpty)
+                                              Container(
+                                                margin: const EdgeInsets.only(left: 6),
+                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.redAccent,
+                                                  borderRadius: BorderRadius.circular(10),
+                                                ),
+                                                child: Text(
+                                                  tag,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 9.5,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ),
                                           ],
                                         ),
-                                      ),
-                                      Text(
-                                        '₹${totalPrice.toInt()}',
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: kPrimaryColor,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
-                                ),
+
+                                  // 🔹 Price
+                                  Padding(
+                                    padding: const EdgeInsets.only(left: 6, top: 4),
+                                    child: Text(
+                                      '₹${totalPrice.toInt()}',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: kPrimaryColor,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           );
                         },
                       ),
                     ),
-
                     const SizedBox(height: 10),
                     TextButton(
                       onPressed: () => Navigator.pop(context),
@@ -918,7 +889,6 @@ class _OrdersScreenState extends State<OrdersScreen>
           },
         );
       }
-
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
@@ -929,6 +899,8 @@ class _OrdersScreenState extends State<OrdersScreen>
       }
     }
   }
+
+
 
   // ✅ FIXED: Clear cart with proper state management
   Future<void> _clearCart() async {
