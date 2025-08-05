@@ -2265,9 +2265,10 @@ class _ProfileScreenState extends State<ProfileScreen>
                   Expanded(
                     child: ElevatedButton(
                       onPressed: () async {
-                        Navigator.pop(context);
                         await supabase.auth.signOut();
+
                         if (mounted) {
+                          Navigator.of(context).pop(); // Close the dialog
                           Navigator.of(context).pushAndRemoveUntil(
                             MaterialPageRoute(builder: (_) => const LoginScreen()),
                                 (route) => false,
@@ -2290,6 +2291,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       ),
                     ),
                   ),
+
                 ],
               ),
             ],

@@ -1409,7 +1409,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                               ),
                               label: Text(
                                 (canReschedule && remainingTime > 0) ? 'Reschedule' :
-                                canReschedule ? 'Reschedule Timeout' : 'Cannot Reschedule',
+                                canReschedule ? 'Reschedule Timeout' : 'Reschedule Timeout',
                                 style: TextStyle(
                                   color: (canReschedule && remainingTime > 0) ? kPrimaryColor : Colors.grey.shade600,
                                   fontWeight: FontWeight.w700,
@@ -2201,7 +2201,7 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
                       ),
                       child: Text(
                         currentStep == 1 && selectedDeliverySlot != null
-                            ? 'Confirm Reschedule'
+                            ? 'Confirm'
                             : currentStep == 0
                             ? 'Continue'
                             : 'Select Delivery Slot',
