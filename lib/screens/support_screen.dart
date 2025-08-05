@@ -292,7 +292,7 @@ class _SupportScreenState extends State<SupportScreen> with TickerProviderStateM
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const AiChatScreen()),
+                MaterialPageRoute(builder: (_) => const PremiumAiChatScreen()),
               );
             },
           ),
