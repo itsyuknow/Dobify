@@ -552,7 +552,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                 _buildPremiumBannerCarousel(),
                 const SizedBox(height: 16),
                 _buildPremiumCategoriesSection(),
-                const SizedBox(height: 16),
+                const SizedBox(height: 40),
                 _buildPremiumContactSection(),
                 const SizedBox(height: 36),
               ],

@@ -1356,7 +1356,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                     },
                     itemBuilder: (context, location) {
                       return ListTile(
-                        leading: const Icon(Icons.location_on, color: Colors.blue),
+                        leading: Icon(Icons.location_on, color: kPrimaryColor),
                         title: Text(
                           'Lat: ${location.latitude}, Lng: ${location.longitude}',
                           style: const TextStyle(fontSize: 14),
@@ -1376,10 +1376,10 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                         decoration: InputDecoration(
                           hintText: 'Search area, street...',
                           border: InputBorder.none,
-                          prefixIcon: const Icon(Icons.search, color: Color(0xFF42A5F5)),
+                          prefixIcon: Icon(Icons.search, color: kPrimaryColor),
                           suffixIcon: controller.text.isNotEmpty
                               ? IconButton(
-                            icon: const Icon(Icons.close, color: Color(0xFF42A5F5)),
+                            icon: Icon(Icons.close, color: kPrimaryColor),
                             onPressed: () {
                               controller.clear();
                               FocusScope.of(context).unfocus();
@@ -1395,31 +1395,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
             ),
           ),
 
-          // Floating action button - current location
-          Positioned(
-            bottom: 180,
-            right: 16,
-            child: FloatingActionButton(
-              backgroundColor: Colors.white,
-              onPressed: () async {
-                try {
-                  _currentPosition = await Geolocator.getCurrentPosition();
-                  final latLng = LatLng(
-                    _currentPosition!.latitude,
-                    _currentPosition!.longitude,
-                  );
-                  await _moveCameraAndSetLocation(latLng);
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Could not get location: ${e.toString()}')),
-                  );
-                }
-              },
-              child: const Icon(Icons.my_location, color: Color(0xFF42A5F5)),
-            ),
-          ),
-
-          // Bottom sheet
+          // Bottom Sheet (No curved corners)
           Positioned(
             bottom: 0,
             left: 0,
@@ -1433,17 +1409,14 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                   bottom: MediaQuery.of(context).padding.bottom + 20,
                   top: 20,
                 ),
-                decoration: BoxDecoration(
-                  color: const Color(0xCC42A5F5),
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(30),
-                    topRight: Radius.circular(30),
-                  ),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.zero, // << No top curves
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.25),
-                      blurRadius: 20,
-                      offset: const Offset(0, -8),
+                      color: Colors.black26,
+                      blurRadius: 12,
+                      offset: Offset(0, -4),
                     ),
                   ],
                 ),
@@ -1456,41 +1429,49 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                       height: 4,
                       margin: const EdgeInsets.only(bottom: 20),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.4),
+                        color: Colors.grey.shade300,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
 
-                    // Header
-                    Row(
-                      children: const [
-                        Icon(Icons.location_on, color: Colors.white, size: 24),
-                        SizedBox(width: 10),
-                        Text(
-                          'Delivery Location',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
+                    // Delivery Location Label
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: kPrimaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: const [
+                          Icon(Icons.location_on, color: kPrimaryColor),
+                          SizedBox(width: 8),
+                          Text(
+                            'Delivery Location',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: kPrimaryColor,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 16),
+
+                    const SizedBox(height: 12),
 
                     // Address box
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.1),
+                        color: kPrimaryColor.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white.withOpacity(0.4), width: 1),
                       ),
                       child: Text(
                         _selectedAddress ?? 'Fetching address...',
                         style: const TextStyle(
-                          color: Colors.white,
+                          color: Colors.black87,
                           fontWeight: FontWeight.w500,
                           fontSize: 14,
                         ),
@@ -1508,8 +1489,8 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                             ? _proceedToForm
                             : null,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: const Color(0xFF42A5F5),
+                          backgroundColor: kPrimaryColor,
+                          foregroundColor: Colors.white,
                           elevation: 0,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(30),
@@ -1534,6 +1515,8 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
       ),
     );
   }
+
+
 
 
 
