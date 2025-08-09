@@ -1136,11 +1136,6 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
             ),
           ),
 
-
-
-
-
-
           // Premium My Location Button
           Positioned(
             bottom: bottomSheetHeight + totalBottomPadding + 20,
@@ -1232,7 +1227,8 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                       ),
                     ],
                   ),
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 0), // No bottom padding here
+                  // ⬇️ only change made: added bottom padding for more space under the button
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1388,12 +1384,11 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
             ),
           )
 
-
-
         ],
       ),
     );
   }
+
 
   Widget _buildServiceNotAvailableScreen() {
     final mediaQuery = MediaQuery.of(context);
