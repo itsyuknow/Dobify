@@ -44,7 +44,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     _fetchProductDetails();
     _fetchServices();
 
-    // ✅ NEW: Listen to cart changes
+    // ✅ FIXED: Listen to cart changes AND fetch cart data when count changes
     cartCountNotifier.addListener(_onCartCountChanged);
   }
 
@@ -228,7 +228,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     }
   }
 
-  // ✅ NEW: Fetch current cart quantity for this product
+  // ✅ FIXED: Enhanced cart quantity fetching with better service matching
   Future<void> _fetchCurrentCartQuantity() async {
     final user = supabase.auth.currentUser;
     if (user == null || _product == null) return;
@@ -248,27 +248,44 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
         // Get total quantity across all services for this product
         final totalQuantity = response.fold<int>(0, (sum, item) => sum + (item['product_quantity'] as int? ?? 0));
 
-        // Set the first service found as selected (or keep default if none match)
-        final firstCartItem = response.first;
-        final serviceInCart = firstCartItem['service_type'] as String?;
-        final servicePriceInCart = firstCartItem['service_price'] as int?;
+        // Try to match current selected service, otherwise use the first one found
+        Map<String, dynamic>? matchingCartItem;
 
-        if (serviceInCart != null && _services.any((s) => s['name'] == serviceInCart)) {
-          setState(() {
-            _currentCartQuantity = totalQuantity;
-            _quantity = totalQuantity > 0 ? totalQuantity : 1;
-            _selectedService = serviceInCart;
-            _selectedServicePrice = servicePriceInCart ?? _selectedServicePrice;
-          });
-          debugPrint('✅ Found in cart: $_currentCartQuantity x $_selectedService');
-        } else {
-          setState(() {
-            _currentCartQuantity = totalQuantity;
-            _quantity = totalQuantity > 0 ? totalQuantity : 1;
-          });
-          debugPrint('✅ Found in cart: $_currentCartQuantity items (different service)');
+        // First try to find exact service match
+        for (final item in response) {
+          if (item['service_type'] == _selectedService) {
+            matchingCartItem = item;
+            break;
+          }
         }
+
+        // If no exact match, use first item and update selected service
+        if (matchingCartItem == null && response.isNotEmpty) {
+          matchingCartItem = response.first;
+          final serviceInCart = matchingCartItem['service_type'] as String?;
+          final servicePriceInCart = matchingCartItem['service_price'] as int?;
+
+          // Update selected service to match what's in cart
+          if (serviceInCart != null && _services.any((s) => s['name'] == serviceInCart)) {
+            setState(() {
+              _selectedService = serviceInCart;
+              _selectedServicePrice = servicePriceInCart ?? _selectedServicePrice;
+            });
+            debugPrint('🔄 Updated selected service to match cart: $serviceInCart');
+          }
+        }
+
+        setState(() {
+          _currentCartQuantity = totalQuantity;
+          _quantity = totalQuantity > 0 ? totalQuantity : 1;
+        });
+
+        debugPrint('✅ Found in cart: $_currentCartQuantity x $_selectedService');
       } else {
+        setState(() {
+          _currentCartQuantity = 0;
+          _quantity = 1;
+        });
         debugPrint('ℹ️ Product not in cart');
       }
     } catch (e) {
@@ -276,9 +293,10 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     }
   }
 
-  // ✅ NEW: Handle cart count changes from other screens
-  void _onCartCountChanged() {
-    _fetchCurrentCartQuantity();
+  // ✅ FIXED: Enhanced cart count change handler
+  void _onCartCountChanged() async {
+    debugPrint('🔔 Cart count changed detected, refreshing product cart data...');
+    await _fetchCurrentCartQuantity();
   }
 
   Future<void> _addToCart() async {
@@ -684,10 +702,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     );
   }
 
-
-
-
-
   // ✅ ELEGANT: Compact service selection
   Widget _buildServiceSelection() {
     if (_services.isEmpty) {
@@ -740,6 +754,9 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                     _selectedService = name;
                     _selectedServicePrice = price;
                     debugPrint('🔧 Service selected: $name (₹$price)');
+
+                    // ✅ FIXED: Re-fetch cart quantity when service changes
+                    _fetchCurrentCartQuantity();
                   }),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
