@@ -6,6 +6,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '/widgets/colors.dart';
+// ⬇️ Import AppWrapper (update path if yours is different)
+import '/screens/app_wrapper.dart';
 
 class DeliveryAddressWidget extends StatefulWidget {
   final VoidCallback? onLocationUpdated;
@@ -248,6 +250,17 @@ class _DeliveryAddressWidgetState extends State<DeliveryAddressWidget>
     }
   }
 
+  // ⬇️⬇️ NEW: open the exact same flow/screen as AppWrapper
+  void _openIronXpressLocationFlow({bool replace = false}) {
+    final route = MaterialPageRoute(builder: (_) => const AppWrapper());
+    if (replace) {
+      Navigator.of(context).pushReplacement(route);
+    } else {
+      Navigator.of(context).push(route);
+    }
+  }
+  // ⬆️⬆️
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -257,177 +270,179 @@ class _DeliveryAddressWidgetState extends State<DeliveryAddressWidget>
         builder: (context, child) {
           return Transform.scale(
             scale: _isLocationLoading ? 1.0 : _pulseAnimation.value,
-            child: Container(
-              // ✅ FIXED HEIGHT - No more RenderFlex overflow
-              height: 85,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Colors.white,
-                    Colors.white.withOpacity(0.98),
-                    Colors.grey.shade50.withOpacity(0.9),
-                  ],
-                  stops: const [0.0, 0.7, 1.0],
-                ),
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(
-                  color: _isServiceAvailable
-                      ? kPrimaryColor.withOpacity(0.15)
-                      : Colors.orange.withOpacity(0.15),
-                  width: 1.5,
-                ),
-                boxShadow: [
-                  BoxShadow(
+            child: GestureDetector(
+              // ⬇️ Tap anywhere on the card to open AppWrapper map flow
+              onTap: _openIronXpressLocationFlow,
+              child: Container(
+                // ✅ FIXED HEIGHT - No more RenderFlex overflow
+                height: 85,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white,
+                      Colors.white.withOpacity(0.98),
+                      Colors.grey.shade50.withOpacity(0.9),
+                    ],
+                    stops: const [0.0, 0.7, 1.0],
+                  ),
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(
                     color: _isServiceAvailable
-                        ? kPrimaryColor.withOpacity(0.08)
-                        : Colors.orange.withOpacity(0.08),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
-                    spreadRadius: 2,
+                        ? kPrimaryColor.withOpacity(0.15)
+                        : Colors.orange.withOpacity(0.15),
+                    width: 1.5,
                   ),
-                  BoxShadow(
-                    color: Colors.white.withOpacity(0.9),
-                    blurRadius: 10,
-                    offset: const Offset(0, -2),
-                    spreadRadius: 1,
-                  ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(22),
-                child: Stack(
-                  children: [
-                    // Premium glow effect
-                    if (_isServiceAvailable && !_isLocationLoading)
-                      AnimatedBuilder(
-                        animation: _glowAnimation,
-                        builder: (context, child) {
-                          return Positioned.fill(
-                            child: Container(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(22),
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    kPrimaryColor.withOpacity(0.03 * _glowAnimation.value),
-                                    Colors.transparent,
-                                    kPrimaryColor.withOpacity(0.02 * _glowAnimation.value),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-
-                    // ✅ FIXED MAIN CONTENT - Better space management
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          // ⬇️ Wrap in a vertically-centered column to center-align the icon
-                          Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              _buildPremiumLocationIcon(),
-                            ],
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _isLocationLoading
-                                    ? _buildPremiumShimmerText(width: 180, height: 16)
-                                    : Text(
-                                  _userLocation,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 15.5,
-                                    fontWeight: FontWeight.w700,
-                                    color: kPrimaryColor,
-                                    letterSpacing: -0.2,
-                                    height: 1.2,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                _isLocationLoading
-                                    ? _buildPremiumShimmerText(width: 140, height: 12)
-                                    : Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: _isServiceAvailable
-                                          ? [
-                                        kPrimaryColor.withOpacity(0.08),
-                                        kPrimaryColor.withOpacity(0.03),
-                                      ]
-                                          : [
-                                        Colors.orange.withOpacity(0.08),
-                                        Colors.orange.withOpacity(0.03),
-                                      ],
-                                    ),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: _isServiceAvailable
-                                          ? kPrimaryColor.withOpacity(0.15)
-                                          : Colors.orange.withOpacity(0.15),
-                                      width: 0.8,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        _isServiceAvailable
-                                            ? Icons.electric_bolt_rounded
-                                            : Icons.warning_rounded,
-                                        size: 12,
-                                        color: _isServiceAvailable ? kPrimaryColor : Colors.orange,
-                                      ),
-                                      const SizedBox(width: 3),
-                                      Flexible(
-                                        child: Text(
-                                          _isServiceAvailable
-                                              ? 'Choose our Express delivery  $_eta'
-                                              : 'Service not available',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: 11.5,
-                                            color: _isServiceAvailable
-                                                ? kPrimaryColor.withOpacity(0.85)
-                                                : Colors.orange.shade700,
-                                            fontWeight: FontWeight.w600,
-                                            letterSpacing: 0.1,
-                                          ),
-                                        ),
-                                      ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _isServiceAvailable
+                          ? kPrimaryColor.withOpacity(0.08)
+                          : Colors.orange.withOpacity(0.08),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
+                      spreadRadius: 2,
+                    ),
+                    BoxShadow(
+                      color: Colors.white.withOpacity(0.9),
+                      blurRadius: 10,
+                      offset: const Offset(0, -2),
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(22),
+                  child: Stack(
+                    children: [
+                      // Premium glow effect
+                      if (_isServiceAvailable && !_isLocationLoading)
+                        AnimatedBuilder(
+                          animation: _glowAnimation,
+                          builder: (context, child) {
+                            return Positioned.fill(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(22),
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      kPrimaryColor.withOpacity(0.03 * _glowAnimation.value),
+                                      Colors.transparent,
+                                      kPrimaryColor.withOpacity(0.02 * _glowAnimation.value),
                                     ],
                                   ),
                                 ),
+                              ),
+                            );
+                          },
+                        ),
+
+                      // ✅ FIXED MAIN CONTENT - Better space management
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            // ⬇️ Wrap in a vertically-centered column to center-align the icon
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                _buildPremiumLocationIcon(),
                               ],
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              _buildPremiumEditButton(),
-                            ],
-                          ),
-                        ],
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _isLocationLoading
+                                      ? _buildPremiumShimmerText(width: 180, height: 16)
+                                      : Text(
+                                    _userLocation,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 15.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: kPrimaryColor,
+                                      letterSpacing: -0.2,
+                                      height: 1.2,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  _isLocationLoading
+                                      ? _buildPremiumShimmerText(width: 140, height: 12)
+                                      : Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: _isServiceAvailable
+                                            ? [
+                                          kPrimaryColor.withOpacity(0.08),
+                                          kPrimaryColor.withOpacity(0.03),
+                                        ]
+                                            : [
+                                          Colors.orange.withOpacity(0.08),
+                                          Colors.orange.withOpacity(0.03),
+                                        ],
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: _isServiceAvailable
+                                            ? kPrimaryColor.withOpacity(0.15)
+                                            : Colors.orange.withOpacity(0.15),
+                                        width: 0.8,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          _isServiceAvailable
+                                              ? Icons.electric_bolt_rounded
+                                              : Icons.warning_rounded,
+                                          size: 12,
+                                          color: _isServiceAvailable ? kPrimaryColor : Colors.orange,
+                                        ),
+                                        const SizedBox(width: 3),
+                                        Flexible(
+                                          child: Text(
+                                            _isServiceAvailable
+                                                ? 'Choose our Express delivery  $_eta'
+                                                : 'Service not available',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 11.5,
+                                              color: _isServiceAvailable
+                                                  ? kPrimaryColor.withOpacity(0.85)
+                                                  : Colors.orange.shade700,
+                                              fontWeight: FontWeight.w600,
+                                              letterSpacing: 0.1,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                _buildPremiumEditButton(),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-
-
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -600,7 +615,6 @@ class _DeliveryAddressWidgetState extends State<DeliveryAddressWidget>
     );
   }
 
-
   Widget _buildPremiumEditButton() {
     if (_isLocationLoading) return const SizedBox.shrink();
 
@@ -610,7 +624,8 @@ class _DeliveryAddressWidgetState extends State<DeliveryAddressWidget>
         return Transform.rotate(
           angle: _isUpdating ? _iconRotation.value * 6.28 : 0,
           child: GestureDetector(
-            onTap: _isUpdating ? null : _handleEditLocation,
+            // ⬇️ Edit button also opens the AppWrapper flow
+            onTap: _isUpdating ? null : () => _openIronXpressLocationFlow(),
             child: Container(
               width: 40,
               height: 40,
@@ -688,95 +703,19 @@ class _DeliveryAddressWidgetState extends State<DeliveryAddressWidget>
     );
   }
 
-  // Enhanced edit location functionality
+  // NOTE: We keep the original map helpers intact for future reuse,
+  // but they are no longer called when opening AppWrapper directly.
+
+  // Enhanced edit location functionality (replaced by _openIronXpressLocationFlow)
   Future<void> _handleEditLocation() async {
     _iconController.forward().then((_) => _iconController.reverse());
-
-    try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        _showPremiumLocationEditDialog();
-        return;
-      }
-
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          _showPremiumLocationEditDialog();
-          return;
-        }
-      }
-
-      setState(() {
-        _isUpdating = true;
-      });
-
-      _currentPosition = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-
-      List<Placemark> placemarks = await placemarkFromCoordinates(
-        _currentPosition!.latitude,
-        _currentPosition!.longitude,
-      );
-
-      if (placemarks.isNotEmpty) {
-        final place = placemarks[0];
-        final address = '${place.name ?? place.subLocality ?? ''}, ${place.locality ?? ''}, ${place.postalCode ?? ''}';
-
-        setState(() {
-          _selectedLocation = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
-          _selectedAddress = address;
-          _markers = {
-            Marker(
-              markerId: const MarkerId('selected_location'),
-              position: _selectedLocation!,
-              infoWindow: InfoWindow(title: 'Your Location', snippet: address),
-            ),
-          };
-          _isUpdating = false;
-        });
-
-        _showPremiumLocationEditDialog();
-      } else {
-        setState(() {
-          _isUpdating = false;
-        });
-      }
-    } catch (e) {
-      print('Error getting location: $e');
-      setState(() {
-        _isUpdating = false;
-      });
-      _showPremiumLocationEditDialog();
-    }
+    // Open AppWrapper flow directly
+    _openIronXpressLocationFlow();
   }
 
   void _showPremiumLocationEditDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.all(0),
-        child: _PremiumLocationEditScreen(
-          currentPosition: _currentPosition,
-          selectedLocation: _selectedLocation,
-          selectedAddress: _selectedAddress,
-          markers: _markers,
-          onLocationSelected: (location, address, markers) {
-            setState(() {
-              _selectedLocation = location;
-              _selectedAddress = address;
-              _markers = markers;
-            });
-          },
-          onLocationConfirmed: _confirmLocationUpdate,
-          onMapTap: _onMapTap,
-        ),
-      ),
-    );
+    // No longer used; replaced by opening AppWrapper
+    _openIronXpressLocationFlow();
   }
 
   Future<void> _onMapTap(LatLng location) async {
@@ -799,7 +738,8 @@ class _DeliveryAddressWidgetState extends State<DeliveryAddressWidget>
 
       if (placemarks.isNotEmpty) {
         final place = placemarks[0];
-        final address = '${place.name ?? place.subLocality ?? ''}, ${place.locality ?? ''}, ${place.postalCode ?? ''}';
+        final address =
+            '${place.name ?? place.subLocality ?? ''}, ${place.locality ?? ''}, ${place.postalCode ?? ''}';
         setState(() {
           _selectedAddress = address;
           _markers = {
@@ -1095,11 +1035,11 @@ class _PremiumLocationEditScreenState extends State<_PremiumLocationEditScreen>
                       ),
                     ),
                     const SizedBox(width: 16),
-                    Expanded(
+                    const Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'Edit Delivery Location',
                             style: TextStyle(
                               fontSize: 18,
@@ -1107,8 +1047,8 @@ class _PremiumLocationEditScreenState extends State<_PremiumLocationEditScreen>
                               color: Colors.black87,
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          const Text(
+                          SizedBox(height: 4),
+                          Text(
                             'Tap anywhere on the map',
                             style: TextStyle(
                               fontSize: 14,
