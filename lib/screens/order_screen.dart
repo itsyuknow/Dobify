@@ -685,9 +685,6 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
   }
 
-
-
-
   Future<void> _showServiceSelectionPopup(Map<String, dynamic> product) async {
     final user = supabase.auth.currentUser;
     if (user == null) {
@@ -901,8 +898,6 @@ class _OrdersScreenState extends State<OrdersScreen>
       }
     }
   }
-
-
 
   // ✅ FIXED: Clear cart with proper state management
   Future<void> _clearCart() async {
@@ -1719,7 +1714,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                         SizedBox(
                           width: double.infinity,
                           height: 36,
-                          child: _buildProductButton(item, name, qty),
+                          child: _buildProductButton(item, name),
                         ),
                       ],
                     ),
@@ -1734,7 +1729,7 @@ class _OrdersScreenState extends State<OrdersScreen>
   }
 
   // ✅ FIXED: Product button with proper state management
-  Widget _buildProductButton(Map<String, dynamic> item, String name, int qty) {
+  Widget _buildProductButton(Map<String, dynamic> item, String name) {
     // Show "Added!" state
     if (_addedStatus[name] == true) {
       return Container(
@@ -1754,56 +1749,6 @@ class _OrdersScreenState extends State<OrdersScreen>
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                   color: Colors.white,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    // Show quantity controls
-    if (qty > 0) {
-      return ScaleTransition(
-        scale: _qtyAnimControllers[name]!,
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
-            ),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              GestureDetector(
-                onTap: () => _updateCartQty(item, -1),
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  child: const Icon(
-                    Icons.remove,
-                    color: Colors.white,
-                    size: 16,
-                  ),
-                ),
-              ),
-              Text(
-                '$qty',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              GestureDetector(
-                onTap: () => _updateCartQty(item, 1),
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  child: const Icon(
-                    Icons.add,
-                    color: Colors.white,
-                    size: 16,
-                  ),
                 ),
               ),
             ],
