@@ -19,7 +19,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
   Map<String, dynamic>? _product;
   List<Map<String, dynamic>> _services = [];
   int _quantity = 1;
-  int _currentCartQuantity = 0; // ✅ NEW: Track current cart quantity
+  int _currentCartQuantity = 0; // ✅ FIXED: Track current cart quantity for selected service only
   String _selectedService = '';
   int _selectedServicePrice = 0;
   bool _addedToCart = false;
@@ -228,65 +228,37 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     }
   }
 
-  // ✅ FIXED: Enhanced cart quantity fetching with better service matching
+  // ✅ FIXED: Fetch cart quantity for SELECTED SERVICE ONLY
   Future<void> _fetchCurrentCartQuantity() async {
     final user = supabase.auth.currentUser;
-    if (user == null || _product == null) return;
+    if (user == null || _product == null || _selectedService.isEmpty) return;
 
     try {
-      debugPrint('🔄 Fetching current cart quantity for: ${_product!['product_name']}');
+      debugPrint('🔄 Fetching current cart quantity for: ${_product!['product_name']} with $_selectedService');
 
       final response = await supabase
           .from('cart')
           .select('product_quantity, service_type, service_price')
           .eq('user_id', user.id)
-          .eq('product_name', _product!['product_name']);
+          .eq('product_name', _product!['product_name'])
+          .eq('service_type', _selectedService) // ✅ FIXED: Filter by selected service only
+          .maybeSingle(); // ✅ FIXED: Use maybeSingle since we expect max 1 result
 
-      debugPrint('🛒 Cart response: ${response.length} items found');
+      debugPrint('🛒 Cart response for $_selectedService: $response');
 
-      if (response.isNotEmpty) {
-        // Get total quantity across all services for this product
-        final totalQuantity = response.fold<int>(0, (sum, item) => sum + (item['product_quantity'] as int? ?? 0));
-
-        // Try to match current selected service, otherwise use the first one found
-        Map<String, dynamic>? matchingCartItem;
-
-        // First try to find exact service match
-        for (final item in response) {
-          if (item['service_type'] == _selectedService) {
-            matchingCartItem = item;
-            break;
-          }
-        }
-
-        // If no exact match, use first item and update selected service
-        if (matchingCartItem == null && response.isNotEmpty) {
-          matchingCartItem = response.first;
-          final serviceInCart = matchingCartItem['service_type'] as String?;
-          final servicePriceInCart = matchingCartItem['service_price'] as int?;
-
-          // Update selected service to match what's in cart
-          if (serviceInCart != null && _services.any((s) => s['name'] == serviceInCart)) {
-            setState(() {
-              _selectedService = serviceInCart;
-              _selectedServicePrice = servicePriceInCart ?? _selectedServicePrice;
-            });
-            debugPrint('🔄 Updated selected service to match cart: $serviceInCart');
-          }
-        }
-
+      if (response != null) {
+        final quantity = response['product_quantity'] as int? ?? 0;
         setState(() {
-          _currentCartQuantity = totalQuantity;
-          _quantity = totalQuantity > 0 ? totalQuantity : 1;
+          _currentCartQuantity = quantity;
+          _quantity = quantity > 0 ? quantity : 1;
         });
-
-        debugPrint('✅ Found in cart: $_currentCartQuantity x $_selectedService');
+        debugPrint('✅ Found in cart: $quantity x $_selectedService');
       } else {
         setState(() {
           _currentCartQuantity = 0;
           _quantity = 1;
         });
-        debugPrint('ℹ️ Product not in cart');
+        debugPrint('ℹ️ Product with $_selectedService not in cart');
       }
     } catch (e) {
       debugPrint('❌ Error fetching current cart quantity: $e');
@@ -338,14 +310,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
 
         debugPrint('✅ Updated existing cart item to quantity: $_quantity');
       } else {
-        // ✅ FIXED: Remove any existing items with different services for this product
-        await supabase
-            .from('cart')
-            .delete()
-            .eq('user_id', user.id)
-            .eq('product_name', name);
-
-        // Add new item
+        // ✅ FIXED: Do NOT delete existing items - allow multiple services for same product
         await supabase.from('cart').insert({
           'user_id': user.id,
           'product_name': name,
@@ -364,12 +329,11 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       // ✅ FIXED: Update current cart quantity
       setState(() {
         _currentCartQuantity = _quantity;
+        _addedToCart = true;
       });
+      _successController.forward();
 
       await _updateCartCount();
-
-      setState(() => _addedToCart = true);
-      _successController.forward();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -391,9 +355,12 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
         );
       }
 
+      // ✅ FIXED: Remove auto-navigation - let user decide when to go back
+      // Reset the success animation after some time
       await Future.delayed(const Duration(milliseconds: 1200));
       if (mounted) {
-        Navigator.pop(context, true);
+        setState(() => _addedToCart = false);
+        _successController.reset();
       }
 
     } catch (e) {
@@ -927,7 +894,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
             ],
           ),
 
-          // ✅ NEW: Show current cart status
+          // ✅ FIXED: Show current cart status for selected service only
           if (_currentCartQuantity > 0) ...[
             const SizedBox(height: 12),
             Container(
