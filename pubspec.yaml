@@ -86,30 +86,14 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/images/speed_iron_logo.png
-    - assets/images/app_logo.png
-    - assets/images/banner1.png
-    - assets/images/banner2.png
-    - assets/images/banner3.png
-    - assets/images/banner4.png
-    - assets/images/banner5.png
-    - assets/images/male.png
-    - assets/images/female.png
-    - assets/images/boys.png
-    - assets/images/girls.png
-    - assets/images/essential.png
+
+
     - assets/images/google_logo.png  # ✅ ADDED YOUR GOOGLE LOGO
+    - assets/images/ironxpress_logo.png
+
 
     # ✅ Product icons used in orders screen
-    - assets/images/shirt.png
-    - assets/images/pants.png
-    - assets/images/kurti.png
-    - assets/images/saree.png
-    - assets/images/tshirt.png
-    - assets/images/frock.png
-    - assets/images/bedsheet.png
-    - assets/images/towel.png
-    - assets/images/iron_icon.png
+
     - assets/images/blue_pin.png
 
     # ✅ Config file
