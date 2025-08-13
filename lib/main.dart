@@ -7,10 +7,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
-import 'screens/home_screen.dart';
 import 'screens/colors.dart';
-import 'screens/login_screen.dart';
-import 'screens/splash_screen.dart';
 import 'screens/app_wrapper.dart';
 import 'widgets/notification_service.dart';
 // import 'firebase_options.dart'; // ✅ Uncomment if using manual config
