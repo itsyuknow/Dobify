@@ -1409,7 +1409,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                               ),
                               label: Text(
                                 (canReschedule && remainingTime > 0) ? 'Reschedule' :
-                                canReschedule ? 'Reschedule Timeout' : 'Reschedule Timeout',
+                                canReschedule ? 'Reschedule Timeout' : 'Reschedule',
                                 style: TextStyle(
                                   color: (canReschedule && remainingTime > 0) ? kPrimaryColor : Colors.grey.shade600,
                                   fontWeight: FontWeight.w700,
@@ -1445,7 +1445,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                                 color: remainingTime > 0 ? Colors.white : Colors.grey.shade500,
                               ),
                               label: Text(
-                                remainingTime > 0 ? 'Cancel Order' : 'Cancel Timeout',
+                                remainingTime > 0 ? 'Cancel Order' : 'Cancel ',
                                 style: TextStyle(
                                   color: remainingTime > 0 ? Colors.white : Colors.grey.shade600,
                                   fontWeight: FontWeight.w700,
