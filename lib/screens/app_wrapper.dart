@@ -61,6 +61,33 @@ _initializeAnimations();
 _initializeSupabase();
 }
 
+  /// Move camera so the center pin's TIP aligns with [target].
+  /// [tipOffsetPx] ≈ distance in screen pixels from pin center to its tip.
+  /// Tune if your pin asset height changes (70px pin → ~34–40px tip offset).
+  Future<void> _animateToWithPinTip(LatLng target,
+      {double zoom = 16.0, double tipOffsetPx = 36}) async {
+    if (_mapController == null) return;
+
+    // Let the map render a tick so projection is valid.
+    await Future.delayed(const Duration(milliseconds: 16));
+
+    // Convert the real target to screen coords, then shift UP by the tip offset.
+    final screenPoint = await _mapController!.getScreenCoordinate(target);
+    final shifted = ScreenCoordinate(
+      x: screenPoint.x,
+      y: (screenPoint.y - tipOffsetPx).round(),
+    );
+
+    // Convert back to LatLng and animate.
+    final adjustedLatLng = await _mapController!.getLatLng(shifted);
+    await _mapController!.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(target: adjustedLatLng, zoom: zoom),
+      ),
+    );
+  }
+
+
 Future<void> _initializeSupabase() async {
 try {
 int attempts = 0;
@@ -1132,25 +1159,21 @@ Positioned(
 bottom: bottomSheetHeight + totalBottomPadding + 20,
 right: 16,
 child: GestureDetector(
-onTap: () async {
-if (_currentPosition != null) {
-final currentLatLng = LatLng(
-_currentPosition!.latitude,
-_currentPosition!.longitude,
-);
+  onTap: () async {
+    if (_currentPosition != null) {
+      final currentLatLng = LatLng(
+        _currentPosition!.latitude,
+        _currentPosition!.longitude,
+      );
 
-_mapController?.animateCamera(
-CameraUpdate.newCameraPosition(
-CameraPosition(
-target: currentLatLng,
-zoom: 16.0,
-),
-),
-);
+      // Align the fixed center pin's TIP to the blue current-location dot
+      await _animateToWithPinTip(currentLatLng, zoom: 16.0, tipOffsetPx: 36);
 
-await _onMapTap(currentLatLng);
-}
-},
+      // Update selected address/marker as you already do
+      await _onMapTap(currentLatLng);
+    }
+  },
+
 child: Container(
 width: 48,
 height: 48,
