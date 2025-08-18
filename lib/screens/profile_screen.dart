@@ -715,7 +715,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     _buildMenuSection(),
                     const SizedBox(height: 24),
                     _buildCompactLogoutSection(),
-                    const SizedBox(height: 100),
+                    const SizedBox(height: 20),
                   ],
                 ),
               ),
