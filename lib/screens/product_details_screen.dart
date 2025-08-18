@@ -18,15 +18,15 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
 
   Map<String, dynamic>? _product;
   List<Map<String, dynamic>> _services = [];
-  int _quantity = 1;
-  int _currentCartQuantity = 0; // ✅ FIXED: Track current cart quantity for selected service only
+  int _quantity = 0; // ✅ starts from 0
+  int _currentCartQuantity = 0; // selected service only
   String _selectedService = '';
   int _selectedServicePrice = 0;
   bool _addedToCart = false;
   bool _isLoading = false;
   bool _isAddingToCart = false;
 
-  // ✅ REFINED: Compact animation controllers
+  // Animations
   late AnimationController _fadeController;
   late AnimationController _buttonController;
   late AnimationController _successController;
@@ -43,8 +43,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     _initializeAnimations();
     _fetchProductDetails();
     _fetchServices();
-
-    // ✅ FIXED: Listen to cart changes AND fetch cart data when count changes
     cartCountNotifier.addListener(_onCartCountChanged);
   }
 
@@ -53,17 +51,14 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       duration: const Duration(milliseconds: 600),
       vsync: this,
     );
-
     _buttonController = AnimationController(
       duration: const Duration(milliseconds: 200),
       vsync: this,
     );
-
     _successController = AnimationController(
       duration: const Duration(milliseconds: 800),
       vsync: this,
     );
-
     _floatController = AnimationController(
       duration: const Duration(milliseconds: 2000),
       vsync: this,
@@ -72,15 +67,12 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _fadeController, curve: Curves.easeOut),
     );
-
     _buttonScale = Tween<double>(begin: 1.0, end: 0.95).animate(
       CurvedAnimation(parent: _buttonController, curve: Curves.easeInOut),
     );
-
     _successScale = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _successController, curve: Curves.elasticOut),
     );
-
     _floatAnimation = Tween<double>(begin: -3.0, end: 3.0).animate(
       CurvedAnimation(parent: _floatController, curve: Curves.easeInOutSine),
     );
@@ -91,46 +83,31 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
 
   Future<void> _fetchProductDetails() async {
     setState(() => _isLoading = true);
-
     try {
-      debugPrint('🔄 Fetching product details for ID: ${widget.productId}');
-
-      // ✅ FIXED: Use the same pattern as OrdersScreen with better query handling
       final response = await supabase
           .from('products')
-          .select('id, product_name, product_price, image_url, category_id, is_enabled, created_at, categories(name)')
+          .select(
+          'id, product_name, product_price, image_url, category_id, is_enabled, created_at, categories(name)')
           .eq('id', widget.productId)
           .eq('is_enabled', true)
           .maybeSingle();
-
-      debugPrint('📦 Product response: $response');
 
       if (response != null) {
         setState(() {
           _product = response;
           _isLoading = false;
         });
-
-        debugPrint('✅ Product loaded: ${response['product_name']}');
-
-        // ✅ FIXED: Fetch cart quantity after product is loaded
         await _fetchCurrentCartQuantity();
       } else {
-        debugPrint('⚠️ No product found, trying fallback query...');
         await _fetchProductDetailsFallback();
       }
     } catch (e) {
-      debugPrint('❌ Error fetching product with categories: $e');
-      // ✅ FIXED: Try fallback query without categories join
       await _fetchProductDetailsFallback();
     }
   }
 
-  // ✅ NEW: Fallback method without categories join
   Future<void> _fetchProductDetailsFallback() async {
     try {
-      debugPrint('🔄 Trying fallback query without categories join...');
-
       final response = await supabase
           .from('products')
           .select('*')
@@ -138,10 +115,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
           .eq('is_enabled', true)
           .maybeSingle();
 
-      debugPrint('📦 Fallback response: $response');
-
       if (response != null) {
-        // ✅ FIXED: Fetch category separately and map it
         String categoryName = 'General';
         if (response['category_id'] != null) {
           try {
@@ -151,29 +125,19 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                 .eq('id', response['category_id'])
                 .eq('is_active', true)
                 .maybeSingle();
-
             if (categoryResponse != null) {
               categoryName = categoryResponse['name'] ?? 'General';
             }
-          } catch (e) {
-            debugPrint('Could not fetch category: $e');
-          }
+          } catch (_) {}
         }
-
-        // Add categories object to product
         response['categories'] = {'name': categoryName};
 
         setState(() {
           _product = response;
           _isLoading = false;
         });
-
-        debugPrint('✅ Fallback successful: ${response['product_name']} - Category: $categoryName');
-
-        // ✅ FIXED: Fetch cart quantity after product is loaded
         await _fetchCurrentCartQuantity();
       } else {
-        debugPrint('❌ Product not found in fallback query');
         setState(() => _isLoading = false);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -187,7 +151,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
         }
       }
     } catch (e) {
-      debugPrint('❌ Fallback query also failed: $e');
       setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -204,15 +167,11 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
 
   Future<void> _fetchServices() async {
     try {
-      debugPrint('🔄 Fetching services...');
-
       final response = await supabase
           .from('services')
           .select()
           .eq('is_active', true)
           .order('sort_order');
-
-      debugPrint('📋 Services response: ${response.length} services found');
 
       final serviceList = List<Map<String, dynamic>>.from(response);
       setState(() {
@@ -220,54 +179,40 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
         if (_services.isNotEmpty) {
           _selectedService = _services[0]['name'];
           _selectedServicePrice = _services[0]['price'];
-          debugPrint('✅ Default service selected: $_selectedService (₹$_selectedServicePrice)');
         }
       });
-    } catch (e) {
-      debugPrint('❌ Error fetching services: $e');
-    }
+    } catch (_) {}
   }
 
-  // ✅ FIXED: Fetch cart quantity for SELECTED SERVICE ONLY
+  // 🔁 only for the selected service
   Future<void> _fetchCurrentCartQuantity() async {
     final user = supabase.auth.currentUser;
     if (user == null || _product == null || _selectedService.isEmpty) return;
-
     try {
-      debugPrint('🔄 Fetching current cart quantity for: ${_product!['product_name']} with $_selectedService');
-
       final response = await supabase
           .from('cart')
           .select('product_quantity, service_type, service_price')
           .eq('user_id', user.id)
           .eq('product_name', _product!['product_name'])
-          .eq('service_type', _selectedService) // ✅ FIXED: Filter by selected service only
-          .maybeSingle(); // ✅ FIXED: Use maybeSingle since we expect max 1 result
-
-      debugPrint('🛒 Cart response for $_selectedService: $response');
+          .eq('service_type', _selectedService)
+          .maybeSingle();
 
       if (response != null) {
         final quantity = response['product_quantity'] as int? ?? 0;
         setState(() {
           _currentCartQuantity = quantity;
-          _quantity = quantity > 0 ? quantity : 1;
+          _quantity = quantity; // ✅ mirror cart quantity; stays 0 if none
         });
-        debugPrint('✅ Found in cart: $quantity x $_selectedService');
       } else {
         setState(() {
           _currentCartQuantity = 0;
-          _quantity = 1;
+          _quantity = 0; // ✅ keep 0 when not in cart
         });
-        debugPrint('ℹ️ Product with $_selectedService not in cart');
       }
-    } catch (e) {
-      debugPrint('❌ Error fetching current cart quantity: $e');
-    }
+    } catch (_) {}
   }
 
-  // ✅ FIXED: Enhanced cart count change handler
   void _onCartCountChanged() async {
-    debugPrint('🔔 Cart count changed detected, refreshing product cart data...');
     await _fetchCurrentCartQuantity();
   }
 
@@ -290,9 +235,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       final category = _product!['categories']?['name'] ?? 'General';
       final totalPrice = (basePrice + _selectedServicePrice) * _quantity;
 
-      debugPrint('🔄 Adding to cart: $name x $_quantity with $_selectedService (₹$_selectedServicePrice each)');
-
-      // ✅ FIXED: Check for existing item with same service
       final existing = await supabase
           .from('cart')
           .select('*')
@@ -302,37 +244,50 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
           .maybeSingle();
 
       if (existing != null) {
-        // ✅ FIXED: Update to new quantity instead of adding
-        await supabase.from('cart').update({
-          'product_quantity': _quantity,
-          'total_price': totalPrice,
-        }).eq('id', existing['id']);
-
-        debugPrint('✅ Updated existing cart item to quantity: $_quantity');
+        if (_quantity <= 0) {
+          // ✅ quantity 0 => remove row
+          await supabase.from('cart').delete().eq('id', existing['id']);
+          setState(() {
+            _currentCartQuantity = 0;
+            _addedToCart = true;
+          });
+        } else {
+          await supabase.from('cart').update({
+            'product_quantity': _quantity,
+            'total_price': totalPrice,
+          }).eq('id', existing['id']);
+          setState(() {
+            _currentCartQuantity = _quantity;
+            _addedToCart = true;
+          });
+        }
       } else {
-        // ✅ FIXED: Do NOT delete existing items - allow multiple services for same product
-        await supabase.from('cart').insert({
-          'user_id': user.id,
-          'product_name': name,
-          'product_price': basePrice,
-          'product_image': image,
-          'product_quantity': _quantity,
-          'category': category,
-          'service_type': _selectedService,
-          'service_price': _selectedServicePrice.toDouble(),
-          'total_price': totalPrice,
-        });
-
-        debugPrint('✅ Added new cart item with quantity: $_quantity');
+        if (_quantity <= 0) {
+          // nothing to add when 0
+          setState(() {
+            _currentCartQuantity = 0;
+            _addedToCart = true;
+          });
+        } else {
+          await supabase.from('cart').insert({
+            'user_id': user.id,
+            'product_name': name,
+            'product_price': basePrice,
+            'product_image': image,
+            'product_quantity': _quantity,
+            'category': category,
+            'service_type': _selectedService,
+            'service_price': _selectedServicePrice.toDouble(),
+            'total_price': totalPrice,
+          });
+          setState(() {
+            _currentCartQuantity = _quantity;
+            _addedToCart = true;
+          });
+        }
       }
 
-      // ✅ FIXED: Update current cart quantity
-      setState(() {
-        _currentCartQuantity = _quantity;
-        _addedToCart = true;
-      });
       _successController.forward();
-
       await _updateCartCount();
 
       if (mounted) {
@@ -340,9 +295,9 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
           SnackBar(
             content: Row(
               mainAxisSize: MainAxisSize.min,
-              children: [
+              children: const [
                 Icon(Icons.check_circle, color: Colors.white, size: 18),
-                const SizedBox(width: 8),
+                SizedBox(width: 8),
                 Text('Cart updated!', style: TextStyle(fontSize: 14)),
               ],
             ),
@@ -355,16 +310,12 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
         );
       }
 
-      // ✅ FIXED: Remove auto-navigation - let user decide when to go back
-      // Reset the success animation after some time
       await Future.delayed(const Duration(milliseconds: 1200));
       if (mounted) {
         setState(() => _addedToCart = false);
         _successController.reset();
       }
-
     } catch (e) {
-      debugPrint('❌ Error updating cart: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -384,19 +335,16 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
   Future<void> _updateCartCount() async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
-
     try {
       final data = await supabase
           .from('cart')
           .select('product_quantity')
           .eq('user_id', user.id);
 
-      final totalCount = data.fold<int>(0, (sum, item) => sum + (item['product_quantity'] as int? ?? 0));
+      final totalCount =
+      data.fold<int>(0, (sum, item) => sum + (item['product_quantity'] as int? ?? 0));
       cartCountNotifier.value = totalCount;
-      debugPrint('🛒 Updated global cart count: $totalCount');
-    } catch (e) {
-      debugPrint('❌ Error updating cart count: $e');
-    }
+    } catch (_) {}
   }
 
   IconData _getServiceIcon(String serviceName) {
@@ -422,9 +370,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
 
   @override
   void dispose() {
-    // ✅ FIXED: Remove cart listener
     cartCountNotifier.removeListener(_onCartCountChanged);
-
     _fadeController.dispose();
     _buttonController.dispose();
     _successController.dispose();
@@ -445,10 +391,10 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            children: [
+            children: const [
               CircularProgressIndicator(color: kPrimaryColor),
-              const SizedBox(height: 16),
-              const Text('Loading product details...'),
+              SizedBox(height: 16),
+              Text('Loading product details...'),
             ],
           ),
         ),
@@ -492,39 +438,47 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
           _product!['product_name'] ?? 'Product',
           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
         ),
-        centerTitle: true,
+        // ❌ centerTitle removed → left aligned (default on Android)
       ),
       body: AnimatedBuilder(
         animation: _fadeAnimation,
         builder: (context, child) {
           return FadeTransition(
             opacity: _fadeAnimation,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildCompactProductImage(),
-                  const SizedBox(height: 16),
-                  _buildServiceSelection(),         // 🔁 MOVED UP
-                  const SizedBox(height: 16),
-                  _buildProductInfo(),              // 🔁 Moved down, now shows selected service description and total
-                  const SizedBox(height: 20),
-                  _buildQuantityAndPrice(),
-                  const SizedBox(height: 24),
-                  _buildCompactAddButton(),
-                  const SizedBox(height: 20),
-                ],
+            child: ScrollConfiguration(
+              behavior: const _NoGlowBouncingBehavior(), // 👈 removes glow + keeps bounce
+              child: SafeArea(
+                bottom: true,
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(
+                    parent: AlwaysScrollableScrollPhysics(),
+                  ),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24), // 👈 fixed bottom padding
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildCompactProductImage(),
+                      const SizedBox(height: 16),
+                      _buildServiceSelection(),
+                      const SizedBox(height: 16),
+                      _buildProductInfo(),
+                      const SizedBox(height: 20),
+                      _buildQuantityAndPrice(),
+                      const SizedBox(height: 20),
+                      _buildCompactAddButton(), // 👈 scrolls with content and settles nicely
+                    ],
+                  ),
+                ),
               ),
-
             ),
           );
         },
       ),
+      // ⛔️ No bottomNavigationBar (CTA scrolls within content)
     );
   }
 
-  // ✅ COMPACT: Smaller, elegant product image
+  // Image
   Widget _buildCompactProductImage() {
     return AnimatedBuilder(
       animation: _floatAnimation,
@@ -562,7 +516,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     );
   }
 
-  // ✅ REFINED: Clean product info
+  // Product info / service description
   Widget _buildProductInfo() {
     final singleItemPrice = (_product!['product_price'] ?? 0) + _selectedServicePrice;
 
@@ -575,7 +529,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       },
     );
 
-    final selectedServiceDesc = selectedService['service_full_description'] ?? 'No description available';
+    final selectedServiceDesc =
+        selectedService['service_full_description'] ?? 'No description available';
     final serviceDescription = selectedService['service_description'] ?? '';
     final serviceTag = selectedService['tag'] ?? '';
 
@@ -595,11 +550,10 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          /// Top row with price on right
+          // Top row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // Tag label
               if (serviceTag.isNotEmpty)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -616,7 +570,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                     ),
                   ),
                 ),
-              // Price on the right
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
@@ -626,10 +579,10 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.currency_rupee, color: kPrimaryColor, size: 14),
+                    const Icon(Icons.currency_rupee, size: 14, color: kPrimaryColor),
                     Text(
                       '$singleItemPrice',
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
                         color: kPrimaryColor,
@@ -641,8 +594,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
             ],
           ),
           const SizedBox(height: 10),
-
-          /// Service description subtitle
           if (serviceDescription.isNotEmpty)
             Text(
               serviceDescription,
@@ -653,8 +604,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
               ),
             ),
           const SizedBox(height: 8),
-
-          /// Full service description
           Text(
             selectedServiceDesc,
             style: TextStyle(
@@ -669,7 +618,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     );
   }
 
-  // ✅ ELEGANT: Compact service selection
+  // Service selection
   Widget _buildServiceSelection() {
     if (_services.isEmpty) {
       return Container(
@@ -684,10 +633,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
             Icon(Icons.info_outline, color: Colors.orange.shade600, size: 20),
             const SizedBox(width: 12),
             const Expanded(
-              child: Text(
-                'Loading services...',
-                style: TextStyle(fontSize: 14),
-              ),
+              child: Text('Loading services...', style: TextStyle(fontSize: 14)),
             ),
           ],
         ),
@@ -697,7 +643,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
+        const Text(
           'Select Service',
           style: TextStyle(
             fontSize: 16,
@@ -720,10 +666,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                   onTap: () => setState(() {
                     _selectedService = name;
                     _selectedServicePrice = price;
-                    debugPrint('🔧 Service selected: $name (₹$price)');
-
-                    // ✅ FIXED: Re-fetch cart quantity when service changes
-                    _fetchCurrentCartQuantity();
+                    _fetchCurrentCartQuantity(); // refresh quantity for this service
                   }),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
@@ -780,8 +723,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     );
   }
 
-
-  // ✅ COMPACT: Quantity and price in one row
+  // Quantity & total
   Widget _buildQuantityAndPrice() {
     final totalPrice = ((_product!['product_price'] ?? 0) + _selectedServicePrice) * _quantity;
 
@@ -819,17 +761,17 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                     children: [
                       GestureDetector(
                         onTap: () => setState(() {
-                          if (_quantity > 1) _quantity--;
+                          if (_quantity > 0) _quantity--; // ✅ stops at 0
                         }),
                         child: Container(
                           padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
-                            color: _quantity > 1 ? kPrimaryColor : Colors.grey.shade300,
+                            color: _quantity > 0 ? kPrimaryColor : Colors.grey.shade300,
                             shape: BoxShape.circle,
                           ),
                           child: Icon(
                             Icons.remove,
-                            color: _quantity > 1 ? Colors.white : Colors.grey.shade600,
+                            color: _quantity > 0 ? Colors.white : Colors.grey.shade600,
                             size: 16,
                           ),
                         ),
@@ -843,7 +785,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                         ),
                         child: Text(
                           '$_quantity',
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                             color: kPrimaryColor,
@@ -854,36 +796,25 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                         onTap: () => setState(() => _quantity++),
                         child: Container(
                           padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
+                          decoration: const BoxDecoration(
                             color: kPrimaryColor,
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(
-                            Icons.add,
-                            color: Colors.white,
-                            size: 16,
-                          ),
+                          child: const Icon(Icons.add, color: Colors.white, size: 16),
                         ),
                       ),
                     ],
                   ),
                 ],
               ),
-
               // Total price
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(
-                    'Total',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
+                  Text('Total', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
                   Text(
                     '₹$totalPrice',
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                       color: kPrimaryColor,
@@ -893,8 +824,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
               ),
             ],
           ),
-
-          // ✅ FIXED: Show current cart status for selected service only
           if (_currentCartQuantity > 0) ...[
             const SizedBox(height: 12),
             Container(
@@ -911,10 +840,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                   Expanded(
                     child: Text(
                       'Currently in cart: $_currentCartQuantity item${_currentCartQuantity > 1 ? 's' : ''} with $_selectedService',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.blue.shade700,
-                      ),
+                      style: TextStyle(fontSize: 12, color: Colors.blue.shade700),
                     ),
                   ),
                 ],
@@ -926,7 +852,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     );
   }
 
-  // ✅ SLEEK: Compact add to cart button
+  // Bottom CTA
   Widget _buildCompactAddButton() {
     final bool hasChanged = _currentCartQuantity != _quantity;
     final bool isInCart = _currentCartQuantity > 0;
@@ -936,32 +862,22 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       builder: (context, child) {
         return Transform.scale(
           scale: _addedToCart ? _successScale.value : _buttonScale.value,
-          child: Container(
+          child: SizedBox(
             width: double.infinity,
             height: 50,
             child: ElevatedButton(
               onPressed: (_isAddingToCart || !hasChanged) ? null : _addToCart,
               style: ElevatedButton.styleFrom(
-                backgroundColor: _addedToCart
-                    ? Colors.green
-                    : (hasChanged ? kPrimaryColor : Colors.grey.shade400),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                backgroundColor:
+                _addedToCart ? Colors.green : (hasChanged ? kPrimaryColor : Colors.grey.shade400),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 elevation: _addedToCart ? 6 : (hasChanged ? 3 : 1),
-                shadowColor: _addedToCart
-                    ? Colors.green.withOpacity(0.3)
-                    : kPrimaryColor.withOpacity(0.3),
+                shadowColor:
+                _addedToCart ? Colors.green.withOpacity(0.3) : kPrimaryColor.withOpacity(0.3),
               ),
               child: _isAddingToCart
                   ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  color: Colors.white,
-                  strokeWidth: 2,
-                ),
-              )
+                  width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                   : Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -976,14 +892,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                   Text(
                     _addedToCart
                         ? 'Updated!'
-                        : (hasChanged
-                        ? (isInCart ? 'Update Cart' : 'Add to Cart')
-                        : 'No Changes'),
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
+                        : (hasChanged ? (isInCart ? 'Update Cart' : 'Add to Cart') : 'No Changes'),
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
                   ),
                 ],
               ),
@@ -992,5 +902,14 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
         );
       },
     );
+  }
+}
+
+// 👇 iOS-like bounce & no-glow behavior for this screen
+class _NoGlowBouncingBehavior extends ScrollBehavior {
+  const _NoGlowBouncingBehavior();
+  @override
+  Widget buildOverscrollIndicator(BuildContext context, Widget child, ScrollableDetails details) {
+    return child; // disables glow, keeps bounce
   }
 }
