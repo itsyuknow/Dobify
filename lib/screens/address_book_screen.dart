@@ -1275,7 +1275,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
     const double betweenGap = 8;         // gap between circle and search bar
 
     final double searchLeft  = sideGap + circleDiameter + betweenGap;
-    final double searchRight = sideGap + circleDiameter + betweenGap;
+    final double searchRight = sideGap; // since right circle is removed
 
     // A button style that stays blue even when disabled
     final ButtonStyle confirmStyle = ElevatedButton.styleFrom(
@@ -1316,7 +1316,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
           ),
         ),
 
-        // --- TOP LEFT: BACK CIRCLE ---
+        // --- TOP LEFT: BACK CIRCLE (icon BLUE) ---
         Positioned(
           top: topPad + 8,
           left: sideGap,
@@ -1330,41 +1330,17 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
               child: const SizedBox(
                 width: circleDiameter,
                 height: circleDiameter,
-                child: Center(child: Icon(Icons.arrow_back, size: 20, color: Colors.black87)),
+                child: Center(child: Icon(Icons.arrow_back, size: 20, color: kPrimaryColor)),
               ),
             ),
           ),
         ),
 
-        // --- TOP RIGHT: MY LOCATION CIRCLE ---
+        // --- SEARCH PILL ---
         Positioned(
-          top: topPad + 8,
-          right: sideGap,
-          child: Material(
-            color: Colors.white,
-            shape: const CircleBorder(),
-            elevation: 2,
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: isDetectingLocation ? null : _getCurrentLocation,
-              child: SizedBox(
-                width: circleDiameter,
-                height: circleDiameter,
-                child: Center(
-                  child: isDetectingLocation
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.my_location, size: 20, color: Colors.black87),
-                ),
-              ),
-            ),
-          ),
-        ),
-
-        // --- SEARCH PILL (EXACTLY BETWEEN THE TWO CIRCLES) ---
-        Positioned(
-          top: topPad + 8,         // align with the circles
+          top: topPad + 8,         // align with the circle
           left: searchLeft,        // space for left circle + gap
-          right: searchRight,      // space for right circle + gap
+          right: searchRight,      // only side gap on right now
           child: SlideTransition(
             position: _slideAnimation,
             child: Container(
@@ -1438,7 +1414,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
           ),
         ),
 
-        // --- BOTTOM STACK (no overlaps) ---
+        // --- BOTTOM STACK ---
         SafeArea(
           top: false,
           child: Align(
@@ -1449,7 +1425,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Current Location pill (centered)
+                  // Current Location button (kept at bottom)
                   Center(
                     child: ElevatedButton.icon(
                       onPressed: isDetectingLocation ? null : _getCurrentLocation,
@@ -1468,7 +1444,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                   ),
                   const SizedBox(height: 12),
 
-                  // Address card
+                  // Address card (BLUE text now)
                   Container(
                     padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
                     decoration: BoxDecoration(
@@ -1484,12 +1460,12 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                     ),
                     child: Text(
                       _selectedAddress ?? 'Fetching address...',
-                      style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w500, fontSize: 14),
+                      style: const TextStyle(color: kPrimaryColor, fontWeight: FontWeight.w600, fontSize: 14),
                     ),
                   ),
                   const SizedBox(height: 12),
 
-                  // Confirm button — stays BLUE even when disabled
+                  // Confirm button
                   SizedBox(
                     height: 52,
                     child: ElevatedButton(
@@ -1509,6 +1485,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
       ],
     );
   }
+
 
 
 
