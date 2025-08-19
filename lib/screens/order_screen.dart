@@ -1073,9 +1073,8 @@ class _OrdersScreenState extends State<OrdersScreen>
     final products = _getFilteredProducts();
 
     if (_isLoading) {
-      // Make loading state scrollable so RefreshIndicator works
       return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
+        physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
         children: const [
           SizedBox(height: 120),
           Center(child: CircularProgressIndicator()),
@@ -1092,9 +1091,8 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
 
     if (products.isEmpty) {
-      // Make empty state scrollable so RefreshIndicator works
       return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
+        physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
         padding: const EdgeInsets.symmetric(horizontal: 16),
         children: [
           const SizedBox(height: 120),
@@ -1139,8 +1137,10 @@ class _OrdersScreenState extends State<OrdersScreen>
       );
     }
 
+    // Update the grid to use BouncingScrollPhysics
     return _buildPremiumProductGrid(context, products);
   }
+
 
   PreferredSizeWidget _buildPremiumAppBar() {
     return AppBar(
@@ -1242,7 +1242,7 @@ class _OrdersScreenState extends State<OrdersScreen>
   // 🔸 UPDATED: now receives context and uses fixed 20px bottom padding, and is always scrollable
   Widget _buildPremiumProductGrid(BuildContext context, List<Map<String, dynamic>> products) {
     return GridView.builder(
-      physics: const AlwaysScrollableScrollPhysics(), // enables pull even with few items
+      physics: const BouncingScrollPhysics(), // Changed to BouncingScrollPhysics for bounce effect
       itemCount: products.length,
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), // ✅ Same as ProfileScreen gap
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(

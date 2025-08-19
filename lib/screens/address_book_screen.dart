@@ -1269,22 +1269,23 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
   Widget _buildMapView() {
     final topPad = MediaQuery.of(context).padding.top;
 
-    // layout constants for the top row
-    const double sideGap = 12;           // left/right margin for the circular buttons
-    const double circleDiameter = 40;    // approx diameter of the circular buttons
-    const double betweenGap = 8;         // gap between circle and search bar
+    // layout constants
+    const double sideGap = 12;
+    const double circleDiameter = 40;
+    const double betweenGap = 8;
 
-    final double searchLeft  = sideGap + circleDiameter + betweenGap;
-    final double searchRight = sideGap; // since right circle is removed
+    final double searchLeft = sideGap + circleDiameter + betweenGap;
+    final double searchRight = sideGap;
 
-    // A button style that stays blue even when disabled
+    // ✅ Confirm button style: Solid Blue + premium shape
     final ButtonStyle confirmStyle = ElevatedButton.styleFrom(
       elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-      padding: const EdgeInsets.symmetric(vertical: 14),
-    ).copyWith(
-      backgroundColor: MaterialStateProperty.resolveWith((states) => kPrimaryColor),
-      foregroundColor: MaterialStateProperty.resolveWith((states) => Colors.white),
+      backgroundColor: kPrimaryColor, // solid blue
+      foregroundColor: Colors.white,  // text & loader white
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12), // premium 12px radius
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 12),
     );
 
     return Stack(
@@ -1312,11 +1313,15 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
         // --- CENTER PIN ---
         Center(
           child: IgnorePointer(
-            child: Image.asset('assets/images/blue_pin.png', width: 70, height: 70),
+            child: Image.asset(
+              'assets/images/blue_pin.png',
+              width: 70,
+              height: 70,
+            ),
           ),
         ),
 
-        // --- TOP LEFT: BACK CIRCLE (icon BLUE) ---
+        // --- TOP LEFT BACK BUTTON ---
         Positioned(
           top: topPad + 8,
           left: sideGap,
@@ -1330,7 +1335,9 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
               child: const SizedBox(
                 width: circleDiameter,
                 height: circleDiameter,
-                child: Center(child: Icon(Icons.arrow_back, size: 20, color: kPrimaryColor)),
+                child: Center(
+                  child: Icon(Icons.arrow_back, size: 20, color: kPrimaryColor),
+                ),
               ),
             ),
           ),
@@ -1338,9 +1345,9 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
 
         // --- SEARCH PILL ---
         Positioned(
-          top: topPad + 8,         // align with the circle
-          left: searchLeft,        // space for left circle + gap
-          right: searchRight,      // only side gap on right now
+          top: topPad + 8,
+          left: searchLeft,
+          right: searchRight,
           child: SlideTransition(
             position: _slideAnimation,
             child: Container(
@@ -1391,12 +1398,17 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                       textAlignVertical: TextAlignVertical.center,
                       decoration: InputDecoration(
                         hintText: 'Search area or pincode',
-                        hintStyle: TextStyle(color: kPrimaryColor.withOpacity(0.7), fontSize: 15),
+                        hintStyle: TextStyle(
+                          color: kPrimaryColor.withOpacity(0.7),
+                          fontSize: 15,
+                        ),
                         border: InputBorder.none,
-                        prefixIcon: Icon(Icons.search_rounded, color: kPrimaryColor.withOpacity(0.8), size: 20),
+                        prefixIcon: Icon(Icons.search_rounded,
+                            color: kPrimaryColor.withOpacity(0.8), size: 20),
                         suffixIcon: controller.text.isNotEmpty
                             ? IconButton(
-                          icon: const Icon(Icons.close_rounded, color: kPrimaryColor),
+                          icon: const Icon(Icons.close_rounded,
+                              color: kPrimaryColor),
                           onPressed: () {
                             controller.clear();
                             FocusScope.of(context).unfocus();
@@ -1404,7 +1416,8 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                         )
                             : null,
                         isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                        contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 8),
                       ),
                     );
                   },
@@ -1425,28 +1438,40 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Current Location button (kept at bottom)
+                  // Current Location Button
                   Center(
                     child: ElevatedButton.icon(
                       onPressed: isDetectingLocation ? null : _getCurrentLocation,
                       icon: isDetectingLocation
-                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.my_location, size: 20, color: Colors.white),
-                      label: const Text('Current Location',
-                          style: TextStyle(fontWeight: FontWeight.w700, color: Colors.white)),
+                          ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.my_location,
+                          size: 20, color: Colors.white),
+                      label: const Text(
+                        'Current Location',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w700, color: Colors.white),
+                      ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: kPrimaryColor,
                         elevation: 6,
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 18, vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(28),
+                        ),
                       ),
                     ),
                   ),
                   const SizedBox(height: 12),
 
-                  // Address card (BLUE text now)
+                  // Address Card
                   Container(
-                    padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                    padding:
+                    const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(12),
@@ -1460,21 +1485,37 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                     ),
                     child: Text(
                       _selectedAddress ?? 'Fetching address...',
-                      style: const TextStyle(color: kPrimaryColor, fontWeight: FontWeight.w600, fontSize: 14),
+                      style: const TextStyle(
+                        color: kPrimaryColor,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
 
-                  // Confirm button
+                  // ✅ Confirm Button (solid blue now)
                   SizedBox(
-                    height: 52,
+                    height: 48,
                     child: ElevatedButton(
-                      onPressed: _selectedLocation != null && !_isLoadingAddress ? _proceedToForm : null,
+                      onPressed: _selectedLocation != null && !_isLoadingAddress
+                          ? _proceedToForm
+                          : null,
                       style: confirmStyle,
                       child: _isLoadingAddress
-                          ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.2))
-                          : const Text('Confirm and Proceed',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white)),
+                          ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                              color: Colors.white, strokeWidth: 2.2))
+                          : const Text(
+                        'Confirm and Proceed',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -1485,7 +1526,6 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
       ],
     );
   }
-
 
 
 

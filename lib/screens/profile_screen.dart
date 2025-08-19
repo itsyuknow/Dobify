@@ -28,6 +28,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     with TickerProviderStateMixin {
   final SupabaseClient supabase = Supabase.instance.client;
   final ImagePicker picker = ImagePicker();
+  final ScrollController _scrollController = ScrollController();
 
   Map<String, dynamic>? userProfile;
   Map<String, dynamic>? orderStats;
@@ -92,6 +93,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     _fadeController.dispose();
     _scaleController.dispose();
     _expansionController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -701,6 +703,8 @@ class _ProfileScreenState extends State<ProfileScreen>
       body: FadeTransition(
         opacity: _fadeAnimation,
         child: CustomScrollView(
+          // 👇 Add iOS-like bounce
+          physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
           slivers: [
             _buildSliverAppBar(),
             SliverToBoxAdapter(
@@ -727,14 +731,43 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
+
   Widget _buildSliverAppBar() {
     return SliverAppBar(
       expandedHeight: 220,
       pinned: true,
+      // 👇 Smooth, premium scroll feel
+      floating: true,
+      snap: true,
+      stretch: true,
+      stretchTriggerOffset: 120,
       backgroundColor: kPrimaryColor,
       elevation: 0,
       automaticallyImplyLeading: false,
+
       flexibleSpace: FlexibleSpaceBar(
+        collapseMode: CollapseMode.parallax,
+        expandedTitleScale: 1.0,
+        // 👇 Compact title when collapsed
+        titlePadding: const EdgeInsetsDirectional.only(start: 16, bottom: 12, end: 16),
+        title: Row(
+          children: [
+            if ((userProfile?['avatar_url'] as String?)?.isNotEmpty ?? false)
+              CircleAvatar(radius: 10, backgroundImage: NetworkImage(userProfile!['avatar_url']))
+            else
+              const CircleAvatar(radius: 10, child: Icon(Icons.person, size: 12)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                displayName,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+
+        // Expanded state background (your existing rich header)
         background: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -777,6 +810,12 @@ class _ProfileScreenState extends State<ProfileScreen>
           ),
         ),
       ),
+
+      onStretchTrigger: () async {
+        // Optional: haptic on pull-to-stretch
+        HapticFeedback.lightImpact();
+      },
+
       actions: [
         Container(
           margin: const EdgeInsets.only(right: 16),
@@ -792,6 +831,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       ],
     );
   }
+
 
   Widget _buildAvatarSection() {
     return Stack(
