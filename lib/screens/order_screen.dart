@@ -35,6 +35,17 @@ class _OrdersScreenState extends State<OrdersScreen>
   bool _isInitialLoadDone = false;
   bool _isLoading = false;
 
+  // 🔸 NEW: Search functionality variables
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  bool _isSearchActive = false;
+  String _searchQuery = '';
+  List<Map<String, dynamic>> _searchSuggestions = [];
+  bool _showSearchSuggestions = false;
+  late AnimationController _searchAnimationController;
+  late Animation<double> _searchSlideAnimation;
+  late Animation<double> _searchFadeAnimation;
+
   // Animation controllers (unchanged)
   late AnimationController _floatingCartController;
   late AnimationController _fadeController;
@@ -79,6 +90,10 @@ class _OrdersScreenState extends State<OrdersScreen>
     _fetchBackgroundImage();
     _testDatabaseConnection();
 
+    // 🔸 NEW: Initialize search listeners
+    _searchController.addListener(_onSearchChanged);
+    _searchFocusNode.addListener(_onSearchFocusChanged);
+
     // 🔸 NEW: load categories like HomeScreen => sort_order ASC
     _loadCategoriesForTabs().then((_) {
       // Then load products
@@ -92,6 +107,70 @@ class _OrdersScreenState extends State<OrdersScreen>
       if (mounted && cartCountNotifier.value > 0) {
         _showDragHintTemporarily();
       }
+    });
+  }
+
+  // 🔸 NEW: Search functionality methods
+  void _onSearchChanged() {
+    setState(() {
+      _searchQuery = _searchController.text;
+      _generateSearchSuggestions();
+      _showSearchSuggestions = _searchController.text.isNotEmpty;
+    });
+  }
+
+  void _onSearchFocusChanged() {
+    if (_searchFocusNode.hasFocus && _searchController.text.isNotEmpty) {
+      setState(() => _showSearchSuggestions = true);
+    }
+  }
+
+  void _generateSearchSuggestions() {
+    if (_searchQuery.isEmpty) {
+      _searchSuggestions.clear();
+      return;
+    }
+
+    final query = _searchQuery.toLowerCase();
+    _searchSuggestions = _products
+        .where((product) =>
+        product['product_name'].toString().toLowerCase().contains(query))
+        .take(8)
+        .toList();
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      _isSearchActive = !_isSearchActive;
+      if (_isSearchActive) {
+        _searchAnimationController.forward();
+        Future.delayed(const Duration(milliseconds: 100), () {
+          _searchFocusNode.requestFocus();
+        });
+      } else {
+        _searchAnimationController.reverse();
+        _searchController.clear();
+        _searchQuery = '';
+        _showSearchSuggestions = false;
+        _searchFocusNode.unfocus();
+      }
+    });
+  }
+
+  void _selectSearchSuggestion(Map<String, dynamic> product) {
+    _searchController.text = product['product_name'];
+    setState(() {
+      _searchQuery = product['product_name'];
+      _showSearchSuggestions = false;
+    });
+    _searchFocusNode.unfocus();
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() {
+      _searchQuery = '';
+      _showSearchSuggestions = false;
     });
   }
 
@@ -116,7 +195,7 @@ class _OrdersScreenState extends State<OrdersScreen>
         });
       }
     } catch (_) {
-      // silent fallback; _categories stays as ['All'] and we’ll derive later if needed
+      // silent fallback; _categories stays as ['All'] and we'll derive later if needed
     }
   }
 
@@ -164,6 +243,10 @@ class _OrdersScreenState extends State<OrdersScreen>
     _continuousFloatController =
         AnimationController(duration: const Duration(milliseconds: 10000), vsync: this);
 
+    // 🔸 NEW: Search animation controller
+    _searchAnimationController =
+        AnimationController(duration: const Duration(milliseconds: 300), vsync: this);
+
     _floatingCartScale = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _floatingCartController, curve: Curves.easeOutCubic),
     );
@@ -191,6 +274,12 @@ class _OrdersScreenState extends State<OrdersScreen>
         .animate(CurvedAnimation(parent: _continuousFloatController, curve: Curves.easeInOutSine));
     _continuousScaleAnimation = Tween<double>(begin: 0.98, end: 1.02)
         .animate(CurvedAnimation(parent: _continuousFloatController, curve: Curves.easeInOutSine));
+
+    // 🔸 NEW: Search animations
+    _searchSlideAnimation = Tween<double>(begin: -1.0, end: 0.0)
+        .animate(CurvedAnimation(parent: _searchAnimationController, curve: Curves.easeOutCubic));
+    _searchFadeAnimation = Tween<double>(begin: 0.0, end: 1.0)
+        .animate(CurvedAnimation(parent: _searchAnimationController, curve: Curves.easeOut));
 
     _fadeController.forward();
     _smoothFloatController.repeat(reverse: true);
@@ -317,9 +406,25 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
   }
 
+  // 🔸 UPDATED: Now includes search functionality
   List<Map<String, dynamic>> _getFilteredProducts() {
-    if (_selectedCategory == 'All') return _products;
-    return _products.where((p) => p['categories']?['name'] == _selectedCategory).toList();
+    List<Map<String, dynamic>> filteredProducts;
+
+    // First filter by category
+    if (_selectedCategory == 'All') {
+      filteredProducts = _products;
+    } else {
+      filteredProducts = _products.where((p) => p['categories']?['name'] == _selectedCategory).toList();
+    }
+
+    // Then filter by search query
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      filteredProducts = filteredProducts.where((product) =>
+          product['product_name'].toString().toLowerCase().contains(query)).toList();
+    }
+
+    return filteredProducts;
   }
 
   Future<void> _fetchCartData() async {
@@ -1008,6 +1113,11 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   @override
   void dispose() {
+    // 🔸 NEW: Dispose search controllers
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    _searchAnimationController.dispose();
+
     for (final c in _controllers.values) {
       c.dispose();
     }
@@ -1048,7 +1158,9 @@ class _OrdersScreenState extends State<OrdersScreen>
             Column(
               children: [
                 const SizedBox(height: 12),
-                _buildPremiumCategoryTabs(),
+                // 🔸 NEW: Search Bar (conditional)
+                if (_isSearchActive) _buildSearchBar(),
+                if (!_isSearchActive) _buildPremiumCategoryTabs(),
                 const SizedBox(height: 16),
                 // 🔄 Pull-to-refresh wrapper
                 Expanded(
@@ -1056,7 +1168,14 @@ class _OrdersScreenState extends State<OrdersScreen>
                     color: kPrimaryColor,
                     displacement: 72,
                     onRefresh: _onRefresh,
-                    child: _buildContent(),
+                    child: Stack(
+                      children: [
+                        _buildContent(),
+                        // 🔸 NEW: Search suggestions overlay
+                        if (_showSearchSuggestions && _searchSuggestions.isNotEmpty)
+                          _buildSearchSuggestions(),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -1066,6 +1185,288 @@ class _OrdersScreenState extends State<OrdersScreen>
         ),
       ),
       bottomNavigationBar: const CustomBottomNav(currentIndex: 1),
+    );
+  }
+
+
+  Widget _buildSearchBar() {
+    return AnimatedBuilder(
+      animation: _searchAnimationController,
+      builder: (context, child) {
+        return FadeTransition(
+          opacity: _searchFadeAnimation,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, -1),
+              end: Offset.zero,
+            ).animate(_searchAnimationController),
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.white, Colors.grey.shade50],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(25),
+                // REMOVE THIS LINE: border: Border.all(color: Colors.grey.shade200, width: 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: kPrimaryColor.withOpacity(0.1),
+                    blurRadius: 20,
+                    offset: const Offset(0, 5),
+                  ),
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.search, color: kPrimaryColor, size: 22),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      focusNode: _searchFocusNode,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black87,
+                      ),
+                      decoration: const InputDecoration(
+                        hintText: 'Search products...',
+                        hintStyle: TextStyle(
+                          fontSize: 16,
+                          color: Color(0xFF42A5F5),
+                          fontWeight: FontWeight.w400,
+                        ),
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        errorBorder: InputBorder.none,
+                        disabledBorder: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      onSubmitted: (value) {
+                        setState(() => _showSearchSuggestions = false);
+                        _searchFocusNode.unfocus();
+                      },
+                    ),
+                  ),
+                  if (_searchQuery.isNotEmpty)
+                    GestureDetector(
+                      onTap: _clearSearch,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.close, size: 16, color: Colors.black54),
+                      ),
+                    ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: _toggleSearch,
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: kPrimaryColor.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.close, color: kPrimaryColor, size: 18),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // 🔸 NEW: Search Suggestions Widget
+  Widget _buildSearchSuggestions() {
+    return Positioned(
+      top: 0,
+      left: 16,
+      right: 16,
+      child: Material(
+        elevation: 8,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          constraints: const BoxConstraints(maxHeight: 300),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.white, Colors.grey.shade50],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.grey.shade200, width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: kPrimaryColor.withOpacity(0.1),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [kPrimaryColor.withOpacity(0.1), Colors.transparent],
+                  ),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(16),
+                    topRight: Radius.circular(16),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.lightbulb_outline, color: kPrimaryColor, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Suggestions (${_searchSuggestions.length})',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: kPrimaryColor,
+                      ),
+                    ),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: () => setState(() => _showSearchSuggestions = false),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade200,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.close, size: 14, color: Colors.black54),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: _searchSuggestions.length,
+                  separatorBuilder: (context, index) => Divider(
+                    height: 1,
+                    color: Colors.grey.shade200,
+                  ),
+                  itemBuilder: (context, index) {
+                    final product = _searchSuggestions[index];
+                    final productName = product['product_name'] as String;
+                    final categoryName = product['categories']?['name'] ?? '';
+                    final imageUrl = product['image_url'] ?? '';
+                    final price = (product['product_price'] as num?)?.toInt() ?? 0;
+
+                    return InkWell(
+                      onTap: () => _selectSearchSuggestion(product),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.grey.shade200),
+                                color: Colors.grey.shade50,
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.network(
+                                  imageUrl,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (context, error, stackTrace) => Icon(
+                                    Icons.image_outlined,
+                                    color: Colors.grey.shade400,
+                                    size: 20,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    productName,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.black87,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Row(
+                                    children: [
+                                      if (categoryName.isNotEmpty)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: kPrimaryColor.withOpacity(0.1),
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                          child: Text(
+                                            categoryName,
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w500,
+                                              color: kPrimaryColor,
+                                            ),
+                                          ),
+                                        ),
+                                      const Spacer(),
+                                      Text(
+                                        'For ₹$price',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: kPrimaryColor,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Icon(
+                              Icons.arrow_forward_ios,
+                              size: 14,
+                              color: Colors.grey.shade400,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -1091,23 +1492,30 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
 
     if (products.isEmpty) {
+      final isSearchResult = _searchQuery.isNotEmpty;
       return ListView(
         physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
         padding: const EdgeInsets.symmetric(horizontal: 16),
         children: [
           const SizedBox(height: 120),
-          Icon(Icons.shopping_bag_outlined, size: 80, color: Colors.grey.shade400),
+          Icon(
+            isSearchResult ? Icons.search_off : Icons.shopping_bag_outlined,
+            size: 80,
+            color: Colors.grey.shade400,
+          ),
           const SizedBox(height: 16),
           Center(
             child: Text(
-              'No products found',
+              isSearchResult ? 'No products found' : 'No products found',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.grey.shade600),
             ),
           ),
           const SizedBox(height: 8),
           Center(
             child: Text(
-              _selectedCategory == 'All'
+              isSearchResult
+                  ? 'No products match "$_searchQuery"'
+                  : _selectedCategory == 'All'
                   ? 'No products available'
                   : 'No products in "$_selectedCategory" category',
               style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
@@ -1115,23 +1523,37 @@ class _OrdersScreenState extends State<OrdersScreen>
             ),
           ),
           const SizedBox(height: 24),
-          Center(
-            child: ElevatedButton.icon(
-              onPressed: () {
-                _hasFetchedProducts = false;
-                _cachedProducts.clear();
-                _cachedCategories = ['All'];
-                _fetchCategoriesAndProducts();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: kPrimaryColor,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          if (isSearchResult)
+            Center(
+              child: ElevatedButton.icon(
+                onPressed: _clearSearch,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: kPrimaryColor,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                ),
+                icon: const Icon(Icons.clear, color: Colors.white),
+                label: const Text('Clear Search', style: TextStyle(color: Colors.white)),
               ),
-              icon: const Icon(Icons.refresh, color: Colors.white),
-              label: const Text('Reload Products', style: TextStyle(color: Colors.white)),
+            )
+          else
+            Center(
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  _hasFetchedProducts = false;
+                  _cachedProducts.clear();
+                  _cachedCategories = ['All'];
+                  _fetchCategoriesAndProducts();
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: kPrimaryColor,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                ),
+                icon: const Icon(Icons.refresh, color: Colors.white),
+                label: const Text('Reload Products', style: TextStyle(color: Colors.white)),
+              ),
             ),
-          ),
           const SizedBox(height: 120),
         ],
       );
@@ -1141,51 +1563,169 @@ class _OrdersScreenState extends State<OrdersScreen>
     return _buildPremiumProductGrid(context, products);
   }
 
-
   PreferredSizeWidget _buildPremiumAppBar() {
     return AppBar(
       elevation: 0,
       backgroundColor: Colors.transparent,
+      toolbarHeight: 85,
       flexibleSpace: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [kPrimaryColor.withOpacity(0.95), kPrimaryColor.withOpacity(0.85)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+            colors: [
+              kPrimaryColor,
+              kPrimaryColor.withOpacity(0.96),
+              kPrimaryColor.withOpacity(0.92)
+            ],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: kPrimaryColor.withOpacity(0.5),
+              blurRadius: 30,
+              offset: const Offset(0, 12),
+              spreadRadius: 2,
+            ),
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 25,
+              offset: const Offset(0, 8),
+            ),
+          ],
         ),
       ),
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(35)),
       ),
-      title: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
+      title: Container(
+        padding: const EdgeInsets.symmetric(vertical: 15),
+        child: Row(
+          children: [
+            // Logo Icon without circular background
+            TweenAnimationBuilder<Color?>(
+              duration: const Duration(seconds: 2),
+              tween: ColorTween(
+                begin: Colors.white,
+                end: kPrimaryColor,
+              ),
+              builder: (context, color, child) {
+                return TweenAnimationBuilder<Color?>(
+                  duration: const Duration(seconds: 2),
+                  tween: ColorTween(
+                    begin: kPrimaryColor,
+                    end: Colors.orange,
+                  ),
+                  onEnd: () {
+                    // This will restart the animation cycle
+                  },
+                  builder: (context, color2, child) {
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 500),
+                      child: Icon(
+                        Icons.flash_on_rounded,
+                        color: Colors.white,
+                        size: 32,
+                      ),
+                    );
+                  },
+                );
+              },
             ),
-            child: const Icon(Icons.restaurant_menu, color: Colors.white, size: 24),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('ironXpress',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-                Text(
-                  _selectedCategory == 'All' ? 'All Categories' : _selectedCategory,
-                  style: const TextStyle(fontSize: 12, color: Colors.white70),
-                  overflow: TextOverflow.ellipsis,
+            const SizedBox(width: 4),
+            // Enhanced Title Section - Only Title, No Subtitle
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Main Title with Premium Typography
+                  Text(
+                    'ironXpress',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                      letterSpacing: -0.8,
+                      height: 1.0,
+                      shadows: [
+                        Shadow(
+                          color: Colors.black.withOpacity(0.4),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                        Shadow(
+                          color: Colors.white.withOpacity(0.25),
+                          blurRadius: 8,
+                          offset: const Offset(0, -2),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        // Smaller Premium Search Button
+        Container(
+          margin: const EdgeInsets.only(right: 28, top: 15, bottom: 15),
+          child: GestureDetector(
+            onTap: _toggleSearch,
+            child: Container(
+              width: 45,
+              height: 45,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.white.withOpacity(0.3),
+                    blurRadius: 10,
+                    offset: const Offset(-3, -3),
+                  ),
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.25),
+                    blurRadius: 15,
+                    offset: const Offset(3, 3),
+                  ),
+                  BoxShadow(
+                    color: kPrimaryColor.withOpacity(0.5),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 400),
+                  transitionBuilder: (Widget child, Animation<double> animation) {
+                    return ScaleTransition(
+                      scale: Tween<double>(begin: 0.8, end: 1.0).animate(
+                        CurvedAnimation(
+                          parent: animation,
+                          curve: Curves.elasticOut,
+                        ),
+                      ),
+                      child: FadeTransition(
+                        opacity: animation,
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: Icon(
+                    _isSearchActive ? Icons.close_rounded : Icons.search_rounded,
+                    key: ValueKey<bool>(_isSearchActive),
+                    color: kPrimaryColor,
+                    size: 26,
+                  ),
                 ),
-              ],
+              ),
             ),
           ),
-        ],
-      ),
-      actions: const [],
+        ),
+      ],
     );
   }
 
