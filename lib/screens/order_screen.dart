@@ -25,17 +25,20 @@ class _OrdersScreenState extends State<OrdersScreen>
   String _selectedCategory = 'All';
 
   final List<Map<String, dynamic>> _products = [];
+
+  // ✅ CHANGED: Key by productId instead of productName
   final Map<String, int> _productQuantities = {};
   final Map<String, AnimationController> _controllers = {};
   final Map<String, AnimationController> _qtyAnimControllers = {};
   final Map<String, bool> _addedStatus = {};
+
   final ScrollController _scrollController = ScrollController();
 
   String? _backgroundImageUrl;
   bool _isInitialLoadDone = false;
   bool _isLoading = false;
 
-  // 🔸 NEW: Search functionality variables
+  // Search
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   bool _isSearchActive = false;
@@ -90,19 +93,15 @@ class _OrdersScreenState extends State<OrdersScreen>
     _fetchBackgroundImage();
     _testDatabaseConnection();
 
-    // 🔸 NEW: Initialize search listeners
     _searchController.addListener(_onSearchChanged);
     _searchFocusNode.addListener(_onSearchFocusChanged);
 
-    // 🔸 NEW: load categories like HomeScreen => sort_order ASC
     _loadCategoriesForTabs().then((_) {
-      // Then load products
       _fetchCategoriesAndProducts();
     });
 
     _fetchCartData();
 
-    // Drag hint after 3s
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted && cartCountNotifier.value > 0) {
         _showDragHintTemporarily();
@@ -110,7 +109,6 @@ class _OrdersScreenState extends State<OrdersScreen>
     });
   }
 
-  // 🔸 NEW: Search functionality methods
   void _onSearchChanged() {
     setState(() {
       _searchQuery = _searchController.text;
@@ -130,7 +128,6 @@ class _OrdersScreenState extends State<OrdersScreen>
       _searchSuggestions.clear();
       return;
     }
-
     final query = _searchQuery.toLowerCase();
     _searchSuggestions = _products
         .where((product) =>
@@ -138,7 +135,6 @@ class _OrdersScreenState extends State<OrdersScreen>
         .take(8)
         .toList();
   }
-
 
   void _selectSearchSuggestion(Map<String, dynamic> product) {
     _searchController.text = product['product_name'];
@@ -157,7 +153,6 @@ class _OrdersScreenState extends State<OrdersScreen>
     });
   }
 
-  // 🔸 NEW: categories ordered exactly like HomeScreen
   Future<void> _loadCategoriesForTabs() async {
     try {
       final rows = await supabase
@@ -177,9 +172,7 @@ class _OrdersScreenState extends State<OrdersScreen>
           _categories = ['All', ...names];
         });
       }
-    } catch (_) {
-      // silent fallback; _categories stays as ['All'] and we'll derive later if needed
-    }
+    } catch (_) {}
   }
 
   Future<void> _testDatabaseConnection() async {
@@ -226,7 +219,6 @@ class _OrdersScreenState extends State<OrdersScreen>
     _continuousFloatController =
         AnimationController(duration: const Duration(milliseconds: 10000), vsync: this);
 
-    // 🔸 NEW: Search animation controller
     _searchAnimationController =
         AnimationController(duration: const Duration(milliseconds: 300), vsync: this);
 
@@ -258,7 +250,6 @@ class _OrdersScreenState extends State<OrdersScreen>
     _continuousScaleAnimation = Tween<double>(begin: 0.98, end: 1.02)
         .animate(CurvedAnimation(parent: _continuousFloatController, curve: Curves.easeInOutSine));
 
-    // 🔸 NEW: Search animations
     _searchSlideAnimation = Tween<double>(begin: -1.0, end: 0.0)
         .animate(CurvedAnimation(parent: _searchAnimationController, curve: Curves.easeOutCubic));
     _searchFadeAnimation = Tween<double>(begin: 0.0, end: 1.0)
@@ -311,7 +302,6 @@ class _OrdersScreenState extends State<OrdersScreen>
         ..clear()
         ..addAll(productList);
 
-      // 🔹 Only derive categories from products if we failed to load ordered tabs
       if (_categories.length == 1) {
         final unique = _products
             .map((p) => p['categories']?['name']?.toString())
@@ -319,7 +309,7 @@ class _OrdersScreenState extends State<OrdersScreen>
             .cast<String>()
             .toSet()
             .toList()
-          ..sort(); // alphabetical fallback
+          ..sort();
         _categories = ['All', ...unique];
       }
 
@@ -327,7 +317,6 @@ class _OrdersScreenState extends State<OrdersScreen>
       _cachedCategories = List<String>.from(_categories);
       _hasFetchedProducts = true;
     } catch (e) {
-      // Fallback without join (unchanged from your version)
       try {
         final fallbackResponse = await supabase
             .from('products')
@@ -341,8 +330,10 @@ class _OrdersScreenState extends State<OrdersScreen>
             ..clear()
             ..addAll(productList);
 
-          final categoriesResponse =
-          await supabase.from('categories').select('id, name').eq('is_active', true);
+          final categoriesResponse = await supabase
+              .from('categories')
+              .select('id, name')
+              .eq('is_active', true);
 
           final categoriesMap = <String, String>{};
           for (var category in categoriesResponse) {
@@ -355,8 +346,8 @@ class _OrdersScreenState extends State<OrdersScreen>
           }
 
           if (_categories.length == 1) {
-            // keep order from categoriesResponse (matches sort_order if you ordered it)
-            final orderedNames = List<Map<String, dynamic>>.from(categoriesResponse)
+            final orderedNames =
+            List<Map<String, dynamic>>.from(categoriesResponse)
                 .map((e) => (e['name'] as String?)?.trim())
                 .where((e) => e != null && e!.isNotEmpty)
                 .cast<String>()
@@ -373,7 +364,6 @@ class _OrdersScreenState extends State<OrdersScreen>
 
     if (mounted) setState(() => _isLoading = false);
 
-    // Auto-scroll to selected category tab
     if (widget.category != null && widget.category != 'All') {
       final index = _categories.indexOf(widget.category!);
       if (index != -1 && mounted && _scrollController.hasClients) {
@@ -389,40 +379,49 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
   }
 
-  // 🔸 UPDATED: Now includes search functionality
+  // Search + Category filter
   List<Map<String, dynamic>> _getFilteredProducts() {
     List<Map<String, dynamic>> filteredProducts;
 
-    // First filter by category
     if (_selectedCategory == 'All') {
       filteredProducts = _products;
     } else {
-      filteredProducts = _products.where((p) => p['categories']?['name'] == _selectedCategory).toList();
+      filteredProducts = _products
+          .where((p) => p['categories']?['name'] == _selectedCategory)
+          .toList();
     }
 
-    // Then filter by search query
     if (_searchQuery.isNotEmpty) {
       final query = _searchQuery.toLowerCase();
-      filteredProducts = filteredProducts.where((product) =>
-          product['product_name'].toString().toLowerCase().contains(query)).toList();
+      filteredProducts = filteredProducts
+          .where((product) =>
+          product['product_name'].toString().toLowerCase().contains(query))
+          .toList();
     }
 
     return filteredProducts;
   }
 
+  // ✅ CHANGED: read by product_id and sum counts by product_id
   Future<void> _fetchCartData() async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
 
     try {
-      final data = await supabase.from('cart').select().eq('user_id', user.id);
+      final data = await supabase
+          .from('cart')
+          .select('product_id, product_quantity')
+          .eq('user_id', user.id);
+
       _productQuantities.clear();
+
       for (final item in data) {
-        final productName = item['product_name'] as String;
+        final pid = (item['product_id'] ?? '').toString();
+        if (pid.isEmpty) continue; // ignore legacy rows without product_id
         final quantity = item['product_quantity'] as int? ?? 0;
-        _productQuantities[productName] =
-            (_productQuantities[productName] ?? 0) + quantity;
+        _productQuantities[pid] = (_productQuantities[pid] ?? 0) + quantity;
       }
+
       final totalCount =
       _productQuantities.values.fold<int>(0, (sum, qty) => sum + qty);
       cartCountNotifier.value = totalCount;
@@ -437,28 +436,38 @@ class _OrdersScreenState extends State<OrdersScreen>
     } catch (_) {}
   }
 
-  Future<void> _updateCartQty(Map<String, dynamic> product, int delta) async {
+  // ✅ CHANGED: qty update by product_id (and optionally service_type if you pass it)
+  Future<void> _updateCartQty(Map<String, dynamic> product, int delta,
+      {String? serviceType}) async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
 
-    final name = product['product_name'];
+    final productId = (product['id'] ?? '').toString();
+    if (productId.isEmpty) return;
+
     try {
-      final existingItems = await supabase
+      var query = supabase
           .from('cart')
           .select()
           .eq('user_id', user.id)
-          .eq('product_name', name);
+          .eq('product_id', productId);
+
+      if (serviceType != null) {
+        query = query.eq('service_type', serviceType);
+      }
+
+      final existingItems = await query;
 
       if (existingItems.isEmpty) return;
 
-      final currentQty = _productQuantities[name] ?? 0;
+      final currentQty = _productQuantities[productId] ?? 0;
       final newQty = currentQty + delta;
 
       if (newQty <= 0) {
         for (final item in existingItems) {
           await supabase.from('cart').delete().eq('id', item['id']);
         }
-        _productQuantities.remove(name);
+        _productQuantities.remove(productId);
       } else {
         final firstItem = existingItems.first;
         final productPrice =
@@ -475,14 +484,15 @@ class _OrdersScreenState extends State<OrdersScreen>
         for (int i = 1; i < existingItems.length; i++) {
           await supabase.from('cart').delete().eq('id', existingItems[i]['id']);
         }
-        _productQuantities[name] = newQty;
+        _productQuantities[productId] = newQty;
       }
 
       await _fetchCartData();
-      _triggerAnimations(name);
+      _triggerAnimations(productId);
     } catch (_) {}
   }
 
+  // ✅ CHANGED: add by product_id (+ service_type uniqueness)
   Future<void> _addToCartWithService(
       Map<String, dynamic> product, String service, int servicePrice) async {
     final user = supabase.auth.currentUser;
@@ -495,20 +505,23 @@ class _OrdersScreenState extends State<OrdersScreen>
       return;
     }
 
-    final name = product['product_name'];
+    final productId = (product['id'] ?? '').toString();
+    if (productId.isEmpty) return;
+
+    final name = product['product_name'] ?? '';
     final basePrice = (product['product_price'] as num?)?.toDouble() ?? 0.0;
     final image = product['image_url'] ?? '';
     final category = product['categories']?['name'] ?? '';
     final totalPrice = basePrice + servicePrice;
 
     try {
-      if (mounted) setState(() => _addedStatus[name] = true);
+      if (mounted) setState(() => _addedStatus[productId] = true);
 
       final existing = await supabase
           .from('cart')
           .select('*')
           .eq('user_id', user.id)
-          .eq('product_name', name)
+          .eq('product_id', productId)
           .eq('service_type', service)
           .maybeSingle();
 
@@ -522,6 +535,8 @@ class _OrdersScreenState extends State<OrdersScreen>
       } else {
         await supabase.from('cart').insert({
           'user_id': user.id,
+          'product_id': productId, // ✅ key field
+          // the following are display fields (kept for convenience)
           'product_name': name,
           'product_image': image,
           'product_price': basePrice,
@@ -533,21 +548,21 @@ class _OrdersScreenState extends State<OrdersScreen>
         });
       }
 
-      _productQuantities[name] = (_productQuantities[name] ?? 0) + 1;
-      _triggerAnimations(name);
+      _productQuantities[productId] = (_productQuantities[productId] ?? 0) + 1;
+      _triggerAnimations(productId);
 
       await Future.delayed(const Duration(milliseconds: 1500));
-      if (mounted) setState(() => _addedStatus[name] = false);
+      if (mounted) setState(() => _addedStatus[productId] = false);
 
       await _fetchCartData();
     } catch (e) {
-      if (mounted) setState(() => _addedStatus[name] = false);
+      if (mounted) setState(() => _addedStatus[productId] = false);
     }
   }
 
-  void _triggerAnimations(String productName) {
-    _controllers[productName]?.forward(from: 0.0);
-    _qtyAnimControllers[productName]?.forward(from: 0.9);
+  void _triggerAnimations(String productId) {
+    _controllers[productId]?.forward(from: 0.0);
+    _qtyAnimControllers[productId]?.forward(from: 0.9);
   }
 
   IconData _getServiceIcon(String? iconString) {
@@ -888,11 +903,8 @@ class _OrdersScreenState extends State<OrdersScreen>
                                     ),
                                   ),
                                 ),
-                              Center(
-                                child: Transform.scale(
-                                  scale: _isNearClearZone ? 1.4 : 1.0,
-                                  child: const Icon(Icons.delete_forever, color: Colors.white, size: 42),
-                                ),
+                              const Center(
+                                child: Icon(Icons.delete_forever, color: Colors.white, size: 42),
                               ),
                             ],
                           ),
@@ -1096,7 +1108,6 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   @override
   void dispose() {
-    // 🔸 NEW: Dispose search controllers
     _searchController.dispose();
     _searchFocusNode.dispose();
 
@@ -1142,7 +1153,6 @@ class _OrdersScreenState extends State<OrdersScreen>
                 const SizedBox(height: 12),
                 _buildPremiumCategoryTabs(),
                 const SizedBox(height: 16),
-                // 🔄 Pull-to-refresh wrapper
                 Expanded(
                   child: RefreshIndicator(
                     color: kPrimaryColor,
@@ -1151,7 +1161,6 @@ class _OrdersScreenState extends State<OrdersScreen>
                     child: Stack(
                       children: [
                         _buildContent(),
-                        // 🔸 NEW: Search suggestions overlay
                         if (_showSearchSuggestions && _searchSuggestions.isNotEmpty)
                           _buildSearchSuggestions(),
                       ],
@@ -1168,9 +1177,7 @@ class _OrdersScreenState extends State<OrdersScreen>
     );
   }
 
-
-
-  // 🔸 NEW: Search Suggestions Widget
+  // Search Suggestions
   Widget _buildSearchSuggestions() {
     return Positioned(
       top: 0,
@@ -1438,7 +1445,6 @@ class _OrdersScreenState extends State<OrdersScreen>
       );
     }
 
-    // Update the grid to use BouncingScrollPhysics
     return _buildPremiumProductGrid(context, products);
   }
 
@@ -1589,12 +1595,11 @@ class _OrdersScreenState extends State<OrdersScreen>
     );
   }
 
-  // 🔸 UPDATED: now receives context and uses fixed 20px bottom padding, and is always scrollable
   Widget _buildPremiumProductGrid(BuildContext context, List<Map<String, dynamic>> products) {
     return GridView.builder(
-      physics: const BouncingScrollPhysics(), // Changed to BouncingScrollPhysics for bounce effect
+      physics: const BouncingScrollPhysics(),
       itemCount: products.length,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), // ✅ Same as ProfileScreen gap
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
         crossAxisSpacing: 12,
@@ -1603,21 +1608,22 @@ class _OrdersScreenState extends State<OrdersScreen>
       ),
       itemBuilder: (ctx, idx) {
         final item = products[idx];
+        final productId = (item['id'] ?? '').toString();
         final name = item['product_name'];
-        final qty = _productQuantities[name] ?? 0;
+        final qty = _productQuantities[productId] ?? 0;
 
-        _controllers[name] ??= AnimationController(
+        _controllers[productId] ??= AnimationController(
           vsync: this,
           duration: const Duration(milliseconds: 150),
           lowerBound: 0.95,
           upperBound: 1.05,
         )..addStatusListener((status) {
           if (status == AnimationStatus.completed) {
-            _controllers[name]?.reverse();
+            _controllers[productId]?.reverse();
           }
         });
 
-        _qtyAnimControllers[name] ??= AnimationController(
+        _qtyAnimControllers[productId] ??= AnimationController(
           vsync: this,
           duration: const Duration(milliseconds: 200),
           lowerBound: 0.9,
@@ -1625,7 +1631,7 @@ class _OrdersScreenState extends State<OrdersScreen>
         );
 
         return ScaleTransition(
-          scale: _controllers[name]!,
+          scale: _controllers[productId]!,
           child: GestureDetector(
             onTap: () {
               Navigator.push(
@@ -1695,7 +1701,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                         SizedBox(
                           width: double.infinity,
                           height: 36,
-                          child: _buildProductButton(item, name),
+                          child: _buildProductButton(item, productId),
                         ),
                       ],
                     ),
@@ -1709,8 +1715,8 @@ class _OrdersScreenState extends State<OrdersScreen>
     );
   }
 
-  Widget _buildProductButton(Map<String, dynamic> item, String name) {
-    if (_addedStatus[name] == true) {
+  Widget _buildProductButton(Map<String, dynamic> item, String productId) {
+    if (_addedStatus[productId] == true) {
       return Container(
         decoration: BoxDecoration(color: Colors.green, borderRadius: BorderRadius.circular(12)),
         child: const Center(
