@@ -139,23 +139,6 @@ class _OrdersScreenState extends State<OrdersScreen>
         .toList();
   }
 
-  void _toggleSearch() {
-    setState(() {
-      _isSearchActive = !_isSearchActive;
-      if (_isSearchActive) {
-        _searchAnimationController.forward();
-        Future.delayed(const Duration(milliseconds: 100), () {
-          _searchFocusNode.requestFocus();
-        });
-      } else {
-        _searchAnimationController.reverse();
-        _searchController.clear();
-        _searchQuery = '';
-        _showSearchSuggestions = false;
-        _searchFocusNode.unfocus();
-      }
-    });
-  }
 
   void _selectSearchSuggestion(Map<String, dynamic> product) {
     _searchController.text = product['product_name'];
@@ -1116,7 +1099,6 @@ class _OrdersScreenState extends State<OrdersScreen>
     // 🔸 NEW: Dispose search controllers
     _searchController.dispose();
     _searchFocusNode.dispose();
-    _searchAnimationController.dispose();
 
     for (final c in _controllers.values) {
       c.dispose();
@@ -1158,9 +1140,7 @@ class _OrdersScreenState extends State<OrdersScreen>
             Column(
               children: [
                 const SizedBox(height: 12),
-                // 🔸 NEW: Search Bar (conditional)
-                if (_isSearchActive) _buildSearchBar(),
-                if (!_isSearchActive) _buildPremiumCategoryTabs(),
+                _buildPremiumCategoryTabs(),
                 const SizedBox(height: 16),
                 // 🔄 Pull-to-refresh wrapper
                 Expanded(
@@ -1189,107 +1169,6 @@ class _OrdersScreenState extends State<OrdersScreen>
   }
 
 
-  Widget _buildSearchBar() {
-    return AnimatedBuilder(
-      animation: _searchAnimationController,
-      builder: (context, child) {
-        return FadeTransition(
-          opacity: _searchFadeAnimation,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, -1),
-              end: Offset.zero,
-            ).animate(_searchAnimationController),
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.white, Colors.grey.shade50],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(25),
-                // REMOVE THIS LINE: border: Border.all(color: Colors.grey.shade200, width: 1),
-                boxShadow: [
-                  BoxShadow(
-                    color: kPrimaryColor.withOpacity(0.1),
-                    blurRadius: 20,
-                    offset: const Offset(0, 5),
-                  ),
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.search, color: kPrimaryColor, size: 22),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _searchController,
-                      focusNode: _searchFocusNode,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.black87,
-                      ),
-                      decoration: const InputDecoration(
-                        hintText: 'Search products...',
-                        hintStyle: TextStyle(
-                          fontSize: 16,
-                          color: Color(0xFF42A5F5),
-                          fontWeight: FontWeight.w400,
-                        ),
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        errorBorder: InputBorder.none,
-                        disabledBorder: InputBorder.none,
-                        isDense: true,
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      onSubmitted: (value) {
-                        setState(() => _showSearchSuggestions = false);
-                        _searchFocusNode.unfocus();
-                      },
-                    ),
-                  ),
-                  if (_searchQuery.isNotEmpty)
-                    GestureDetector(
-                      onTap: _clearSearch,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.close, size: 16, color: Colors.black54),
-                      ),
-                    ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: _toggleSearch,
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: kPrimaryColor.withOpacity(0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(Icons.close, color: kPrimaryColor, size: 18),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
 
   // 🔸 NEW: Search Suggestions Widget
   Widget _buildSearchSuggestions() {
@@ -1565,167 +1444,98 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   PreferredSizeWidget _buildPremiumAppBar() {
     return AppBar(
-      elevation: 0,
       backgroundColor: Colors.transparent,
-      toolbarHeight: 85,
+      foregroundColor: Colors.white,
+      elevation: 0,
+      titleSpacing: 16,
       flexibleSpace: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [
-              kPrimaryColor,
-              kPrimaryColor.withOpacity(0.96),
-              kPrimaryColor.withOpacity(0.92)
-            ],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+            colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
           boxShadow: [
             BoxShadow(
-              color: kPrimaryColor.withOpacity(0.5),
-              blurRadius: 30,
-              offset: const Offset(0, 12),
-              spreadRadius: 2,
-            ),
-            BoxShadow(
-              color: Colors.black.withOpacity(0.2),
-              blurRadius: 25,
+              color: kPrimaryColor.withOpacity(0.3),
+              blurRadius: 20,
               offset: const Offset(0, 8),
             ),
           ],
         ),
       ),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(35)),
-      ),
       title: Container(
-        padding: const EdgeInsets.symmetric(vertical: 15),
-        child: Row(
-          children: [
-            // Logo Icon without circular background
-            TweenAnimationBuilder<Color?>(
-              duration: const Duration(seconds: 2),
-              tween: ColorTween(
-                begin: Colors.white,
-                end: kPrimaryColor,
-              ),
-              builder: (context, color, child) {
-                return TweenAnimationBuilder<Color?>(
-                  duration: const Duration(seconds: 2),
-                  tween: ColorTween(
-                    begin: kPrimaryColor,
-                    end: Colors.orange,
-                  ),
-                  onEnd: () {
-                    // This will restart the animation cycle
-                  },
-                  builder: (context, color2, child) {
-                    return AnimatedContainer(
-                      duration: const Duration(milliseconds: 500),
-                      child: Icon(
-                        Icons.flash_on_rounded,
-                        color: Colors.white,
-                        size: 32,
-                      ),
-                    );
-                  },
-                );
-              },
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.white, Colors.grey.shade50],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(15),
+          boxShadow: [
+            BoxShadow(
+              color: kPrimaryColor.withOpacity(0.1),
+              blurRadius: 15,
+              offset: const Offset(0, 4),
             ),
-            const SizedBox(width: 4),
-            // Enhanced Title Section - Only Title, No Subtitle
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Main Title with Premium Typography
-                  Text(
-                    'ironXpress',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                      letterSpacing: -0.8,
-                      height: 1.0,
-                      shadows: [
-                        Shadow(
-                          color: Colors.black.withOpacity(0.4),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                        Shadow(
-                          color: Colors.white.withOpacity(0.25),
-                          blurRadius: 8,
-                          offset: const Offset(0, -2),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
           ],
         ),
-      ),
-      actions: [
-        // Smaller Premium Search Button
-        Container(
-          margin: const EdgeInsets.only(right: 28, top: 15, bottom: 15),
-          child: GestureDetector(
-            onTap: _toggleSearch,
-            child: Container(
-              width: 45,
-              height: 45,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.white.withOpacity(0.3),
-                    blurRadius: 10,
-                    offset: const Offset(-3, -3),
-                  ),
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.25),
-                    blurRadius: 15,
-                    offset: const Offset(3, 3),
-                  ),
-                  BoxShadow(
-                    color: kPrimaryColor.withOpacity(0.5),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Center(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 400),
-                  transitionBuilder: (Widget child, Animation<double> animation) {
-                    return ScaleTransition(
-                      scale: Tween<double>(begin: 0.8, end: 1.0).animate(
-                        CurvedAnimation(
-                          parent: animation,
-                          curve: Curves.elasticOut,
-                        ),
-                      ),
-                      child: FadeTransition(
-                        opacity: animation,
-                        child: child,
-                      ),
-                    );
-                  },
-                  child: Icon(
-                    _isSearchActive ? Icons.close_rounded : Icons.search_rounded,
-                    key: ValueKey<bool>(_isSearchActive),
-                    color: kPrimaryColor,
-                    size: 26,
-                  ),
+        child: Row(
+          children: [
+            Icon(Icons.search, color: kPrimaryColor, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: TextField(
+                controller: _searchController,
+                focusNode: _searchFocusNode,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.black87,
                 ),
+                decoration: const InputDecoration(
+                  hintText: 'Search Products...',
+                  hintStyle: TextStyle(
+                    fontSize: 15,
+                    color: Color(0xFF42A5F5),
+                    fontWeight: FontWeight.w400,
+                  ),
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  errorBorder: InputBorder.none,
+                  disabledBorder: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+                onSubmitted: (value) {
+                  setState(() => _showSearchSuggestions = false);
+                  _searchFocusNode.unfocus();
+                },
               ),
             ),
-          ),
+            if (_searchQuery.isNotEmpty)
+              GestureDetector(
+                onTap: _clearSearch,
+                child: Container(
+                  margin: const EdgeInsets.only(left: 8),
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.close, size: 14, color: Colors.black54),
+                ),
+              ),
+          ],
         ),
-      ],
+      ),
     );
   }
 
