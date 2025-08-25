@@ -92,7 +92,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
       await _updateGlobalCartCount();
       print('✅ Cart loaded: ${_cartItems.length} items');
-
     } catch (e) {
       print('❌ Error loading cart: $e');
       setState(() {
@@ -150,10 +149,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         _isClearingCart = true;
       });
 
-      await supabase
-          .from('cart')
-          .delete()
-          .eq('user_id', user.id);
+      await supabase.from('cart').delete().eq('user_id', user.id);
 
       setState(() {
         _cartItems.clear();
@@ -162,7 +158,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
       await _updateGlobalCartCount();
       _showSnackBar('Cart cleared successfully', Colors.green);
-
     } catch (e) {
       print('❌ Error clearing cart: $e');
       setState(() {
@@ -201,7 +196,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
           ),
         ],
       ),
-    ) ?? false;
+    ) ??
+        false;
   }
 
   // Update quantity with simplified logic - NO ANIMATIONS OR SNACKBARS
@@ -225,18 +221,14 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         _itemLoadingStates[itemId] = true;
       });
 
-      final unitPrice = (item['product_price'] ?? 0).toDouble() +
-          (item['service_price'] ?? 0).toDouble();
+      final unitPrice = (item['product_price'] ?? 0).toDouble() + (item['service_price'] ?? 0).toDouble();
       final newTotalPrice = newQuantity * unitPrice;
 
-      await supabase
-          .from('cart')
-          .update({
+      await supabase.from('cart').update({
         'product_quantity': newQuantity,
         'total_price': newTotalPrice,
         'updated_at': DateTime.now().toIso8601String(),
-      })
-          .eq('id', item['id']);
+      }).eq('id', item['id']);
 
       // Update local state immediately - NO ANIMATIONS
       setState(() {
@@ -250,7 +242,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
       await _updateGlobalCartCount();
       // REMOVED GREEN SNACKBAR
-
     } catch (e) {
       print('❌ Error updating quantity: $e');
       setState(() {
@@ -266,10 +257,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     if (user == null) return;
 
     try {
-      await supabase
-          .from('cart')
-          .delete()
-          .eq('id', item['id']);
+      await supabase.from('cart').delete().eq('id', item['id']);
 
       // Remove item immediately without animation
       setState(() {
@@ -278,7 +266,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
       await _updateGlobalCartCount();
       // REMOVED ORANGE SNACKBAR
-
     } catch (e) {
       print('❌ Error removing item: $e');
       _showSnackBar('Failed to remove item', Colors.red);
@@ -317,9 +304,13 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         content: Row(
           children: [
             Icon(
-              color == Colors.green ? Icons.check_circle :
-              color == Colors.red ? Icons.error :
-              color == Colors.orange ? Icons.warning : Icons.info,
+              color == Colors.green
+                  ? Icons.check_circle
+                  : color == Colors.red
+                  ? Icons.error
+                  : color == Colors.orange
+                  ? Icons.warning
+                  : Icons.info,
               color: Colors.white,
               size: 20,
             ),
@@ -430,7 +421,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
               ),
             ],
           ),
-        ) ?? false;
+        ) ??
+            false;
       },
       background: Container(
         margin: const EdgeInsets.only(bottom: 16),
@@ -679,7 +671,9 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
   Widget _buildCartItem(Map<String, dynamic> item) {
     final itemId = item['id'].toString();
-    final isItemLoading = _itemLoadingStates[itemId] ?? false;
+    final isItemLoading = (_itemLoadingStates[itemId] ?? false);
+
+    final categoryText = (item['category'] ?? '').toString().trim();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -697,34 +691,59 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Product Image
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                width: 70,
-                height: 70,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
+            // LEFT: Product Image + Category chip under it (centered)
+            Column(
+              children: [
+                ClipRRect(
                   borderRadius: BorderRadius.circular(12),
-                ),
-                child: Image.network(
-                  item['product_image'] ?? '',
-                  width: 70,
-                  height: 70,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => Icon(
-                    Icons.image_outlined,
-                    size: 35,
-                    color: Colors.grey.shade400,
+                  child: Container(
+                    width: 70,
+                    height: 70,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Image.network(
+                      item['product_image'] ?? '',
+                      width: 70,
+                      height: 70,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Icon(
+                        Icons.image_outlined,
+                        size: 35,
+                        color: Colors.grey.shade400,
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(height: 4),
+                if (categoryText.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    margin: const EdgeInsets.only(top: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.blue.withOpacity(0.2), width: 0.6),
+                    ),
+                    child: Text(
+                      categoryText,
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: Colors.blue.shade600,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.1,
+                      ),
+                    ),
+                  ),
+              ],
             ),
 
             const SizedBox(width: 16),
 
-            // Product Details
+            // RIGHT: Product Details
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -740,97 +759,119 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: kPrimaryColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      "${item['service_type']}", // Removed the (+₹...)
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: kPrimaryColor,
-                        fontWeight: FontWeight.w600,
+
+                  // Service-type tag
+                  if ((item['service_type'] ?? '').toString().trim().isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: kPrimaryColor.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        "${item['service_type']}",
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: kPrimaryColor,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                  ),
-
-                  const SizedBox(height: 8),
-                  Text(
-                    "₹${item['total_price']}",
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                  ),
                 ],
               ),
             ),
 
             const SizedBox(width: 12),
 
-            // Compact Quantity Controls
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: isItemLoading
-                      ? [Colors.grey.shade400, Colors.grey.shade300]
-                      : [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
-                ),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: isItemLoading
-                        ? Colors.grey.withOpacity(0.3)
-                        : kPrimaryColor.withOpacity(0.3),
-                    blurRadius: 6,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildQuantityButton(
-                    icon: Icons.remove,
-                    onTap: () => _updateQuantity(item, -1),
-                    isLoading: isItemLoading,
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    child: isItemLoading
-                        ? SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
-                    )
-                        : Text(
-                      '${item['product_quantity']}',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                      ),
+            // RIGHTMOST: Quantity Controls with price pushed further below
+            Column(
+              mainAxisSize: MainAxisSize.max,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Counter
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: isItemLoading
+                          ? [Colors.grey.shade400, Colors.grey.shade300]
+                          : [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
                     ),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: isItemLoading
+                            ? Colors.grey.withOpacity(0.3)
+                            : kPrimaryColor.withOpacity(0.3),
+                        blurRadius: 6,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
                   ),
-                  _buildQuantityButton(
-                    icon: Icons.add,
-                    onTap: () => _updateQuantity(item, 1),
-                    isLoading: isItemLoading,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildQuantityButton(
+                        icon: Icons.remove,
+                        onTap: () => _updateQuantity(item, -1),
+                        isLoading: isItemLoading,
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        child: isItemLoading
+                            ? SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                            : Text(
+                          '${item['product_quantity']}',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      _buildQuantityButton(
+                        icon: Icons.add,
+                        onTap: () => _updateQuantity(item, 1),
+                        isLoading: isItemLoading,
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+
+                // Bigger gap before price
+                const SizedBox(height: 20),
+
+                // Price centered below
+                Text(
+                  "₹${item['total_price']}",
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+
+                // Small bottom gap
+                const SizedBox(height: 8),
+              ],
             ),
           ],
         ),
       ),
     );
   }
+
+
+
+
+
 
   Widget _buildQuantityButton({
     required IconData icon,
