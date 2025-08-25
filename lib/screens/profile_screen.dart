@@ -703,7 +703,6 @@ class _ProfileScreenState extends State<ProfileScreen>
       body: FadeTransition(
         opacity: _fadeAnimation,
         child: CustomScrollView(
-          // 👇 Add iOS-like bounce
           physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
           slivers: [
             _buildSliverAppBar(),
@@ -714,8 +713,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   children: [
                     _buildProfileCard(),
                     const SizedBox(height: 16),
-                    _buildQuickStats(),
-                    const SizedBox(height: 16),
+                    // Removed quick stats section
                     _buildMenuSection(),
                     const SizedBox(height: 24),
                     _buildCompactLogoutSection(),
@@ -736,7 +734,6 @@ class _ProfileScreenState extends State<ProfileScreen>
     return SliverAppBar(
       expandedHeight: 220,
       pinned: true,
-      // 👇 Smooth, premium scroll feel
       floating: true,
       snap: true,
       stretch: true,
@@ -748,26 +745,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       flexibleSpace: FlexibleSpaceBar(
         collapseMode: CollapseMode.parallax,
         expandedTitleScale: 1.0,
-        // 👇 Compact title when collapsed
-        titlePadding: const EdgeInsetsDirectional.only(start: 16, bottom: 12, end: 16),
-        title: Row(
-          children: [
-            if ((userProfile?['avatar_url'] as String?)?.isNotEmpty ?? false)
-              CircleAvatar(radius: 10, backgroundImage: NetworkImage(userProfile!['avatar_url']))
-            else
-              const CircleAvatar(radius: 10, child: Icon(Icons.person, size: 12)),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                displayName,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white),
-              ),
-            ),
-          ],
-        ),
-
-        // Expanded state background (your existing rich header)
+        // Removed compact collapsed title (avatar + name)
         background: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -812,7 +790,6 @@ class _ProfileScreenState extends State<ProfileScreen>
       ),
 
       onStretchTrigger: () async {
-        // Optional: haptic on pull-to-stretch
         HapticFeedback.lightImpact();
       },
 
@@ -1269,7 +1246,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  // ✅ FIXED: Quick stats without cancelled orders notification and same color for all cards
+  // (Keeping these methods in case you reuse stats later)
   Widget _buildQuickStats() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -1289,7 +1266,6 @@ class _ProfileScreenState extends State<ProfileScreen>
               '₹${(orderStats?['total_saved'] ?? 0.0).toStringAsFixed(0)}',
               'Total Saved',
               Icons.local_offer_rounded,
-              // ✅ FIXED: Changed from green to primary color like others
               [kPrimaryColor.withOpacity(0.8), kPrimaryColor.withOpacity(0.6)],
             ),
           ),
@@ -1305,7 +1281,6 @@ class _ProfileScreenState extends State<ProfileScreen>
         ],
       ),
     );
-    // ✅ REMOVED: The cancelled orders notification section is completely removed
   }
 
   Widget _buildStatCard(String count, String label, IconData icon, List<Color> gradient) {
@@ -1664,7 +1639,6 @@ class _ProfileScreenState extends State<ProfileScreen>
     final phoneController = TextEditingController(text: userProfile?['phone_number'] ?? '');
     final dobController = TextEditingController(text: userProfile?['date_of_birth'] ?? '');
 
-    // ✅ FIXED: Initialize gender outside of StatefulBuilder to maintain state
     String selectedGender = userProfile?['gender'] ?? '';
 
     showDialog(
