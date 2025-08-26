@@ -249,16 +249,29 @@ class _DeliveryAddressWidgetState extends State<DeliveryAddressWidget>
     }
   }
 
-  // ⬇️⬇️ NEW: open the exact same flow/screen as AppWrapper
-  void _openIronXpressLocationFlow({bool replace = false}) {
-    final route = MaterialPageRoute(builder: (_) => const AppWrapper());
-    if (replace) {
-      Navigator.of(context).pushReplacement(route);
-    } else {
-      Navigator.of(context).push(route);
-    }
+  void _openIronXpressLocationFlow() {
+    Navigator.of(context).pushAndRemoveUntil(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 1500), // 1.5s
+        pageBuilder: (context, animation, secondaryAnimation) => const AppWrapper(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          // Fade + slight slide from bottom
+          final fade = CurvedAnimation(parent: animation, curve: Curves.easeInOut);
+          final slide = Tween<Offset>(
+            begin: const Offset(0.0, 0.1), // a little from bottom
+            end: Offset.zero,
+          ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
+
+          return FadeTransition(
+            opacity: fade,
+            child: SlideTransition(position: slide, child: child),
+          );
+        },
+      ),
+          (Route<dynamic> route) => false, // clear stack
+    );
   }
-  // ⬆️⬆️
+
 
   @override
   Widget build(BuildContext context) {
@@ -525,8 +538,7 @@ class _DeliveryAddressWidgetState extends State<DeliveryAddressWidget>
     );
   }
 
-  // ✅ FIXED ADDRESS CONTENT - Better text handling
-  // ✅ FIXED ADDRESS CONTENT - Better text handling
+
   Widget _buildAddressContent() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

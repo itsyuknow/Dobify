@@ -87,8 +87,54 @@ _initializeSupabase();
     );
   }
 
+  /// Snap camera so the fixed center pin's TIP sits exactly on the device's current location (blue dot).
+  /// - tipOffsetPx: visual distance (in logical px) from the pin's CENTER to its TIP.
+  ///   For your 70px pin, 52 is a good default.
+  /// - We multiply by devicePixelRatio because getScreenCoordinate uses device pixels.
+  Future<void> _snapPinTipToCurrentLocation({
+    double zoom = 16.0,
+    double tipOffsetPx = 52, // <- slightly larger than before
+  }) async {
+    if (!mounted || _mapController == null || _currentPosition == null) return;
 
-Future<void> _initializeSupabase() async {
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+
+    // The REAL current position (blue dot)
+    final LatLng target = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
+
+    // Keep selection in sync with the real location
+    setState(() {
+      _selectedLocation = target;
+    });
+
+    // Allow one frame so projection is valid
+    await Future.delayed(const Duration(milliseconds: 16));
+
+    // Real target -> screen coords
+    final screenPoint = await _mapController!.getScreenCoordinate(target);
+
+    // Shift UP by the pin-tip offset (in device px)
+    final shifted = ScreenCoordinate(
+      x: screenPoint.x,
+      y: (screenPoint.y - (tipOffsetPx * dpr)).round(),
+    );
+
+    // Back to LatLng and animate so the pin TIP hits the real target
+    final adjustedLatLng = await _mapController!.getLatLng(shifted);
+    await _mapController!.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(target: adjustedLatLng, zoom: zoom),
+      ),
+    );
+
+    // Update address/markers from the REAL location (not the adjusted camera target)
+    await _onMapTap(target);
+  }
+
+
+
+
+  Future<void> _initializeSupabase() async {
 try {
 int attempts = 0;
 while (!isSupabaseReady && attempts < 10 && mounted) {
@@ -733,7 +779,7 @@ return _showMap ? _buildPremiumMapSelectionScreen() : _buildPremiumLocationDetec
 return !_isServiceAvailable ? _buildServiceNotAvailableScreen() : _buildPremiumLocationDetectionScreen();
 }
 
-  Widget _buildPremiumLocationDetectionScreen() {
+Widget _buildPremiumLocationDetectionScreen() {
     return ScaleTransition(
       scale: _scaleAnimation,
       child: Container(
@@ -861,6 +907,10 @@ return !_isServiceAvailable ? _buildServiceNotAvailableScreen() : _buildPremiumL
     final bottomSheetHeight = screenHeight * 0.25;
     final searchBarTop = topPadding + 10;
 
+    // How much to lift the PIN image so its TIP sits at the visual center (in logical px).
+    // For a 70px-tall pin, ~28–32 works best. Tune if you change the asset.
+    const double pinTipLift = 30;
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
@@ -884,26 +934,43 @@ return !_isServiceAvailable ? _buildServiceNotAvailableScreen() : _buildPremiumL
             ),
             onCameraMove: (CameraPosition position) {
               setState(() {
+                // This is the MAP center (visual center), not the pin tip.
                 _selectedLocation = position.target;
               });
             },
             onCameraIdle: () async {
-              if (_selectedLocation != null) {
-                await _onMapTap(_selectedLocation!);
-              }
+              if (_selectedLocation == null || _mapController == null) return;
+
+              // Convert the map center to screen coords, then shift UP by the amount
+              // we visually lifted the pin so we get the TIP position.
+              final dpr = MediaQuery.of(context).devicePixelRatio;
+              final centerScreen =
+              await _mapController!.getScreenCoordinate(_selectedLocation!);
+              final tipScreen = ScreenCoordinate(
+                x: centerScreen.x,
+                y: (centerScreen.y - (pinTipLift * dpr)).round(),
+              );
+
+              final tipLatLng = await _mapController!.getLatLng(tipScreen);
+
+              // Now reverse-geocode / update markers based on the TIP’s LatLng.
+              await _onMapTap(tipLatLng);
             },
           ),
 
-          // 📍 Fixed Blue Pin Icon (center)
+          // 📍 Fixed Blue Pin Icon (center) — shifted up so TIP sits at visual center
           Center(
             child: IgnorePointer(
               ignoring: true,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Image.asset('assets/images/blue_pin.png', width: 70, height: 70),
-                  const SizedBox(height: 6),
-                ],
+              child: Transform.translate(
+                offset: const Offset(0, -pinTipLift),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Image.asset('assets/images/blue_pin.png', width: 70, height: 70),
+                    const SizedBox(height: 6),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1074,33 +1141,34 @@ return !_isServiceAvailable ? _buildServiceNotAvailableScreen() : _buildPremiumL
                       );
                     },
                     onSelected: (Location selectedLocation) async {
-                      final placemarks = await placemarkFromCoordinates(
-                        selectedLocation.latitude,
-                        selectedLocation.longitude,
-                      );
-                      if (placemarks.isEmpty) return;
-                      final placemark = placemarks.first;
-
+                      // Just center the camera; onCameraIdle will compute the TIP latlng.
                       final latLng = LatLng(selectedLocation.latitude, selectedLocation.longitude);
                       _mapController?.animateCamera(
                         CameraUpdate.newCameraPosition(
                           CameraPosition(target: latLng, zoom: 16.0),
                         ),
                       );
-                      await _onMapTap(latLng);
                       _searchController.clear();
 
-                      String selectedAddress = '';
-                      if (placemark.street?.isNotEmpty == true) {
-                        selectedAddress = '${placemark.street}, ${placemark.locality ?? ''}';
-                      } else if (placemark.subLocality?.isNotEmpty == true) {
-                        selectedAddress = '${placemark.subLocality}, ${placemark.locality ?? ''}';
-                      } else {
-                        selectedAddress = placemark.locality ?? 'Selected location';
+                      // Keep the visible address text tidy; final address sync happens onCameraIdle.
+                      final placemarks = await placemarkFromCoordinates(
+                        selectedLocation.latitude,
+                        selectedLocation.longitude,
+                      );
+                      if (placemarks.isNotEmpty) {
+                        final p = placemarks.first;
+                        String selectedAddress = '';
+                        if (p.street?.isNotEmpty == true) {
+                          selectedAddress = '${p.street}, ${p.locality ?? ''}';
+                        } else if (p.subLocality?.isNotEmpty == true) {
+                          selectedAddress = '${p.subLocality}, ${p.locality ?? ''}';
+                        } else {
+                          selectedAddress = p.locality ?? 'Selected location';
+                        }
+                        setState(() {
+                          _selectedAddress = selectedAddress;
+                        });
                       }
-                      setState(() {
-                        _selectedAddress = selectedAddress;
-                      });
                     },
                     emptyBuilder: (context) => const SizedBox.shrink(),
                     loadingBuilder: (context) => _loadingSuggestionTile(),
@@ -1136,12 +1204,16 @@ return !_isServiceAvailable ? _buildServiceNotAvailableScreen() : _buildPremiumL
             child: GestureDetector(
               onTap: () async {
                 if (_currentPosition != null) {
+                  // Just center on the real location; TIP alignment handled by onCameraIdle + pin lift.
                   final currentLatLng = LatLng(
                     _currentPosition!.latitude,
                     _currentPosition!.longitude,
                   );
-                  await _animateToWithPinTip(currentLatLng, zoom: 16.0, tipOffsetPx: 36);
-                  await _onMapTap(currentLatLng);
+                  await _mapController?.animateCamera(
+                    CameraUpdate.newCameraPosition(
+                      CameraPosition(target: currentLatLng, zoom: 16.0),
+                    ),
+                  );
                 }
               },
               child: Container(
@@ -1181,7 +1253,7 @@ return !_isServiceAvailable ? _buildServiceNotAvailableScreen() : _buildPremiumL
               position: _slideAnimation,
               child: SafeArea(
                 top: false,
-                bottom: true,                    // SafeArea supplies system inset
+                bottom: true, // SafeArea supplies system inset
                 child: Container(
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
@@ -1346,6 +1418,7 @@ return !_isServiceAvailable ? _buildServiceNotAvailableScreen() : _buildPremiumL
       ),
     );
   }
+
 
 
   Widget _buildServiceNotAvailableScreen() {
