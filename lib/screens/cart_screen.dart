@@ -693,7 +693,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // LEFT: Product Image + Category chip under it (centered)
+            // LEFT: Product Image + Category text under it
             Column(
               children: [
                 ClipRRect(
@@ -720,21 +720,15 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 4),
                 if (categoryText.isNotEmpty)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    margin: const EdgeInsets.only(top: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.blue.withOpacity(0.2), width: 0.6),
-                    ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
                     child: Text(
                       categoryText,
                       style: TextStyle(
                         fontSize: 9,
-                        color: Colors.blue.shade600,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.1,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 0.2,
                       ),
                     ),
                   ),
@@ -743,7 +737,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
             const SizedBox(width: 16),
 
-            // RIGHT: Product Details
+            // MIDDLE: Product Details
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -763,7 +757,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                   // Service-type tag
                   if ((item['service_type'] ?? '').toString().trim().isNotEmpty)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
                         color: kPrimaryColor.withOpacity(0.08),
                         borderRadius: BorderRadius.circular(6),
@@ -783,7 +778,7 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
 
             const SizedBox(width: 12),
 
-            // RIGHTMOST: Quantity Controls with price pushed further below
+            // RIGHTMOST: Quantity Controls with price below
             Column(
               mainAxisSize: MainAxisSize.max,
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -816,7 +811,8 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                         isLoading: isItemLoading,
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
                         child: isItemLoading
                             ? SizedBox(
                           width: 16,
@@ -844,7 +840,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                   ),
                 ),
 
-                // Bigger gap before price
                 const SizedBox(height: 20),
 
                 // Price centered below
@@ -858,7 +853,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                   ),
                 ),
 
-                // Small bottom gap
                 const SizedBox(height: 8),
               ],
             ),
@@ -867,8 +861,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       ),
     );
   }
-
-
 
 
 

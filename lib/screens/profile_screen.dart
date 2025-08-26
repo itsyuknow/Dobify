@@ -30,6 +30,99 @@ class _ProfileScreenState extends State<ProfileScreen>
   final ImagePicker picker = ImagePicker();
   final ScrollController _scrollController = ScrollController();
 
+
+  Future<String?> _pickAndUploadImageFromDialog(ImageSource source) async {
+    if (!mounted) return null;
+
+    final user = supabase.auth.currentUser;
+    if (user == null) {
+      if (mounted) _showErrorSnackBar('User not authenticated');
+      return null;
+    }
+
+    try {
+      final picked = await picker.pickImage(
+        source: source,
+        maxWidth: 1000,
+        maxHeight: 1000,
+        imageQuality: 90,
+      );
+      if (picked == null) return null;
+
+      final file = File(picked.path);
+      if (!await file.exists()) throw Exception('Selected file does not exist');
+
+      final size = await file.length();
+      if (size > 5 * 1024 * 1024) {
+        throw Exception('File size too large (max 5MB)');
+      }
+
+      final ext = p.extension(file.path).toLowerCase();
+      if (!['.jpg', '.jpeg', '.png', '.webp'].contains(ext)) {
+        throw Exception('Invalid file format. Please use JPG, PNG, or WebP');
+      }
+
+      // ensure bucket is accessible
+      try {
+        await supabase.storage.from('avatars').list();
+      } catch (_) {
+        throw Exception('Storage bucket "avatars" not accessible. Check bucket & RLS.');
+      }
+
+      final fileName = '${user.id}_${DateTime.now().millisecondsSinceEpoch}$ext';
+      await supabase.storage.from('avatars').upload(
+        fileName,
+        file,
+        fileOptions: const FileOptions(cacheControl: '3600', upsert: true),
+      );
+
+      final url = supabase.storage.from('avatars').getPublicUrl(fileName);
+      if (mounted) {
+        _showSuccessSnackBar('Photo uploaded — remember to Save Changes');
+      }
+      return url;
+    } catch (e) {
+      if (mounted) {
+        _showErrorSnackBar(_getErrorMessage(e.toString()));
+      }
+      return null;
+    }
+  }
+
+  /// If email changed in dialog, update auth email (Supabase may send verification).
+  Future<void> _updateEmailIfChanged(String newEmail) async {
+    if (!mounted) return;
+
+    final currentEmail = supabase.auth.currentUser?.email ?? '';
+
+    // Trim and normalize both emails for comparison
+    final trimmedNewEmail = newEmail.trim().toLowerCase();
+    final trimmedCurrentEmail = currentEmail.trim().toLowerCase();
+
+    // Don't attempt update if emails are the same or new email is empty
+    if (trimmedNewEmail.isEmpty || trimmedNewEmail == trimmedCurrentEmail) {
+      return;
+    }
+
+    try {
+      await supabase.auth.updateUser(UserAttributes(email: newEmail));
+      if (mounted) {
+        _showSuccessSnackBar('Email update requested. Check your inbox to verify.');
+      }
+    } catch (e) {
+      if (mounted) {
+        // Don't show error for "email already exists" if it's the same user
+        final errorMessage = e.toString().toLowerCase();
+        if (errorMessage.contains('email_exists') || errorMessage.contains('already been registered')) {
+          // Silent fail - this means they're trying to set it to their current email
+          return;
+        }
+        _showErrorSnackBar('Could not update email: ${e.toString()}');
+      }
+    }
+  }
+
+
   Map<String, dynamic>? userProfile;
   Map<String, dynamic>? orderStats;
   List<Map<String, dynamic>> userAddresses = [];
@@ -656,7 +749,7 @@ class _ProfileScreenState extends State<ProfileScreen>
         completed++;
       }
     }
-    if (supabase.auth.currentUser?.email != null) {
+    if (supabase.auth.currentUser?.email != null && supabase.auth.currentUser!.email!.isNotEmpty) {
       completed++;
     }
     return ((completed / (fields.length + 1)) * 100).round();
@@ -792,20 +885,6 @@ class _ProfileScreenState extends State<ProfileScreen>
       onStretchTrigger: () async {
         HapticFeedback.lightImpact();
       },
-
-      actions: [
-        Container(
-          margin: const EdgeInsets.only(right: 16),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.2),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: IconButton(
-            onPressed: _showEditDialog,
-            icon: const Icon(Icons.edit_rounded, color: Colors.white),
-          ),
-        ),
-      ],
     );
   }
 
@@ -1135,12 +1214,18 @@ class _ProfileScreenState extends State<ProfileScreen>
                         ],
                       ),
                       const SizedBox(height: 16),
+                      _buildEnhancedInfoRow(Icons.photo_camera_rounded, 'Profile Picture',
+                          (userProfile?['avatar_url'] != null && userProfile!['avatar_url'].toString().isNotEmpty)
+                              ? 'Uploaded'
+                              : 'Not set'),
                       _buildEnhancedInfoRow(Icons.person_rounded, 'Name',
                           '${userProfile?['first_name'] ?? ''} ${userProfile?['last_name'] ?? ''}'.trim().isEmpty
                               ? 'Not set'
                               : '${userProfile!['first_name'] ?? ''} ${userProfile!['last_name'] ?? ''}'.trim()),
                       _buildEnhancedInfoRow(Icons.email_rounded, 'Email',
-                          supabase.auth.currentUser?.email ?? 'Not set'),
+                          (supabase.auth.currentUser?.email?.isNotEmpty == true)
+                              ? supabase.auth.currentUser!.email!
+                              : 'Not set'),
                       _buildEnhancedInfoRow(Icons.phone_rounded, 'Phone', userProfile?['phone_number'] ?? 'Not set'),
                       _buildEnhancedInfoRow(Icons.cake_rounded, 'Birthday', userProfile?['date_of_birth'] ?? 'Not set'),
                       _buildEnhancedInfoRow(Icons.person_outline_rounded, 'Gender', userProfile?['gender'] ?? 'Not set'),
@@ -1156,7 +1241,7 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Widget _buildEnhancedInfoRow(IconData icon, String label, String value) {
-    bool hasValue = value != 'Not set' && value.isNotEmpty;
+    bool hasValue = value != 'Not set' && value.isNotEmpty && value.trim().isNotEmpty;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -1209,7 +1294,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  value,
+                  hasValue ? value : 'Not set',
                   style: TextStyle(
                     fontSize: 14,
                     color: hasValue ? Colors.black87 : Colors.grey.shade500,
@@ -1632,488 +1717,607 @@ class _ProfileScreenState extends State<ProfileScreen>
     }
   }
 
-  // ✅ FIXED: Complete gender selection dialog with proper state management
   void _showEditDialog() {
+    if (!mounted) return;
+
     final firstNameController = TextEditingController(text: userProfile?['first_name'] ?? '');
     final lastNameController = TextEditingController(text: userProfile?['last_name'] ?? '');
     final phoneController = TextEditingController(text: userProfile?['phone_number'] ?? '');
     final dobController = TextEditingController(text: userProfile?['date_of_birth'] ?? '');
+    final emailController = TextEditingController(text: supabase.auth.currentUser?.email ?? '');
 
     String selectedGender = userProfile?['gender'] ?? '';
+    String? localAvatarUrl = userProfile?['avatar_url'] as String?;
 
     showDialog(
       context: context,
       barrierColor: Colors.black.withOpacity(0.7),
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          return Dialog(
-            backgroundColor: Colors.transparent,
-            insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 60),
-            child: Container(
-              width: double.infinity,
-              constraints: const BoxConstraints(maxHeight: 600),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 20,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Header
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(
-                                Icons.edit_rounded,
-                                color: Colors.white,
-                                size: 20
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Edit Profile',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w800,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                SizedBox(height: 2),
-                                Text(
-                                  'Update your personal information',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.white70,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: IconButton(
-                              onPressed: () {
-                                Navigator.pop(context);
-                                firstNameController.dispose();
-                                lastNameController.dispose();
-                                phoneController.dispose();
-                                dobController.dispose();
-                              },
-                              icon: const Icon(
-                                Icons.close_rounded,
-                                color: Colors.white,
-                                size: 20,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+      barrierDismissible: true,
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setDialogState) {
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 60),
+              child: Container(
+                width: double.infinity,
+                constraints: const BoxConstraints(maxHeight: 600),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
                     ),
-
-                    // Form Content
-                    Flexible(
-                      child: SingleChildScrollView(
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Header
+                      Container(
                         padding: const EdgeInsets.all(16),
-                        child: Column(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+                          ),
+                        ),
+                        child: Row(
                           children: [
-                            // Name Row
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildCompactEditField(
-                                    firstNameController,
-                                    'First Name',
-                                    Icons.person_rounded,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _buildCompactEditField(
-                                    lastNameController,
-                                    'Last Name',
-                                    Icons.person_outline_rounded,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-
-                            // Phone Number
-                            _buildCompactEditField(
-                              phoneController,
-                              'Phone Number',
-                              Icons.phone_rounded,
-                              TextInputType.phone,
-                            ),
-                            const SizedBox(height: 16),
-
-                            // Date of Birth
-                            GestureDetector(
-                              onTap: () async {
-                                final DateTime? picked = await showDatePicker(
-                                  context: context,
-                                  initialDate: userProfile?['date_of_birth'] != null
-                                      ? DateTime.tryParse(userProfile!['date_of_birth']) ?? DateTime.now()
-                                      : DateTime.now(),
-                                  firstDate: DateTime(1900),
-                                  lastDate: DateTime.now(),
-                                  builder: (context, child) {
-                                    return Theme(
-                                      data: Theme.of(context).copyWith(
-                                        colorScheme: ColorScheme.light(
-                                          primary: kPrimaryColor,
-                                          onPrimary: Colors.white,
-                                          surface: Colors.white,
-                                          onSurface: Colors.black,
-                                        ),
-                                      ),
-                                      child: child!,
-                                    );
-                                  },
-                                );
-                                if (picked != null) {
-                                  dobController.text = picked.toIso8601String().split('T')[0];
-                                }
-                              },
-                              child: AbsorbPointer(
-                                child: _buildCompactEditField(
-                                    dobController,
-                                    'Date of Birth',
-                                    Icons.cake_rounded,
-                                    null,
-                                    'Tap to select date'
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-
-                            // ✅ FIXED GENDER SELECTION with proper state management
                             Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(16),
+                              padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: Colors.grey.shade50,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: kPrimaryColor.withOpacity(0.2),
-                                  width: 1,
-                                ),
+                                color: Colors.white.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(10),
                               ),
+                              child: const Icon(Icons.edit_rounded, color: Colors.white, size: 20),
+                            ),
+                            const SizedBox(width: 12),
+                            const Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          gradient: LinearGradient(
-                                            colors: [kPrimaryColor.withOpacity(0.15), kPrimaryColor.withOpacity(0.08)],
-                                          ),
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                        child: Icon(
-                                            Icons.person_outline_rounded,
-                                            color: kPrimaryColor,
-                                            size: 16
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      const Text(
-                                        'Gender',
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w700,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
-                                    ],
+                                  Text(
+                                    'Edit Profile',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                    ),
                                   ),
-                                  const SizedBox(height: 12),
-
-                                  // Gender Options with fixed state management
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: GestureDetector(
-                                          onTap: () {
-                                            HapticFeedback.lightImpact();
-                                            setDialogState(() {
-                                              selectedGender = 'Male';
-                                            });
-                                          },
-                                          child: AnimatedContainer(
-                                            duration: const Duration(milliseconds: 200),
-                                            padding: const EdgeInsets.all(12),
-                                            decoration: BoxDecoration(
-                                              gradient: selectedGender == 'Male'
-                                                  ? LinearGradient(
-                                                colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
-                                              )
-                                                  : LinearGradient(
-                                                colors: [Colors.white, Colors.grey.shade50],
-                                              ),
-                                              borderRadius: BorderRadius.circular(12),
-                                              border: Border.all(
-                                                color: selectedGender == 'Male' ? kPrimaryColor : Colors.grey.shade300,
-                                                width: selectedGender == 'Male' ? 2 : 1,
-                                              ),
-                                              boxShadow: selectedGender == 'Male'
-                                                  ? [
-                                                BoxShadow(
-                                                  color: kPrimaryColor.withOpacity(0.25),
-                                                  blurRadius: 8,
-                                                  offset: const Offset(0, 4),
-                                                ),
-                                              ]
-                                                  : [
-                                                BoxShadow(
-                                                  color: Colors.grey.withOpacity(0.1),
-                                                  blurRadius: 4,
-                                                  offset: const Offset(0, 2),
-                                                ),
-                                              ],
-                                            ),
-                                            child: Column(
-                                              children: [
-                                                Icon(
-                                                  Icons.male_rounded,
-                                                  color: selectedGender == 'Male' ? Colors.white : kPrimaryColor,
-                                                  size: 24,
-                                                ),
-                                                const SizedBox(height: 6),
-                                                Text(
-                                                  'Male',
-                                                  style: TextStyle(
-                                                    color: selectedGender == 'Male' ? Colors.white : Colors.black87,
-                                                    fontWeight: FontWeight.w600,
-                                                    fontSize: 13,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: GestureDetector(
-                                          onTap: () {
-                                            HapticFeedback.lightImpact();
-                                            setDialogState(() {
-                                              selectedGender = 'Female';
-                                            });
-                                          },
-                                          child: AnimatedContainer(
-                                            duration: const Duration(milliseconds: 200),
-                                            padding: const EdgeInsets.all(12),
-                                            decoration: BoxDecoration(
-                                              gradient: selectedGender == 'Female'
-                                                  ? LinearGradient(
-                                                colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
-                                              )
-                                                  : LinearGradient(
-                                                colors: [Colors.white, Colors.grey.shade50],
-                                              ),
-                                              borderRadius: BorderRadius.circular(12),
-                                              border: Border.all(
-                                                color: selectedGender == 'Female' ? kPrimaryColor : Colors.grey.shade300,
-                                                width: selectedGender == 'Female' ? 2 : 1,
-                                              ),
-                                              boxShadow: selectedGender == 'Female'
-                                                  ? [
-                                                BoxShadow(
-                                                  color: kPrimaryColor.withOpacity(0.25),
-                                                  blurRadius: 8,
-                                                  offset: const Offset(0, 4),
-                                                ),
-                                              ]
-                                                  : [
-                                                BoxShadow(
-                                                  color: Colors.grey.withOpacity(0.1),
-                                                  blurRadius: 4,
-                                                  offset: const Offset(0, 2),
-                                                ),
-                                              ],
-                                            ),
-                                            child: Column(
-                                              children: [
-                                                Icon(
-                                                  Icons.female_rounded,
-                                                  color: selectedGender == 'Female' ? Colors.white : kPrimaryColor,
-                                                  size: 24,
-                                                ),
-                                                const SizedBox(height: 6),
-                                                Text(
-                                                  'Female',
-                                                  style: TextStyle(
-                                                    color: selectedGender == 'Female' ? Colors.white : Colors.black87,
-                                                    fontWeight: FontWeight.w600,
-                                                    fontSize: 13,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                                  SizedBox(height: 2),
+                                  Text(
+                                    'Update your personal information',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.white70,
+                                      fontWeight: FontWeight.w500,
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
-
-                            const SizedBox(height: 24),
-
-                            // Action Buttons
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Container(
-                                    height: 44,
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey.shade100,
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: Colors.grey.shade300,
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: TextButton(
-                                      onPressed: () {
-                                        Navigator.pop(context);
-                                        firstNameController.dispose();
-                                        lastNameController.dispose();
-                                        phoneController.dispose();
-                                        dobController.dispose();
-                                      },
-                                      style: TextButton.styleFrom(
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                      ),
-                                      child: Text(
-                                        'Cancel',
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.grey.shade700,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  flex: 2,
-                                  child: Container(
-                                    height: 44,
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
-                                      ),
-                                      borderRadius: BorderRadius.circular(12),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: kPrimaryColor.withOpacity(0.3),
-                                          blurRadius: 8,
-                                          offset: const Offset(0, 4),
-                                        ),
-                                      ],
-                                    ),
-                                    child: ElevatedButton(
-                                      onPressed: () async {
-                                        Map<String, dynamic> updateData = {
-                                          'first_name': firstNameController.text.trim(),
-                                          'last_name': lastNameController.text.trim(),
-                                          'phone_number': phoneController.text.trim(),
-                                        };
-
-                                        if (dobController.text.trim().isNotEmpty) {
-                                          updateData['date_of_birth'] = dobController.text.trim();
-                                        }
-
-                                        if (selectedGender.isNotEmpty) {
-                                          updateData['gender'] = selectedGender;
-                                        }
-
-                                        await _updateProfile(updateData);
-                                        if (context.mounted) {
-                                          Navigator.pop(context);
-                                        }
-                                        firstNameController.dispose();
-                                        lastNameController.dispose();
-                                        phoneController.dispose();
-                                        dobController.dispose();
-                                      },
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.transparent,
-                                        foregroundColor: Colors.white,
-                                        shadowColor: Colors.transparent,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                      ),
-                                      child: const Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          Icon(Icons.save_rounded, size: 16),
-                                          SizedBox(width: 6),
-                                          Text(
-                                            'Save Changes',
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
+                            Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: IconButton(
+                                onPressed: () {
+                                  firstNameController.dispose();
+                                  lastNameController.dispose();
+                                  phoneController.dispose();
+                                  dobController.dispose();
+                                  emailController.dispose();
+                                  Navigator.of(context).pop();
+                                },
+                                icon: const Icon(Icons.close_rounded, color: Colors.white, size: 20),
+                              ),
                             ),
                           ],
                         ),
                       ),
-                    ),
-                  ],
+
+                      // Form content
+                      Flexible(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            children: [
+                              // First/Last name
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _buildCompactEditField(
+                                      firstNameController,
+                                      'First Name',
+                                      Icons.person_rounded,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: _buildCompactEditField(
+                                      lastNameController,
+                                      'Last Name',
+                                      Icons.person_outline_rounded,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+
+                              // Phone
+                              _buildCompactEditField(
+                                phoneController,
+                                'Phone Number',
+                                Icons.phone_rounded,
+                                TextInputType.phone,
+                              ),
+                              const SizedBox(height: 16),
+
+                              // Email
+                              _buildCompactEditField(
+                                emailController,
+                                'Email',
+                                Icons.email_rounded,
+                                TextInputType.emailAddress,
+                              ),
+                              const SizedBox(height: 16),
+
+                              // DOB
+                              GestureDetector(
+                                onTap: () async {
+                                  final DateTime? picked = await showDatePicker(
+                                    context: context,
+                                    initialDate: userProfile?['date_of_birth'] != null
+                                        ? DateTime.tryParse(userProfile!['date_of_birth']) ?? DateTime.now()
+                                        : DateTime.now(),
+                                    firstDate: DateTime(1900),
+                                    lastDate: DateTime.now(),
+                                    builder: (context, child) {
+                                      return Theme(
+                                        data: Theme.of(context).copyWith(
+                                          colorScheme: ColorScheme.light(
+                                            primary: kPrimaryColor,
+                                            onPrimary: Colors.white,
+                                            surface: Colors.white,
+                                            onSurface: Colors.black,
+                                          ),
+                                        ),
+                                        child: child!,
+                                      );
+                                    },
+                                  );
+                                  if (picked != null) {
+                                    dobController.text = picked.toIso8601String().split('T')[0];
+                                  }
+                                },
+                                child: AbsorbPointer(
+                                  child: _buildCompactEditField(
+                                    dobController,
+                                    'Date of Birth',
+                                    Icons.cake_rounded,
+                                    null,
+                                    'Tap to select date',
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+
+                              // Profile Photo block
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade50,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: kPrimaryColor.withOpacity(0.2)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              colors: [kPrimaryColor.withOpacity(0.15), kPrimaryColor.withOpacity(0.08)],
+                                            ),
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                          child: Icon(Icons.image_rounded, color: kPrimaryColor, size: 16),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        const Text(
+                                          'Profile Photo',
+                                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black87),
+                                        ),
+                                        const Spacer(),
+                                        Text(
+                                          'JPG/PNG/WebP • ≤5MB',
+                                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        CircleAvatar(
+                                          radius: 28,
+                                          backgroundColor: Colors.white,
+                                          backgroundImage: (localAvatarUrl != null && localAvatarUrl!.isNotEmpty)
+                                              ? NetworkImage(localAvatarUrl!)
+                                              : null,
+                                          child: (localAvatarUrl == null || localAvatarUrl!.isEmpty)
+                                              ? Icon(Icons.person_rounded, color: kPrimaryColor, size: 28)
+                                              : null,
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Row(
+                                            children: [
+                                              Expanded(
+                                                child: OutlinedButton.icon(
+                                                  onPressed: () async {
+                                                    final url = await _pickAndUploadImageFromDialog(ImageSource.camera);
+                                                    if (url != null) {
+                                                      setDialogState(() => localAvatarUrl = url);
+                                                    }
+                                                  },
+                                                  icon: const Icon(Icons.camera_alt_rounded, size: 16),
+                                                  label: const Text('Camera'),
+                                                  style: OutlinedButton.styleFrom(
+                                                    foregroundColor: kPrimaryColor,
+                                                    side: BorderSide(color: kPrimaryColor.withOpacity(0.4)),
+                                                    padding: const EdgeInsets.symmetric(vertical: 10),
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: OutlinedButton.icon(
+                                                  onPressed: () async {
+                                                    final url = await _pickAndUploadImageFromDialog(ImageSource.gallery);
+                                                    if (url != null) {
+                                                      setDialogState(() => localAvatarUrl = url);
+                                                    }
+                                                  },
+                                                  icon: const Icon(Icons.photo_library_rounded, size: 16),
+                                                  label: const Text('Gallery'),
+                                                  style: OutlinedButton.styleFrom(
+                                                    foregroundColor: kPrimaryColor,
+                                                    side: BorderSide(color: kPrimaryColor.withOpacity(0.4)),
+                                                    padding: const EdgeInsets.symmetric(vertical: 10),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+
+                              // Gender
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade50,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: kPrimaryColor.withOpacity(0.2), width: 1),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              colors: [kPrimaryColor.withOpacity(0.15), kPrimaryColor.withOpacity(0.08)],
+                                            ),
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                          child: Icon(Icons.person_outline_rounded, color: kPrimaryColor, size: 16),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        const Text(
+                                          'Gender',
+                                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black87),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: GestureDetector(
+                                            onTap: () {
+                                              HapticFeedback.lightImpact();
+                                              setDialogState(() => selectedGender = 'Male');
+                                            },
+                                            child: AnimatedContainer(
+                                              duration: const Duration(milliseconds: 200),
+                                              padding: const EdgeInsets.all(12),
+                                              decoration: BoxDecoration(
+                                                gradient: selectedGender == 'Male'
+                                                    ? LinearGradient(colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)])
+                                                    : LinearGradient(colors: [Colors.white, Colors.grey.shade50]),
+                                                borderRadius: BorderRadius.circular(12),
+                                                border: Border.all(
+                                                  color: selectedGender == 'Male' ? kPrimaryColor : Colors.grey.shade300,
+                                                  width: selectedGender == 'Male' ? 2 : 1,
+                                                ),
+                                                boxShadow: selectedGender == 'Male'
+                                                    ? [BoxShadow(color: kPrimaryColor.withOpacity(0.25), blurRadius: 8, offset: const Offset(0, 4))]
+                                                    : [BoxShadow(color: Colors.grey.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, 2))],
+                                              ),
+                                              child: Column(
+                                                children: [
+                                                  Icon(Icons.male_rounded,
+                                                      color: selectedGender == 'Male' ? Colors.white : kPrimaryColor, size: 24),
+                                                  const SizedBox(height: 6),
+                                                  Text('Male',
+                                                      style: TextStyle(
+                                                        color: selectedGender == 'Male' ? Colors.white : Colors.black87,
+                                                        fontWeight: FontWeight.w600,
+                                                        fontSize: 13,
+                                                      )),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: GestureDetector(
+                                            onTap: () {
+                                              HapticFeedback.lightImpact();
+                                              setDialogState(() => selectedGender = 'Female');
+                                            },
+                                            child: AnimatedContainer(
+                                              duration: const Duration(milliseconds: 200),
+                                              padding: const EdgeInsets.all(12),
+                                              decoration: BoxDecoration(
+                                                gradient: selectedGender == 'Female'
+                                                    ? LinearGradient(colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)])
+                                                    : LinearGradient(colors: [Colors.white, Colors.grey.shade50]),
+                                                borderRadius: BorderRadius.circular(12),
+                                                border: Border.all(
+                                                  color: selectedGender == 'Female' ? kPrimaryColor : Colors.grey.shade300,
+                                                  width: selectedGender == 'Female' ? 2 : 1,
+                                                ),
+                                                boxShadow: selectedGender == 'Female'
+                                                    ? [BoxShadow(color: kPrimaryColor.withOpacity(0.25), blurRadius: 8, offset: const Offset(0, 4))]
+                                                    : [BoxShadow(color: Colors.grey.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, 2))],
+                                              ),
+                                              child: Column(
+                                                children: [
+                                                  Icon(Icons.female_rounded,
+                                                      color: selectedGender == 'Female' ? Colors.white : kPrimaryColor, size: 24),
+                                                  const SizedBox(height: 6),
+                                                  Text('Female',
+                                                      style: TextStyle(
+                                                        color: selectedGender == 'Female' ? Colors.white : Colors.black87,
+                                                        fontWeight: FontWeight.w600,
+                                                        fontSize: 13,
+                                                      )),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+
+                              // Actions
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Container(
+                                      height: 44,
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.shade100,
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: Colors.grey.shade300, width: 1),
+                                      ),
+                                      child: TextButton(
+                                        onPressed: () {
+                                          firstNameController.dispose();
+                                          lastNameController.dispose();
+                                          phoneController.dispose();
+                                          dobController.dispose();
+                                          emailController.dispose();
+                                          Navigator.of(context).pop();
+                                        },
+                                        style: TextButton.styleFrom(
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                        ),
+                                        child: Text('Cancel',
+                                            style: TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.grey.shade700
+                                            )),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    flex: 2,
+                                    child: Container(
+                                      height: 44,
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)]),
+                                        borderRadius: BorderRadius.circular(12),
+                                        boxShadow: [BoxShadow(color: kPrimaryColor.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4))],
+                                      ),
+                                      child: ElevatedButton(
+                                        onPressed: () async {
+                                          await _handleSaveProfile(
+                                            context,
+                                            firstNameController,
+                                            lastNameController,
+                                            phoneController,
+                                            dobController,
+                                            emailController,
+                                            selectedGender,
+                                            localAvatarUrl,
+                                          );
+
+                                          // Dispose controllers
+                                          firstNameController.dispose();
+                                          lastNameController.dispose();
+                                          phoneController.dispose();
+                                          dobController.dispose();
+                                          emailController.dispose();
+                                        },
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.transparent,
+                                          foregroundColor: Colors.white,
+                                          shadowColor: Colors.transparent,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                        ),
+                                        child: const Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(Icons.save_rounded, size: 16),
+                                            SizedBox(width: 6),
+                                            Text('Save Changes', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          );
-        },
-      ),
+            );
+          },
+        );
+      },
     );
+  }
+
+  Future<void> _handleSaveProfile(
+      BuildContext dialogContext,
+      TextEditingController firstNameController,
+      TextEditingController lastNameController,
+      TextEditingController phoneController,
+      TextEditingController dobController,
+      TextEditingController emailController,
+      String selectedGender,
+      String? localAvatarUrl,
+      ) async {
+    try {
+      // Show loading dialog
+      showDialog(
+        context: dialogContext,
+        barrierDismissible: false,
+        builder: (context) => Dialog(
+          backgroundColor: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(color: kPrimaryColor),
+                const SizedBox(height: 16),
+                const Text(
+                  'Saving Changes...',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      // Build profile updates
+      final updateData = <String, dynamic>{
+        'first_name': firstNameController.text.trim(),
+        'last_name': lastNameController.text.trim(),
+        'phone_number': phoneController.text.trim(),
+      };
+
+      if (dobController.text.trim().isNotEmpty) {
+        updateData['date_of_birth'] = dobController.text.trim();
+      }
+      if (selectedGender.isNotEmpty) {
+        updateData['gender'] = selectedGender;
+      }
+
+      final currentAvatar = (userProfile?['avatar_url'] as String?) ?? '';
+      if ((localAvatarUrl ?? '') != currentAvatar) {
+        updateData['avatar_url'] = localAvatarUrl ?? '';
+      }
+
+      // Update profile
+      await _updateProfile(updateData);
+
+      // Update email if changed
+      // Update email if changed
+      final newEmail = emailController.text.trim();
+      final currentEmail = supabase.auth.currentUser?.email ?? '';
+      if (newEmail.isNotEmpty && newEmail.toLowerCase() != currentEmail.toLowerCase()) {
+        await _updateEmailIfChanged(newEmail);
+      }
+
+      // Close loading dialog
+      if (dialogContext.mounted) {
+        Navigator.of(dialogContext).pop();
+      }
+
+      // Close edit dialog
+      if (dialogContext.mounted) {
+        Navigator.of(dialogContext).pop();
+      }
+
+      // Show success message
+      if (mounted) {
+        _showSuccessSnackBar('Profile updated successfully!');
+        HapticFeedback.mediumImpact();
+      }
+
+    } catch (e) {
+      // Close loading dialog if open
+      if (dialogContext.mounted) {
+        Navigator.of(dialogContext).pop();
+      }
+
+      // Show error message
+      if (mounted) {
+        _showErrorSnackBar('Update failed: ${e.toString()}');
+      }
+    }
   }
 
   Widget _buildCompactEditField(
@@ -2187,7 +2391,9 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   Future<void> _updateProfile(Map<String, dynamic> updates) async {
     final user = supabase.auth.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      throw Exception('User not authenticated');
+    }
 
     try {
       Map<String, dynamic> cleanUpdates = {};
@@ -2197,24 +2403,26 @@ class _ProfileScreenState extends State<ProfileScreen>
         }
       });
 
+      if (cleanUpdates.isEmpty) {
+        throw Exception('No valid updates provided');
+      }
+
       cleanUpdates['user_id'] = user.id;
       cleanUpdates['updated_at'] = DateTime.now().toIso8601String();
-
-      print('Updating profile with data: $cleanUpdates');
 
       await supabase.from('user_profiles').upsert(
         cleanUpdates,
         onConflict: 'user_id',
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw Exception('Update operation timed out'),
       );
 
-      print('Profile update successful');
+      // Reload profile data
       await _loadProfileData();
 
-      HapticFeedback.mediumImpact();
-      _showSuccessSnackBar('Profile updated successfully!');
     } catch (e) {
-      print('Error updating profile: $e');
-      _showErrorSnackBar('Failed to update profile: ${e.toString()}');
+      throw Exception('Failed to update profile: ${e.toString()}');
     }
   }
 
