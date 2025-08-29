@@ -578,43 +578,11 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Top row with recommended tag or service tag
+          // Top row with price on left, tag on right
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // Show "RECOMMENDED" if current service is recommended, otherwise show service tag
-              if (isCurrentServiceRecommended)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade50,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Text(
-                    'RECOMMENDED',
-                    style: TextStyle(
-                      color: Colors.red,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
-                  ),
-                )
-              else if (selectedService['tag'] != null && selectedService['tag'].isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade50,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    selectedService['tag'],
-                    style: const TextStyle(
-                      color: Colors.red,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
+              // Price container (left side)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
@@ -636,6 +604,41 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                   ],
                 ),
               ),
+
+              // RECOMMENDED or Service Tag (right side) — compact
+              if (isCurrentServiceRecommended)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    'Recommended',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 11,
+                    ),
+                  ),
+                )
+              else if (selectedService['tag'] != null &&
+                  selectedService['tag'].isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    selectedService['tag'],
+                    style: const TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 10),
@@ -662,6 +665,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       ),
     );
   }
+
+
 
   Widget _buildServiceSelection() {
     if (_services.isEmpty) {
