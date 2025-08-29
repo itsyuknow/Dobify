@@ -18,15 +18,16 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
 
   Map<String, dynamic>? _product;
   List<Map<String, dynamic>> _services = [];
-  int _quantity = 0; // ✅ starts from 0
-  int _currentCartQuantity = 0; // selected service only
+  String? _recommendedServiceId; // NEW: Track recommended service ID
+  int _quantity = 0;
+  int _currentCartQuantity = 0;
   String _selectedService = '';
   int _selectedServicePrice = 0;
   bool _addedToCart = false;
   bool _isLoading = false;
   bool _isAddingToCart = false;
 
-  // Animations
+  // Animations (keep existing)
   late AnimationController _fadeController;
   late AnimationController _buttonController;
   late AnimationController _successController;
@@ -36,6 +37,130 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
   late Animation<double> _buttonScale;
   late Animation<double> _successScale;
   late Animation<double> _floatAnimation;
+
+  Future<void> _fetchProductDetails() async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await supabase
+          .from('products')
+          .select(
+          'id, product_name, product_price, image_url, category_id, is_enabled, created_at, recommended_service_id, categories(name)')  // ADDED: recommended_service_id
+          .eq('id', widget.productId)
+          .eq('is_enabled', true)
+          .maybeSingle();
+
+      if (response != null) {
+        setState(() {
+          _product = response;
+          _recommendedServiceId = response['recommended_service_id']; // NEW: Store recommended service ID
+          _isLoading = false;
+        });
+        await _fetchCurrentCartQuantity();
+      } else {
+        await _fetchProductDetailsFallback();
+      }
+    } catch (e) {
+      await _fetchProductDetailsFallback();
+    }
+  }
+
+  Future<void> _fetchProductDetailsFallback() async {
+    try {
+      final response = await supabase
+          .from('products')
+          .select('*')
+          .eq('id', widget.productId)
+          .eq('is_enabled', true)
+          .maybeSingle();
+
+      if (response != null) {
+        String categoryName = 'General';
+        if (response['category_id'] != null) {
+          try {
+            final categoryResponse = await supabase
+                .from('categories')
+                .select('name')
+                .eq('id', response['category_id'])
+                .eq('is_active', true)
+                .maybeSingle();
+            if (categoryResponse != null) {
+              categoryName = categoryResponse['name'] ?? 'General';
+            }
+          } catch (_) {}
+        }
+        response['categories'] = {'name': categoryName};
+
+        setState(() {
+          _product = response;
+          _recommendedServiceId = response['recommended_service_id']; // NEW: Store recommended service ID
+          _isLoading = false;
+        });
+        await _fetchCurrentCartQuantity();
+      } else {
+        setState(() => _isLoading = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Product not found'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading product: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _fetchServices() async {
+    try {
+      final response = await supabase
+          .from('services')
+          .select()
+          .eq('is_active', true)
+          .order('sort_order');
+
+      final serviceList = List<Map<String, dynamic>>.from(response);
+      setState(() {
+        _services = serviceList;
+
+        // NEW: Set recommended service as default if available
+        if (_services.isNotEmpty) {
+          if (_recommendedServiceId != null) {
+            // Try to find the recommended service
+            final recommendedService = _services.firstWhere(
+                  (service) => service['id'] == _recommendedServiceId,
+              orElse: () => _services[0], // Fallback to first service
+            );
+            _selectedService = recommendedService['name'];
+            _selectedServicePrice = recommendedService['price'];
+          } else {
+            // Fallback to first service if no recommendation
+            _selectedService = _services[0]['name'];
+            _selectedServicePrice = _services[0]['price'];
+          }
+        }
+      });
+    } catch (_) {}
+  }
+
+// NEW: Helper method to check if a service is recommended
+  bool _isRecommendedService(String serviceId) {
+    return _recommendedServiceId != null && _recommendedServiceId == serviceId;
+  }
+
 
   @override
   void initState() {
@@ -81,108 +206,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     _floatController.repeat(reverse: true);
   }
 
-  Future<void> _fetchProductDetails() async {
-    setState(() => _isLoading = true);
-    try {
-      final response = await supabase
-          .from('products')
-          .select(
-          'id, product_name, product_price, image_url, category_id, is_enabled, created_at, categories(name)')
-          .eq('id', widget.productId)
-          .eq('is_enabled', true)
-          .maybeSingle();
 
-      if (response != null) {
-        setState(() {
-          _product = response;
-          _isLoading = false;
-        });
-        await _fetchCurrentCartQuantity();
-      } else {
-        await _fetchProductDetailsFallback();
-      }
-    } catch (e) {
-      await _fetchProductDetailsFallback();
-    }
-  }
-
-  Future<void> _fetchProductDetailsFallback() async {
-    try {
-      final response = await supabase
-          .from('products')
-          .select('*')
-          .eq('id', widget.productId)
-          .eq('is_enabled', true)
-          .maybeSingle();
-
-      if (response != null) {
-        String categoryName = 'General';
-        if (response['category_id'] != null) {
-          try {
-            final categoryResponse = await supabase
-                .from('categories')
-                .select('name')
-                .eq('id', response['category_id'])
-                .eq('is_active', true)
-                .maybeSingle();
-            if (categoryResponse != null) {
-              categoryName = categoryResponse['name'] ?? 'General';
-            }
-          } catch (_) {}
-        }
-        response['categories'] = {'name': categoryName};
-
-        setState(() {
-          _product = response;
-          _isLoading = false;
-        });
-        await _fetchCurrentCartQuantity();
-      } else {
-        setState(() => _isLoading = false);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Product not found'),
-              backgroundColor: Colors.red,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading product: ${e.toString()}'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _fetchServices() async {
-    try {
-      final response = await supabase
-          .from('services')
-          .select()
-          .eq('is_active', true)
-          .order('sort_order');
-
-      final serviceList = List<Map<String, dynamic>>.from(response);
-      setState(() {
-        _services = serviceList;
-        if (_services.isNotEmpty) {
-          _selectedService = _services[0]['name'];
-          _selectedServicePrice = _services[0]['price'];
-        }
-      });
-    } catch (_) {}
-  }
 
   // 🔁 only for the selected service
   Future<void> _fetchCurrentCartQuantity() async {
@@ -525,14 +549,18 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       orElse: () => {
         'service_full_description': 'No description available',
         'tag': '',
-        'service_description': ''
+        'service_description': '',
+        'id': ''
       },
     );
 
     final selectedServiceDesc =
         selectedService['service_full_description'] ?? 'No description available';
     final serviceDescription = selectedService['service_description'] ?? '';
-    final serviceTag = selectedService['tag'] ?? '';
+
+    // Check if current selected service is recommended
+    final selectedServiceId = selectedService['id'] ?? '';
+    final isCurrentServiceRecommended = _isRecommendedService(selectedServiceId);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -550,11 +578,28 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Top row
+          // Top row with recommended tag or service tag
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              if (serviceTag.isNotEmpty)
+              // Show "RECOMMENDED" if current service is recommended, otherwise show service tag
+              if (isCurrentServiceRecommended)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'RECOMMENDED',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                )
+              else if (selectedService['tag'] != null && selectedService['tag'].isNotEmpty)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
@@ -562,7 +607,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    serviceTag,
+                    selectedService['tag'],
                     style: const TextStyle(
                       color: Colors.red,
                       fontWeight: FontWeight.bold,
@@ -618,7 +663,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     );
   }
 
-  // Service selection
   Widget _buildServiceSelection() {
     if (_services.isEmpty) {
       return Container(
@@ -666,7 +710,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                   onTap: () => setState(() {
                     _selectedService = name;
                     _selectedServicePrice = price;
-                    _fetchCurrentCartQuantity(); // refresh quantity for this service
+                    _fetchCurrentCartQuantity();
                   }),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),

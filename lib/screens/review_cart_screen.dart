@@ -1021,21 +1021,20 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                 ),
                 const SizedBox(height: 4),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: kPrimaryColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
+                    color: kPrimaryColor.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
                     "${item['service_type']}",
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 11,
                       color: kPrimaryColor,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ),
-
               ],
             ),
           ),

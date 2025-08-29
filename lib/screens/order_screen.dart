@@ -84,6 +84,285 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   Offset _clearZoneCenter = Offset.zero;
 
+
+  Future<void> _fetchCategoriesAndProducts() async {
+    if (mounted) setState(() => _isLoading = true);
+
+    try {
+      // ✅ UPDATED: Added recommended_service_id to the query
+      final response = await supabase
+          .from('products')
+          .select(
+          'id, product_name, product_price, image_url, category_id, is_enabled, created_at, sort_order, tag, recommended_service_id, categories(name)')
+          .eq('is_enabled', true)
+          .order('sort_order', ascending: true) // ✅ Primary sort by sort_order
+          .order('product_name', ascending: true); // ✅ Secondary sort by name
+
+      final productList = List<Map<String, dynamic>>.from(response);
+      _products
+        ..clear()
+        ..addAll(productList);
+
+      if (_categories.length == 1) {
+        final unique = _products
+            .map((p) => p['categories']?['name']?.toString())
+            .where((name) => name != null && name!.isNotEmpty)
+            .cast<String>()
+            .toSet()
+            .toList()
+          ..sort();
+        _categories = ['All', ...unique];
+      }
+
+      _cachedProducts = List<Map<String, dynamic>>.from(_products);
+      _cachedCategories = List<String>.from(_categories);
+      _hasFetchedProducts = true;
+    } catch (e) {
+      try {
+        // ✅ UPDATED: Fallback query also includes recommended_service_id
+        final fallbackResponse = await supabase
+            .from('products')
+            .select('*')
+            .eq('is_enabled', true)
+            .order('sort_order', ascending: true)
+            .order('created_at', ascending: false);
+
+        if (fallbackResponse.isNotEmpty) {
+          final productList = List<Map<String, dynamic>>.from(fallbackResponse);
+          _products
+            ..clear()
+            ..addAll(productList);
+
+          final categoriesResponse = await supabase
+              .from('categories')
+              .select('id, name')
+              .eq('is_active', true)
+              .order('sort_order', ascending: true); // ✅ Also sort categories
+
+          final categoriesMap = <String, String>{};
+          for (var category in categoriesResponse) {
+            categoriesMap[category['id']] = category['name'];
+          }
+          for (var product in _products) {
+            final categoryId = product['category_id'];
+            final categoryName = categoriesMap[categoryId] ?? 'General';
+            product['categories'] = {'name': categoryName};
+          }
+
+          if (_categories.length == 1) {
+            final orderedNames =
+            List<Map<String, dynamic>>.from(categoriesResponse)
+                .map((e) => (e['name'] as String?)?.trim())
+                .where((e) => e != null && e!.isNotEmpty)
+                .cast<String>()
+                .toList();
+            _categories = ['All', ...orderedNames];
+          }
+
+          _cachedProducts = List<Map<String, dynamic>>.from(_products);
+          _cachedCategories = List<String>.from(_categories);
+          _hasFetchedProducts = true;
+        }
+      } catch (_) {}
+    }
+
+    if (mounted) setState(() => _isLoading = false);
+
+    if (widget.category != null && widget.category != 'All') {
+      final index = _categories.indexOf(widget.category!);
+      if (index != -1 && mounted && _scrollController.hasClients) {
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (mounted && _scrollController.hasClients) {
+          _scrollController.animateTo(
+            index * 120.0,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeInOut,
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _loadCategoriesForTabs() async {
+    try {
+      // ✅ UPDATED: Added sort_order to category loading
+      final rows = await supabase
+          .from('categories')
+          .select('name,is_active')
+          .eq('is_active', true)
+          .order('sort_order', ascending: true);
+
+      final names = List<Map<String, dynamic>>.from(rows)
+          .map((e) => (e['name'] as String?)?.trim())
+          .where((e) => e != null && e!.isNotEmpty)
+          .cast<String>()
+          .toList();
+
+      if (mounted && names.isNotEmpty) {
+        setState(() {
+          _categories = ['All', ...names];
+        });
+      }
+    } catch (_) {}
+  }
+
+  // ✅ UPDATED: Search + Category filter with sorting maintained
+  List<Map<String, dynamic>> _getFilteredProducts() {
+    List<Map<String, dynamic>> filteredProducts;
+
+    if (_selectedCategory == 'All') {
+      filteredProducts = _products;
+    } else {
+      filteredProducts = _products
+          .where((p) => p['categories']?['name'] == _selectedCategory)
+          .toList();
+    }
+
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      filteredProducts = filteredProducts
+          .where((product) =>
+          product['product_name'].toString().toLowerCase().contains(query))
+          .toList();
+    }
+
+    // ✅ Maintain sorting even after filtering
+    filteredProducts.sort((a, b) {
+      final aOrder = (a['sort_order'] as int?) ?? 999;
+      final bOrder = (b['sort_order'] as int?) ?? 999;
+      if (aOrder != bOrder) return aOrder.compareTo(bOrder);
+
+      final aName = (a['product_name'] as String?) ?? '';
+      final bName = (b['product_name'] as String?) ?? '';
+      return aName.compareTo(bName);
+    });
+
+    return filteredProducts;
+  }
+
+
+  Widget _buildPremiumProductGrid(BuildContext context, List<Map<String, dynamic>> products) {
+    return GridView.builder(
+      physics: const BouncingScrollPhysics(),
+      itemCount: products.length,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 10,
+        childAspectRatio: 0.75,
+      ),
+      itemBuilder: (ctx, idx) {
+        final item = products[idx];
+        final productId = (item['id'] ?? '').toString();
+        final name = item['product_name'];
+        // ✅ REMOVED: tag variable and usage
+        final qty = _productQuantities[productId] ?? 0;
+
+        _controllers[productId] ??= AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 150),
+          lowerBound: 0.95,
+          upperBound: 1.05,
+        )..addStatusListener((status) {
+          if (status == AnimationStatus.completed) {
+            _controllers[productId]?.reverse();
+          }
+        });
+
+        _qtyAnimControllers[productId] ??= AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 200),
+          lowerBound: 0.9,
+          upperBound: 1.1,
+        );
+
+        return ScaleTransition(
+          scale: _controllers[productId]!,
+          child: GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ProductDetailsScreen(productId: item['id']),
+                ),
+              );
+            },
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              // ✅ CHANGED: Back to simple Column instead of Stack (no tags needed)
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Image
+                  Expanded(
+                    flex: 3,
+                    child: Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        color: Colors.grey.shade50,
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.network(
+                          item['image_url'] ?? '',
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) => Icon(
+                            Icons.image_outlined,
+                            size: 40,
+                            color: Colors.grey.shade400,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Name + Button
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name ?? 'Unknown Product',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                            color: Colors.black87,
+                            height: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 36,
+                          child: _buildProductButton(item, productId),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -153,27 +432,6 @@ class _OrdersScreenState extends State<OrdersScreen>
     });
   }
 
-  Future<void> _loadCategoriesForTabs() async {
-    try {
-      final rows = await supabase
-          .from('categories')
-          .select('name,is_active')
-          .eq('is_active', true)
-          .order('sort_order', ascending: true);
-
-      final names = List<Map<String, dynamic>>.from(rows)
-          .map((e) => (e['name'] as String?)?.trim())
-          .where((e) => e != null && e!.isNotEmpty)
-          .cast<String>()
-          .toList();
-
-      if (mounted && names.isNotEmpty) {
-        setState(() {
-          _categories = ['All', ...names];
-        });
-      }
-    } catch (_) {}
-  }
 
   Future<void> _testDatabaseConnection() async {
     try {
@@ -286,121 +544,8 @@ class _OrdersScreenState extends State<OrdersScreen>
     } catch (_) {}
   }
 
-  Future<void> _fetchCategoriesAndProducts() async {
-    if (mounted) setState(() => _isLoading = true);
 
-    try {
-      final response = await supabase
-          .from('products')
-          .select(
-          'id, product_name, product_price, image_url, category_id, is_enabled, created_at, categories(name)')
-          .eq('is_enabled', true)
-          .order('created_at', ascending: false);
 
-      final productList = List<Map<String, dynamic>>.from(response);
-      _products
-        ..clear()
-        ..addAll(productList);
-
-      if (_categories.length == 1) {
-        final unique = _products
-            .map((p) => p['categories']?['name']?.toString())
-            .where((name) => name != null && name!.isNotEmpty)
-            .cast<String>()
-            .toSet()
-            .toList()
-          ..sort();
-        _categories = ['All', ...unique];
-      }
-
-      _cachedProducts = List<Map<String, dynamic>>.from(_products);
-      _cachedCategories = List<String>.from(_categories);
-      _hasFetchedProducts = true;
-    } catch (e) {
-      try {
-        final fallbackResponse = await supabase
-            .from('products')
-            .select('*')
-            .eq('is_enabled', true)
-            .order('created_at', ascending: false);
-
-        if (fallbackResponse.isNotEmpty) {
-          final productList = List<Map<String, dynamic>>.from(fallbackResponse);
-          _products
-            ..clear()
-            ..addAll(productList);
-
-          final categoriesResponse = await supabase
-              .from('categories')
-              .select('id, name')
-              .eq('is_active', true);
-
-          final categoriesMap = <String, String>{};
-          for (var category in categoriesResponse) {
-            categoriesMap[category['id']] = category['name'];
-          }
-          for (var product in _products) {
-            final categoryId = product['category_id'];
-            final categoryName = categoriesMap[categoryId] ?? 'General';
-            product['categories'] = {'name': categoryName};
-          }
-
-          if (_categories.length == 1) {
-            final orderedNames =
-            List<Map<String, dynamic>>.from(categoriesResponse)
-                .map((e) => (e['name'] as String?)?.trim())
-                .where((e) => e != null && e!.isNotEmpty)
-                .cast<String>()
-                .toList();
-            _categories = ['All', ...orderedNames];
-          }
-
-          _cachedProducts = List<Map<String, dynamic>>.from(_products);
-          _cachedCategories = List<String>.from(_categories);
-          _hasFetchedProducts = true;
-        }
-      } catch (_) {}
-    }
-
-    if (mounted) setState(() => _isLoading = false);
-
-    if (widget.category != null && widget.category != 'All') {
-      final index = _categories.indexOf(widget.category!);
-      if (index != -1 && mounted && _scrollController.hasClients) {
-        await Future.delayed(const Duration(milliseconds: 300));
-        if (mounted && _scrollController.hasClients) {
-          _scrollController.animateTo(
-            index * 120.0,
-            duration: const Duration(milliseconds: 400),
-            curve: Curves.easeInOut,
-          );
-        }
-      }
-    }
-  }
-
-  // Search + Category filter
-  List<Map<String, dynamic>> _getFilteredProducts() {
-    List<Map<String, dynamic>> filteredProducts;
-
-    if (_selectedCategory == 'All') {
-      filteredProducts = _products;
-    } else {
-      filteredProducts = _products
-          .where((p) => p['categories']?['name'] == _selectedCategory)
-          .toList();
-    }
-
-    if (_searchQuery.isNotEmpty) {
-      final query = _searchQuery.toLowerCase();
-      filteredProducts = filteredProducts
-          .where((product) =>
-          product['product_name'].toString().toLowerCase().contains(query))
-          .toList();
-    }
-
-    return filteredProducts;
-  }
 
   // ✅ CHANGED: read by product_id and sum counts by product_id
   Future<void> _fetchCartData() async {
@@ -628,6 +773,8 @@ class _OrdersScreenState extends State<OrdersScreen>
       }
 
       final basePrice = (product['product_price'] as num?)?.toDouble() ?? 0.0;
+      // ✅ NEW: Get the recommended service ID for this product
+      final recommendedServiceId = product['recommended_service_id']?.toString();
 
       if (!mounted) return;
       showDialog(
@@ -662,12 +809,17 @@ class _OrdersScreenState extends State<OrdersScreen>
                       itemCount: services.length,
                       itemBuilder: (context, index) {
                         final service = services[index];
+                        final serviceId = service['id']?.toString();
                         final name = service['name'] ?? '';
                         final price = service['price'] ?? 0;
                         final description = service['service_description'] ?? '';
-                        final tag = service['tag'] ?? '';
                         final iconName = service['icon_name'];
                         final totalPrice = basePrice + price;
+
+                        // ✅ NEW: Check if this service is recommended for this product
+                        final isRecommended = recommendedServiceId != null &&
+                            recommendedServiceId.isNotEmpty &&
+                            serviceId == recommendedServiceId;
 
                         return GestureDetector(
                           onTap: () async {
@@ -680,7 +832,10 @@ class _OrdersScreenState extends State<OrdersScreen>
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.grey.shade200, width: 1),
+                              border: Border.all(
+                                  color: Colors.grey.shade200,
+                                  width: 1
+                              ),
                             ),
                             child: Stack(
                               children: [
@@ -734,18 +889,19 @@ class _OrdersScreenState extends State<OrdersScreen>
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
-                                      if (tag.isNotEmpty)
+                                      // ✅ UPDATED: Increased font size for better visibility
+                                      if (isRecommended)
                                         Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                           decoration: BoxDecoration(
                                             color: Colors.redAccent,
-                                            borderRadius: BorderRadius.circular(10),
+                                            borderRadius: BorderRadius.circular(6),
                                           ),
-                                          child: Text(
-                                            tag,
-                                            style: const TextStyle(
+                                          child: const Text(
+                                            'Recommended',
+                                            style: TextStyle(
                                               color: Colors.white,
-                                              fontSize: 9.5,
+                                              fontSize: 9, // ✅ Increased from 4.75 to 9
                                               fontWeight: FontWeight.bold,
                                             ),
                                           ),
@@ -1595,125 +1751,6 @@ class _OrdersScreenState extends State<OrdersScreen>
     );
   }
 
-  Widget _buildPremiumProductGrid(BuildContext context, List<Map<String, dynamic>> products) {
-    return GridView.builder(
-      physics: const BouncingScrollPhysics(),
-      itemCount: products.length,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 10,
-        childAspectRatio: 0.75,
-      ),
-      itemBuilder: (ctx, idx) {
-        final item = products[idx];
-        final productId = (item['id'] ?? '').toString();
-        final name = item['product_name'];
-        final qty = _productQuantities[productId] ?? 0;
-
-        _controllers[productId] ??= AnimationController(
-          vsync: this,
-          duration: const Duration(milliseconds: 150),
-          lowerBound: 0.95,
-          upperBound: 1.05,
-        )..addStatusListener((status) {
-          if (status == AnimationStatus.completed) {
-            _controllers[productId]?.reverse();
-          }
-        });
-
-        _qtyAnimControllers[productId] ??= AnimationController(
-          vsync: this,
-          duration: const Duration(milliseconds: 200),
-          lowerBound: 0.9,
-          upperBound: 1.1,
-        );
-
-        return ScaleTransition(
-          scale: _controllers[productId]!,
-          child: GestureDetector(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ProductDetailsScreen(productId: item['id']),
-                ),
-              );
-            },
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Image
-                  Expanded(
-                    flex: 3,
-                    child: Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        color: Colors.grey.shade50,
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.network(
-                          item['image_url'] ?? '',
-                          fit: BoxFit.contain,
-                          errorBuilder: (context, error, stackTrace) => Icon(
-                            Icons.image_outlined,
-                            size: 40,
-                            color: Colors.grey.shade400,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  // Name + Button
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name ?? 'Unknown Product',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
-                            color: Colors.black87,
-                            height: 1.2,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 36,
-                          child: _buildProductButton(item, productId),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
 
   Widget _buildProductButton(Map<String, dynamic> item, String productId) {
     if (_addedStatus[productId] == true) {
