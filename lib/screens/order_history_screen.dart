@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -384,16 +385,13 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
   }
 
   bool _canShowCancelButton(Map<String, dynamic> order) {
-    final status = order['status']?.toString().toLowerCase() ??
-        order['order_status']?.toString().toLowerCase() ?? '';
+    final status = order['order_status']?.toString().toLowerCase() ?? '';
     return status == 'pending' || status == 'confirmed';
   }
 
   bool _canReschedule(Map<String, dynamic> order) {
-    final status = order['status']?.toString().toLowerCase() ??
-        order['order_status']?.toString().toLowerCase() ?? '';
+    final status = order['order_status']?.toString().toLowerCase() ?? '';
 
-    // First check if order status allows rescheduling
     if (!(status == 'pending' || status == 'confirmed')) {
       return false;
     }
@@ -424,128 +422,42 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
   }
 
   Future<void> _cancelOrder(Map<String, dynamic> order) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        backgroundColor: Colors.white,
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.cancel_outlined, color: Colors.red, size: 24),
-            ),
-            const SizedBox(width: 12),
-            const Text(
-              'Cancel Order',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Are you sure you want to cancel this order?',
-              style: TextStyle(fontSize: 16),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: kPrimaryColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                'Order #${order['id'].toString().substring(0, 8)}',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  color: kPrimaryColor,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, color: Colors.orange, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Cancellation is only allowed up to 1 hour before pickup time.',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.orange.shade700,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            ),
-            child: const Text(
-              'Keep Order',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: const Text(
-              'Cancel Order',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (result == true) {
-      await _performOrderCancellation(order);
-    }
+    // Show cancellation reason dialog instead of direct confirmation
+    await _showCancellationReasonDialog(order);
   }
 
-  Future<void> _performOrderCancellation(Map<String, dynamic> order) async {
+  Future<void> _showCancellationReasonDialog(Map<String, dynamic> order) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => _CancellationReasonDialog(
+        order: order,
+        onCancel: () => Navigator.pop(context),
+        onConfirm: (String reason, int? reasonId) async {
+          Navigator.pop(context); // Close dialog first
+          await _performOrderCancellationWithReason(order, reason, reasonId);
+        },
+      ),
+    );
+  }
+
+
+  Future<void> _performOrderCancellationWithReason(
+      Map<String, dynamic> order,
+      String cancellationReason,
+      int? selectedReasonId
+      ) async {
+    final user = supabase.auth.currentUser;
+    if (user == null) {
+      _showErrorSnackBar('User not authenticated');
+      return;
+    }
+
     try {
       // Show loading overlay
       _showLoadingDialog('Cancelling your order...');
 
-      // Update order status to cancelled
+      // Update order status
       await supabase
           .from('orders')
           .update({
@@ -556,6 +468,15 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       })
           .eq('id', order['id']);
 
+      // Log cancellation reason
+      await supabase.from('order_cancellation_logs').insert({
+        'order_id': order['id'],
+        'user_id': user.id,
+        'cancellation_reason': cancellationReason,
+        'selected_reason_id': selectedReasonId,
+        'cancelled_at': DateTime.now().toIso8601String(),
+      });
+
       // Stop the timer for this order
       final orderId = order['id'].toString();
       _cancelTimers[orderId]?.cancel();
@@ -565,8 +486,8 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       // Close loading dialog
       if (mounted) Navigator.pop(context);
 
-      // Show success message
-      _showSuccessSnackBar('Order cancelled successfully');
+      // Show success animation and message
+      await _showCancellationSuccessAnimation();
 
       // Reload orders
       await _loadOrders();
@@ -576,9 +497,21 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       if (mounted) Navigator.pop(context);
 
       print('Error cancelling order: $e');
-      _showErrorSnackBar('Failed to cancel order');
+      _showErrorSnackBar('Failed to cancel order. Please try again.');
     }
   }
+
+  Future<void> _showCancellationSuccessAnimation() async {
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => _CancellationSuccessDialog(),
+    );
+  }
+
+
 
   // NEW METHOD: Show reschedule dialog
   Future<void> _showRescheduleDialog(Map<String, dynamic> order) async {
@@ -1168,30 +1101,30 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     final remainingTime = _getRemainingCancelTime(orderId);
 
     return Container(
-        margin: EdgeInsets.only(bottom: isSmallScreen ? 12 : 16, top: index == 0 ? 8 : 0),
-        decoration: BoxDecoration(
-          color: Colors.white,
+      margin: EdgeInsets.only(bottom: isSmallScreen ? 12 : 16, top: index == 0 ? 8 : 0),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.shade200,
+            blurRadius: 15,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _showOrderDetails(order),
           borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.shade200,
-              blurRadius: 15,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: () => _showOrderDetails(order),
-            borderRadius: BorderRadius.circular(20),
-            child: Padding(
-                padding: EdgeInsets.all(cardPadding),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                  // Header Row
-                  Row(
+          child: Padding(
+            padding: EdgeInsets.all(cardPadding),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header Row
+                Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Expanded(
@@ -1208,7 +1141,8 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                               const SizedBox(width: 8),
                               Flexible(
                                 child: Text(
-                                  'Order #${order['id'].toString().substring(0, 8)}',
+                                  // 🔧 CHANGED: show only the full ID (no "#" and no substring)
+                                  order['id']?.toString() ?? 'N/A',
                                   style: TextStyle(
                                     fontWeight: FontWeight.w800,
                                     fontSize: isSmallScreen ? 14 : 16,
@@ -1233,7 +1167,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                     // Show countdown timer for cancellable orders, otherwise show status badge
                     canCancel && remainingTime > 0
                         ? _buildCountdownBadge(remainingTime, isSmallScreen)
-                        : _buildStatusBadge(order['status'] ?? order['order_status'], isSmallScreen),
+                        : _buildStatusBadge(order['order_status'], isSmallScreen),
                   ],
                 ),
 
@@ -1241,275 +1175,277 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
                 // Product Preview with proper image handling
                 if (firstProduct != null && firstProduct['products'] != null) ...[
-          Row(
-          children: [
-          // Product Image
-          Container(
-          width: isSmallScreen ? 50 : 60,
-            height: isSmallScreen ? 50 : 60,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              color: Colors.grey.shade100,
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: firstProduct['products']['image_url'] != null &&
-                  firstProduct['products']['image_url'].toString().isNotEmpty
-                  ? Image.network(
-                firstProduct['products']['image_url'],
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
-                  child: Icon(
-                      Icons.image_not_supported_outlined,
-                      color: Colors.grey.shade400,
-                      size: isSmallScreen ? 20 : 24
-                  ),
-                ),
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-                  return Center(
-                    child: CircularProgressIndicator(
-                      value: loadingProgress.expectedTotalBytes != null
-                          ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
-                          : null,
-                      strokeWidth: 2,
-                      color: kPrimaryColor,
-                    ),
-                  );
-                },
-              )
-                  : Container(
-                padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
-                child: Icon(
-                    Icons.shopping_bag_outlined,
-                    color: Colors.grey.shade400,
-                    size: isSmallScreen ? 20 : 24
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-
-          // Product Info
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  firstProduct['products']['name']?.toString() ?? 'Unknown Product',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: isSmallScreen ? 13 : 15,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Qty: ${firstProduct['quantity'] ?? 1} • ${firstProduct['service_type'] ?? 'Standard'}',
-                  style: TextStyle(
-                    fontSize: isSmallScreen ? 11 : 13,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                if (totalItems > 1) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    '+${totalItems - 1} more item${totalItems > 2 ? 's' : ''}',
-                    style: TextStyle(
-                      fontSize: isSmallScreen ? 10 : 12,
-                      color: kPrimaryColor,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          ],
-        ),
-        SizedBox(height: isSmallScreen ? 12 : 16),
-        ],
-
-    // Order Summary
-    Container(
-    padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
-    decoration: BoxDecoration(
-    gradient: LinearGradient(
-    colors: [kPrimaryColor.withOpacity(0.05), Colors.purple.withOpacity(0.02)],
-    ),
-    borderRadius: BorderRadius.circular(12),
-    ),
-    child: Row(
-    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-    children: [
-    Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-    Text(
-    'Total Amount',
-    style: TextStyle(
-    fontSize: isSmallScreen ? 11 : 13,
-    color: Colors.grey.shade600,
-    fontWeight: FontWeight.w600,
-    ),
-    ),
-    Text(
-    '₹${order['total_amount'] ?? '0.00'}',
-    style: TextStyle(
-    fontSize: isSmallScreen ? 16 : 18,
-    fontWeight: FontWeight.w800,
-    color: kPrimaryColor,
-    ),
-    ),
-    ],
-    ),
-    Column(
-    crossAxisAlignment: CrossAxisAlignment.end,
-    children: [
-    Text(
-    'Items',
-    style: TextStyle(
-    fontSize: isSmallScreen ? 11 : 13,
-    color: Colors.grey.shade600,
-    fontWeight: FontWeight.w600,
-    ),
-    ),
-    Text(
-    '$totalItems',
-    style: TextStyle(
-    fontSize: isSmallScreen ? 16 : 18,
-    fontWeight: FontWeight.w800,
-    color: Colors.black87,
-    ),
-    ),
-    ],
-    ),
-    ],
-    ),
-    ),
-
-    SizedBox(height: isSmallScreen ? 12 : 16),
-
-                    // Action Buttons Row - UPDATED: Reschedule button instead of View Details
-                    Row(
-                      children: [
-                        // Reschedule Button (was View Details)
-                        Expanded(
-                          child: Container(
-                            height: isSmallScreen ? 42 : 48,
-                            child: ElevatedButton.icon(
-                              onPressed: (canReschedule && remainingTime > 0) ? () => _showRescheduleDialog(order) : null,
-                              icon: Icon(
-                                (canReschedule && remainingTime > 0) ? Icons.schedule : Icons.block,
-                                size: isSmallScreen ? 16 : 18,
-                                color: (canReschedule && remainingTime > 0) ? kPrimaryColor : Colors.grey.shade500,
+                  Row(
+                    children: [
+                      // Product Image
+                      Container(
+                        width: isSmallScreen ? 50 : 60,
+                        height: isSmallScreen ? 50 : 60,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          color: Colors.grey.shade100,
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: firstProduct['products']['image_url'] != null &&
+                              firstProduct['products']['image_url'].toString().isNotEmpty
+                              ? Image.network(
+                            firstProduct['products']['image_url'],
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => Container(
+                              padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
+                              child: Icon(
+                                Icons.image_not_supported_outlined,
+                                color: Colors.grey.shade400,
+                                size: isSmallScreen ? 20 : 24,
                               ),
-                              label: Text(
-                                (canReschedule && remainingTime > 0) ? 'Reschedule' :
-                                canReschedule ? 'Reschedule Timeout' : 'Reschedule',
-                                style: TextStyle(
-                                  color: (canReschedule && remainingTime > 0) ? kPrimaryColor : Colors.grey.shade600,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: isSmallScreen ? 12 : 14,
+                            ),
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return Center(
+                                child: CircularProgressIndicator(
+                                  value: loadingProgress.expectedTotalBytes != null
+                                      ? loadingProgress.cumulativeBytesLoaded /
+                                      loadingProgress.expectedTotalBytes!
+                                      : null,
+                                  strokeWidth: 2,
+                                  color: kPrimaryColor,
                                 ),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: (canReschedule && remainingTime > 0)
-                                    ? kPrimaryColor.withOpacity(0.1)
-                                    : Colors.grey.shade100,
-                                foregroundColor: (canReschedule && remainingTime > 0) ? kPrimaryColor : Colors.grey.shade500,
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
+                              );
+                            },
+                          )
+                              : Container(
+                            padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
+                            child: Icon(
+                              Icons.shopping_bag_outlined,
+                              color: Colors.grey.shade400,
+                              size: isSmallScreen ? 20 : 24,
                             ),
                           ),
                         ),
-                        const SizedBox(width: 12),
+                      ),
+                      const SizedBox(width: 12),
 
-                        // Cancel Order or Reorder Button - FIXED LOGIC
-                        Expanded(
-                          child: Container(
-                            height: isSmallScreen ? 42 : 48,
-                            child: canCancel
-                                ? ElevatedButton.icon(
-                              // Button is enabled only when there's remaining time
-                              onPressed: remainingTime > 0 ? () => _cancelOrder(order) : null,
-                              icon: Icon(
-                                remainingTime > 0 ? Icons.cancel_outlined : Icons.block,
-                                size: isSmallScreen ? 16 : 18,
-                                color: remainingTime > 0 ? Colors.white : Colors.grey.shade500,
+                      // Product Info
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              firstProduct['products']['name']?.toString() ?? 'Unknown Product',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: isSmallScreen ? 13 : 15,
                               ),
-                              label: Text(
-                                remainingTime > 0 ? 'Cancel Order' : 'Cancel ',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Qty: ${firstProduct['quantity'] ?? 1} • ${firstProduct['service_type'] ?? 'Standard'}',
+                              style: TextStyle(
+                                fontSize: isSmallScreen ? 11 : 13,
+                                color: Colors.grey.shade600,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            if (totalItems > 1) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                '+${totalItems - 1} more item${totalItems > 2 ? 's' : ''}',
                                 style: TextStyle(
-                                  color: remainingTime > 0 ? Colors.white : Colors.grey.shade600,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: isSmallScreen ? 12 : 14,
-                                ),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: remainingTime > 0 ? Colors.red.shade600 : Colors.grey.shade200,
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            )
-                                : (_canReorder(order['status'] ?? order['order_status'])
-                                ? ElevatedButton.icon(
-                              onPressed: () => _reorderItems(order),
-                              icon: Icon(Icons.refresh_rounded, size: isSmallScreen ? 16 : 18, color: Colors.white),
-                              label: Text(
-                                'Reorder',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: isSmallScreen ? 12 : 14,
-                                ),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green.shade600,
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            )
-                                : ElevatedButton.icon(
-                              onPressed: null,
-                              icon: Icon(Icons.info_outline, size: isSmallScreen ? 16 : 18, color: Colors.grey.shade500),
-                              label: Text(
-                                'Order ${(order['status'] ?? order['order_status'] ?? 'Processing').toString().toLowerCase()}',
-                                style: TextStyle(
-                                  color: Colors.grey.shade600,
-                                  fontWeight: FontWeight.w600,
                                   fontSize: isSmallScreen ? 10 : 12,
+                                  color: kPrimaryColor,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.grey.shade100,
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            )),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: isSmallScreen ? 12 : 16),
+                ],
+
+                // Order Summary
+                Container(
+                  padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [kPrimaryColor.withOpacity(0.05), Colors.purple.withOpacity(0.02)],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Total Amount',
+                            style: TextStyle(
+                              fontSize: isSmallScreen ? 11 : 13,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            '₹${order['total_amount'] ?? '0.00'}',
+                            style: TextStyle(
+                              fontSize: isSmallScreen ? 16 : 18,
+                              fontWeight: FontWeight.w800,
+                              color: kPrimaryColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            'Items',
+                            style: TextStyle(
+                              fontSize: isSmallScreen ? 11 : 13,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            '$totalItems',
+                            style: TextStyle(
+                              fontSize: isSmallScreen ? 16 : 18,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                SizedBox(height: isSmallScreen ? 12 : 16),
+
+                // Action Buttons Row - UPDATED: Reschedule button instead of View Details
+                Row(
+                  children: [
+                    // Reschedule Button (was View Details)
+                    Expanded(
+                      child: Container(
+                        height: isSmallScreen ? 42 : 48,
+                        child: ElevatedButton.icon(
+                          onPressed: (canReschedule && remainingTime > 0) ? () => _showRescheduleDialog(order) : null,
+                          icon: Icon(
+                            (canReschedule && remainingTime > 0) ? Icons.schedule : Icons.block,
+                            size: isSmallScreen ? 16 : 18,
+                            color: (canReschedule && remainingTime > 0) ? kPrimaryColor : Colors.grey.shade500,
+                          ),
+                          label: Text(
+                            (canReschedule && remainingTime > 0) ? 'Reschedule' :
+                            canReschedule ? 'Reschedule Timeout' : 'Reschedule',
+                            style: TextStyle(
+                              color: (canReschedule && remainingTime > 0) ? kPrimaryColor : Colors.grey.shade600,
+                              fontWeight: FontWeight.w700,
+                              fontSize: isSmallScreen ? 12 : 14,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: (canReschedule && remainingTime > 0)
+                                ? kPrimaryColor.withOpacity(0.1)
+                                : Colors.grey.shade100,
+                            foregroundColor: (canReschedule && remainingTime > 0) ? kPrimaryColor : Colors.grey.shade500,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                           ),
                         ),
-                      ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+
+                    // Cancel Order or Reorder Button - FIXED LOGIC
+                    Expanded(
+                      child: Container(
+                        height: isSmallScreen ? 42 : 48,
+                        child: canCancel
+                            ? ElevatedButton.icon(
+                          // Button is enabled only when there's remaining time
+                          onPressed: remainingTime > 0 ? () => _cancelOrder(order) : null,
+                          icon: Icon(
+                            remainingTime > 0 ? Icons.cancel_outlined : Icons.block,
+                            size: isSmallScreen ? 16 : 18,
+                            color: remainingTime > 0 ? Colors.white : Colors.grey.shade500,
+                          ),
+                          label: Text(
+                            remainingTime > 0 ? 'Cancel Order' : 'Cancel ',
+                            style: TextStyle(
+                              color: remainingTime > 0 ? Colors.white : Colors.grey.shade600,
+                              fontWeight: FontWeight.w700,
+                              fontSize: isSmallScreen ? 12 : 14,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: remainingTime > 0 ? Colors.red.shade600 : Colors.grey.shade200,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        )
+                            : (_canReorder(order['order_status'])
+                            ? ElevatedButton.icon(
+                          onPressed: () => _reorderItems(order),
+                          icon: Icon(Icons.refresh_rounded, size: isSmallScreen ? 16 : 18, color: Colors.white),
+                          label: Text(
+                            'Reorder',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: isSmallScreen ? 12 : 14,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green.shade600,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        )
+                            : ElevatedButton.icon(
+                          onPressed: null,
+                          icon: Icon(Icons.info_outline, size: isSmallScreen ? 16 : 18, color: Colors.grey.shade500),
+                          label: Text(
+                            'Order ${(order['order_status'] ?? 'Processing').toString().toLowerCase()}',
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w600,
+                              fontSize: isSmallScreen ? 10 : 12,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.grey.shade100,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        )),
+                      ),
                     ),
                   ],
                 ),
+              ],
             ),
           ),
         ),
+      ),
     );
   }
+
 
   Widget _buildCountdownBadge(int remainingTime, bool isSmallScreen) {
     return Container(
@@ -1575,6 +1511,10 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       case 'shipped':
         color = Colors.indigo.shade600;
         icon = Icons.local_shipping_rounded;
+        break;
+      case 'reached':
+        color = Colors.teal.shade600;
+        icon = Icons.location_on_rounded;
         break;
       default:
         color = Colors.grey.shade600;
@@ -2542,10 +2482,12 @@ class _OrderDetailsSheet extends StatelessWidget {
                 Container(
                   padding: EdgeInsets.all(isSmallScreen ? 10 : 12),
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)]),
+                    gradient: LinearGradient(
+                        colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)]),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(Icons.receipt_rounded, color: Colors.white, size: isSmallScreen ? 18 : 20),
+                  child: Icon(Icons.receipt_rounded,
+                      color: Colors.white, size: isSmallScreen ? 18 : 20),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -2559,8 +2501,9 @@ class _OrderDetailsSheet extends StatelessWidget {
                           fontWeight: FontWeight.w800,
                         ),
                       ),
+                      // 🔧 CHANGED: show only the full ID (no "Order #" and no substring)
                       Text(
-                        'Order #${order['id'].toString().substring(0, 8)}',
+                        order['id']?.toString() ?? 'N/A',
                         style: TextStyle(
                           fontSize: isSmallScreen ? 12 : 14,
                           color: Colors.grey.shade600,
@@ -2578,7 +2521,8 @@ class _OrderDetailsSheet extends StatelessWidget {
                       color: Colors.grey.shade100,
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Icon(Icons.close_rounded, size: isSmallScreen ? 18 : 20),
+                    child: Icon(Icons.close_rounded,
+                        size: isSmallScreen ? 18 : 20),
                   ),
                 ),
               ],
@@ -2598,9 +2542,12 @@ class _OrderDetailsSheet extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Order Items Section
-                  _buildSectionHeader('Order Items', Icons.shopping_bag_outlined, isSmallScreen),
+                  _buildSectionHeader(
+                      'Order Items', Icons.shopping_bag_outlined, isSmallScreen),
                   const SizedBox(height: 12),
-                  ...orderItems.map((item) => _buildOrderItem(item, isSmallScreen)).toList(),
+                  ...orderItems
+                      .map((item) => _buildOrderItem(item, isSmallScreen))
+                      .toList(),
 
                   const SizedBox(height: 24),
 
@@ -2610,7 +2557,9 @@ class _OrderDetailsSheet extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.receipt_long, color: kPrimaryColor, size: isSmallScreen ? 18 : 20),
+                          Icon(Icons.receipt_long,
+                              color: kPrimaryColor,
+                              size: isSmallScreen ? 18 : 20),
                           const SizedBox(width: 8),
                           Text(
                             'Bill Details',
@@ -2625,7 +2574,9 @@ class _OrderDetailsSheet extends StatelessWidget {
                         height: isSmallScreen ? 32 : 36,
                         child: ElevatedButton.icon(
                           onPressed: onGenerateInvoice,
-                          icon: Icon(Icons.picture_as_pdf, size: isSmallScreen ? 14 : 16, color: Colors.white),
+                          icon: Icon(Icons.picture_as_pdf,
+                              size: isSmallScreen ? 14 : 16,
+                              color: Colors.white),
                           label: Text(
                             'Get Invoice',
                             style: TextStyle(
@@ -2650,7 +2601,10 @@ class _OrderDetailsSheet extends StatelessWidget {
                     padding: EdgeInsets.all(isSmallScreen ? 16 : 20),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [kPrimaryColor.withOpacity(0.05), Colors.purple.withOpacity(0.02)],
+                        colors: [
+                          kPrimaryColor.withOpacity(0.05),
+                          Colors.purple.withOpacity(0.02)
+                        ],
                       ),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: kPrimaryColor.withOpacity(0.1)),
@@ -2658,23 +2612,53 @@ class _OrderDetailsSheet extends StatelessWidget {
                     child: Column(
                       children: [
                         if (billingDetails != null) ...[
-                          _buildBillRow('Subtotal', '₹${billingDetails['subtotal'] ?? '0.00'}', isSmallScreen: isSmallScreen),
+                          _buildBillRow(
+                              'Subtotal',
+                              '₹${billingDetails['subtotal'] ?? '0.00'}',
+                              isSmallScreen: isSmallScreen),
                           if ((billingDetails['minimum_cart_fee'] ?? 0) > 0)
-                            _buildBillRow('Minimum Cart Fee', '₹${billingDetails['minimum_cart_fee']}', isSmallScreen: isSmallScreen),
+                            _buildBillRow(
+                                'Minimum Cart Fee',
+                                '₹${billingDetails['minimum_cart_fee']}',
+                                isSmallScreen: isSmallScreen),
                           if ((billingDetails['platform_fee'] ?? 0) > 0)
-                            _buildBillRow('Platform Fee', '₹${billingDetails['platform_fee']}', isSmallScreen: isSmallScreen),
+                            _buildBillRow(
+                                'Platform Fee',
+                                '₹${billingDetails['platform_fee']}',
+                                isSmallScreen: isSmallScreen),
                           if ((billingDetails['service_tax'] ?? 0) > 0)
-                            _buildBillRow('Service Tax', '₹${billingDetails['service_tax']}', isSmallScreen: isSmallScreen),
+                            _buildBillRow(
+                                'Service Tax',
+                                '₹${billingDetails['service_tax']}',
+                                isSmallScreen: isSmallScreen),
                           if ((billingDetails['delivery_fee'] ?? 0) > 0)
-                            _buildBillRow('Delivery Fee', '₹${billingDetails['delivery_fee']}', isSmallScreen: isSmallScreen),
+                            _buildBillRow(
+                                'Delivery Fee',
+                                '₹${billingDetails['delivery_fee']}',
+                                isSmallScreen: isSmallScreen),
                           if ((billingDetails['discount_amount'] ?? 0) > 0)
-                            _buildBillRow('Discount', '-₹${billingDetails['discount_amount']}', isDiscount: true, isSmallScreen: isSmallScreen),
+                            _buildBillRow(
+                                'Discount',
+                                '-₹${billingDetails['discount_amount']}',
+                                isDiscount: true,
+                                isSmallScreen: isSmallScreen),
                           if (billingDetails['applied_coupon_code'] != null)
-                            _buildBillRow('Coupon', billingDetails['applied_coupon_code'].toString(), isInfo: true, isSmallScreen: isSmallScreen),
+                            _buildBillRow(
+                                'Coupon',
+                                billingDetails['applied_coupon_code']
+                                    .toString(),
+                                isInfo: true,
+                                isSmallScreen: isSmallScreen),
                           const Divider(height: 24, thickness: 1),
-                          _buildBillRow('Total Amount', '₹${billingDetails['total_amount'] ?? order['total_amount'] ?? '0.00'}', isTotal: true, isSmallScreen: isSmallScreen),
+                          _buildBillRow(
+                              'Total Amount',
+                              '₹${billingDetails['total_amount'] ?? order['total_amount'] ?? '0.00'}',
+                              isTotal: true,
+                              isSmallScreen: isSmallScreen),
                         ] else ...[
-                          _buildBillRow('Total Amount', '₹${order['total_amount'] ?? '0.00'}', isTotal: true, isSmallScreen: isSmallScreen),
+                          _buildBillRow('Total Amount',
+                              '₹${order['total_amount'] ?? '0.00'}',
+                              isTotal: true, isSmallScreen: isSmallScreen),
                         ],
                         const SizedBox(height: 12),
                         Container(
@@ -2695,7 +2679,10 @@ class _OrderDetailsSheet extends StatelessWidget {
                                 ),
                               ),
                               Text(
-                                order['payment_method']?.toString().toUpperCase() ?? 'N/A',
+                                order['payment_method']
+                                    ?.toString()
+                                    .toUpperCase() ??
+                                    'N/A',
                                 style: TextStyle(
                                   color: kPrimaryColor,
                                   fontSize: isSmallScreen ? 12 : 14,
@@ -2713,13 +2700,17 @@ class _OrderDetailsSheet extends StatelessWidget {
 
                   // Delivery Address
                   if (addressInfo != null) ...[
-                    _buildSectionHeader('Delivery Address', Icons.location_on, isSmallScreen),
+                    _buildSectionHeader('Delivery Address', Icons.location_on,
+                        isSmallScreen),
                     const SizedBox(height: 12),
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
-                          colors: [kPrimaryColor.withOpacity(0.05), Colors.purple.withOpacity(0.02)],
+                          colors: [
+                            kPrimaryColor.withOpacity(0.05),
+                            Colors.purple.withOpacity(0.02)
+                          ],
                         ),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: kPrimaryColor.withOpacity(0.1)),
@@ -2729,7 +2720,9 @@ class _OrderDetailsSheet extends StatelessWidget {
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.person, color: kPrimaryColor, size: isSmallScreen ? 16 : 18),
+                              Icon(Icons.person,
+                                  color: kPrimaryColor,
+                                  size: isSmallScreen ? 16 : 18),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
@@ -2758,7 +2751,8 @@ class _OrderDetailsSheet extends StatelessWidget {
                   ],
 
                   // ✅ NEW: Order Timeline with Slot Details
-                  _buildSectionHeader('Order Timeline', Icons.timeline, isSmallScreen),
+                  _buildSectionHeader(
+                      'Order Timeline', Icons.timeline, isSmallScreen),
                   const SizedBox(height: 12),
                   Container(
                     padding: EdgeInsets.all(isSmallScreen ? 16 : 20),
@@ -2777,31 +2771,36 @@ class _OrderDetailsSheet extends StatelessWidget {
                     ),
                     child: Column(
                       children: [
-                        _buildTimelineRow('Order Placed', _formatDate(order['created_at']), isSmallScreen),
+                        _buildTimelineRow('Order Placed',
+                            _formatDate(order['created_at']), isSmallScreen),
                         // Show pickup slot details
-                        if (order['pickup_date'] != null && order['pickup_slot'] != null) ...[
+                        if (order['pickup_date'] != null &&
+                            order['pickup_slot'] != null) ...[
                           const SizedBox(height: 12),
                           _buildTimelineRowWithSlot(
                               'Pickup Scheduled',
                               _formatDate(order['pickup_date']),
-                              order['pickup_slot']['display_time'] ?? '${order['pickup_slot']['start_time']} - ${order['pickup_slot']['end_time']}',
-                              isSmallScreen
-                          ),
+                              order['pickup_slot']['display_time'] ??
+                                  '${order['pickup_slot']['start_time']} - ${order['pickup_slot']['end_time']}',
+                              isSmallScreen),
                         ],
                         // Show delivery slot details
-                        if (order['delivery_date'] != null && order['delivery_slot'] != null) ...[
+                        if (order['delivery_date'] != null &&
+                            order['delivery_slot'] != null) ...[
                           const SizedBox(height: 12),
                           _buildTimelineRowWithSlot(
                               'Delivery Scheduled',
                               _formatDate(order['delivery_date']),
-                              order['delivery_slot']['display_time'] ?? '${order['delivery_slot']['start_time']} - ${order['delivery_slot']['end_time']}',
-                              isSmallScreen
-                          ),
+                              order['delivery_slot']['display_time'] ??
+                                  '${order['delivery_slot']['start_time']} - ${order['delivery_slot']['end_time']}',
+                              isSmallScreen),
                         ],
                         // Show delivery type
                         if (order['delivery_type'] != null) ...[
                           const SizedBox(height: 12),
-                          _buildTimelineRow('Service Type', order['delivery_type'].toString().toUpperCase(), isSmallScreen),
+                          _buildTimelineRow('Service Type',
+                              order['delivery_type'].toString().toUpperCase(),
+                              isSmallScreen),
                         ],
                       ],
                     ),
@@ -2818,7 +2817,8 @@ class _OrderDetailsSheet extends StatelessWidget {
     );
   }
 
-  Widget _buildSectionHeader(String title, IconData icon, bool isSmallScreen) {
+  Widget _buildSectionHeader(
+      String title, IconData icon, bool isSmallScreen) {
     return Row(
       children: [
         Icon(icon, color: kPrimaryColor, size: isSmallScreen ? 18 : 20),
@@ -2861,7 +2861,8 @@ class _OrderDetailsSheet extends StatelessWidget {
   }
 
   // Timeline row with slot details
-  Widget _buildTimelineRowWithSlot(String label, String date, String slot, bool isSmallScreen) {
+  Widget _buildTimelineRowWithSlot(
+      String label, String date, String slot, bool isSmallScreen) {
     return Column(
       children: [
         Row(
@@ -2892,7 +2893,8 @@ class _OrderDetailsSheet extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding:
+              const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(8),
@@ -2912,7 +2914,11 @@ class _OrderDetailsSheet extends StatelessWidget {
     );
   }
 
-  Widget _buildBillRow(String label, String value, {bool isTotal = false, bool isDiscount = false, bool isInfo = false, required bool isSmallScreen}) {
+  Widget _buildBillRow(String label, String value,
+      {bool isTotal = false,
+        bool isDiscount = false,
+        bool isInfo = false,
+        required bool isSmallScreen}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -2922,7 +2928,8 @@ class _OrderDetailsSheet extends StatelessWidget {
             child: Text(
               label,
               style: TextStyle(
-                fontSize: isTotal ? (isSmallScreen ? 14 : 16) : (isSmallScreen ? 12 : 14),
+                fontSize:
+                isTotal ? (isSmallScreen ? 14 : 16) : (isSmallScreen ? 12 : 14),
                 fontWeight: isTotal ? FontWeight.w700 : FontWeight.w500,
                 color: isTotal ? Colors.black : Colors.grey.shade700,
               ),
@@ -2931,7 +2938,8 @@ class _OrderDetailsSheet extends StatelessWidget {
           Text(
             value,
             style: TextStyle(
-              fontSize: isTotal ? (isSmallScreen ? 16 : 18) : (isSmallScreen ? 12 : 14),
+              fontSize:
+              isTotal ? (isSmallScreen ? 16 : 18) : (isSmallScreen ? 12 : 14),
               fontWeight: isTotal ? FontWeight.w800 : FontWeight.w600,
               color: isTotal
                   ? kPrimaryColor
@@ -2978,16 +2986,22 @@ class _OrderDetailsSheet extends StatelessWidget {
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
-                    padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
-                    child: Icon(Icons.image_not_supported_outlined, color: Colors.grey.shade400, size: isSmallScreen ? 20 : 24),
+                    padding:
+                    EdgeInsets.all(isSmallScreen ? 12 : 16),
+                    child: Icon(Icons.image_not_supported_outlined,
+                        color: Colors.grey.shade400,
+                        size: isSmallScreen ? 20 : 24),
                   );
                 },
-                loadingBuilder: (context, child, loadingProgress) {
+                loadingBuilder:
+                    (context, child, loadingProgress) {
                   if (loadingProgress == null) return child;
                   return Center(
                     child: CircularProgressIndicator(
-                      value: loadingProgress.expectedTotalBytes != null
-                          ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                      value: loadingProgress.expectedTotalBytes !=
+                          null
+                          ? loadingProgress.cumulativeBytesLoaded /
+                          loadingProgress.expectedTotalBytes!
                           : null,
                       strokeWidth: 2,
                       color: kPrimaryColor,
@@ -2996,8 +3010,11 @@ class _OrderDetailsSheet extends StatelessWidget {
                 },
               )
                   : Container(
-                padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
-                child: Icon(Icons.shopping_bag_outlined, color: Colors.grey.shade400, size: isSmallScreen ? 20 : 24),
+                padding:
+                EdgeInsets.all(isSmallScreen ? 12 : 16),
+                child: Icon(Icons.shopping_bag_outlined,
+                    color: Colors.grey.shade400,
+                    size: isSmallScreen ? 20 : 24),
               ),
             ),
           ),
@@ -3039,7 +3056,8 @@ class _OrderDetailsSheet extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
                         color: Colors.blue.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
@@ -3076,11 +3094,929 @@ class _OrderDetailsSheet extends StatelessWidget {
     if (dateString == null) return 'N/A';
     try {
       final date = DateTime.parse(dateString.toString());
-      final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      final months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec'
+      ];
       return '${date.day} ${months[date.month - 1]}, ${date.year}';
     } catch (e) {
       return 'N/A';
     }
   }
-}// ✅ END OF COMPLETE ORDER HISTORY SCREEN CODE ✅
+}
+
+
+
+
+class _CancellationReasonDialog extends StatefulWidget {
+  final Map<String, dynamic> order;
+  final VoidCallback onCancel;
+  final Function(String reason, int? reasonId) onConfirm;
+
+  const _CancellationReasonDialog({
+    required this.order,
+    required this.onCancel,
+    required this.onConfirm,
+  });
+
+  @override
+  State<_CancellationReasonDialog> createState() => _CancellationReasonDialogState();
+}
+
+class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
+    with SingleTickerProviderStateMixin {
+  final supabase = Supabase.instance.client;
+  final TextEditingController _customReasonController = TextEditingController();
+
+  List<Map<String, dynamic>> cancellationReasons = [];
+  bool isLoadingReasons = true;
+  int? selectedReasonId;
+  String? selectedReasonText;
+  bool showCustomInput = false;
+  bool isSubmitting = false;
+  bool isDropdownOpen = false;
+
+  late AnimationController _animationController;
+  late Animation<double> _slideAnimation;
+  late Animation<double> _fadeAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 500),
+      vsync: this,
+    );
+
+    _slideAnimation = Tween<double>(begin: 1.0, end: 0.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
+    );
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeIn),
+    );
+
+    _loadCancellationReasons();
+    _animationController.forward();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    _customReasonController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadCancellationReasons() async {
+    try {
+      final response = await supabase
+          .from('cancellation_reasons')
+          .select('*')
+          .eq('is_active', true)
+          .order('display_order', ascending: true);
+
+      if (mounted) {
+        setState(() {
+          cancellationReasons = List<Map<String, dynamic>>.from(response);
+          isLoadingReasons = false;
+        });
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('Error loading cancellation reasons: $e');
+      if (mounted) {
+        setState(() {
+          isLoadingReasons = false;
+        });
+      }
+    }
+  }
+
+  void _onReasonSelected(int reasonId, String reasonText) {
+    setState(() {
+      selectedReasonId = reasonId;
+      selectedReasonText = reasonText;
+      isDropdownOpen = false;
+      showCustomInput = reasonText.toLowerCase().contains('other');
+      if (!showCustomInput) {
+        _customReasonController.clear();
+      }
+    });
+  }
+
+  void _handleSubmit() async {
+    if (selectedReasonId == null) {
+      _showSnackBar('Please select a reason for cancellation', Colors.red);
+      return;
+    }
+
+    String finalReason;
+    if (showCustomInput) {
+      if (_customReasonController.text.trim().isEmpty) {
+        _showSnackBar('Please specify your reason', Colors.red);
+        return;
+      }
+      finalReason = _customReasonController.text.trim();
+    } else {
+      finalReason = selectedReasonText!;
+    }
+
+    setState(() => isSubmitting = true);
+
+    try {
+      await widget.onConfirm(finalReason, selectedReasonId);
+    } catch (e) {
+      setState(() => isSubmitting = false);
+      _showSnackBar('Failed to cancel order. Please try again.', Colors.red);
+    }
+  }
+
+  void _showSnackBar(String message, Color color) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontWeight: FontWeight.w600)),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final safeAreaBottom = MediaQuery.of(context).viewPadding.bottom;
+    final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
+
+    return AnimatedBuilder(
+      animation: _animationController,
+      builder: (context, child) {
+        return FadeTransition(
+          opacity: _fadeAnimation,
+          child: Material(
+            color: Colors.black.withOpacity(0.6),
+            child: SafeArea(
+              child: Transform.translate(
+                offset: Offset(0, _slideAnimation.value * screenSize.height * 0.3),
+                child: Center(
+                  child: Container(
+                    margin: EdgeInsets.only(
+                      left: 20,
+                      right: 20,
+                      bottom: keyboardHeight > 0 ? keyboardHeight + 20 : safeAreaBottom + 20,
+                    ),
+                    constraints: BoxConstraints(
+                      maxHeight: screenSize.height * 0.85,
+                      maxWidth: 420,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(28),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.25),
+                          blurRadius: 40,
+                          offset: const Offset(0, 20),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Premium Header
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(28, 24, 28, 20),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                const Color(0xFFFF6B6B),
+                                Colors.red.shade600,
+                                const Color(0xFFFF6B9D),
+                              ],
+                            ),
+                            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                          ),
+                          child: Column(
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.25),
+                                      borderRadius: BorderRadius.circular(18),
+                                      border: Border.all(
+                                        color: Colors.white.withOpacity(0.4),
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                    child: const Icon(
+                                      Icons.warning_rounded,
+                                      color: Colors.white,
+                                      size: 24,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'Cancel Order',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 22,
+                                            fontWeight: FontWeight.w800,
+                                            letterSpacing: -0.3,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'Order #${widget.order['id'].toString().substring(0, 8)}',
+                                          style: const TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: IconButton(
+                                      onPressed: widget.onCancel,
+                                      icon: const Icon(Icons.close_rounded, color: Colors.white, size: 22),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: Colors.white.withOpacity(0.2),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Icon(Icons.info_outline_rounded, color: Colors.white, size: 18),
+                                    SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        'Please select a reason for cancelling your order',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // Content Section
+                        Flexible(
+                          child: isLoadingReasons
+                              ? Container(
+                            padding: const EdgeInsets.all(60),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(20),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        const Color(0xFFFF6B6B).withOpacity(0.1),
+                                        Colors.red.shade600.withOpacity(0.1),
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: const CircularProgressIndicator(
+                                    color: Color(0xFFFF6B6B),
+                                    strokeWidth: 3,
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                                Text(
+                                  'Loading reasons...',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                              : SingleChildScrollView(
+                            padding: const EdgeInsets.all(28),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Premium Dropdown
+                                Container(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        Colors.grey.shade50,
+                                        Colors.white,
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: selectedReasonId != null
+                                          ? const Color(0xFFFF6B6B).withOpacity(0.3)
+                                          : Colors.grey.shade200,
+                                      width: selectedReasonId != null ? 2 : 1.5,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: selectedReasonId != null
+                                            ? const Color(0xFFFF6B6B).withOpacity(0.1)
+                                            : Colors.grey.withOpacity(0.08),
+                                        blurRadius: 20,
+                                        offset: const Offset(0, 8),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      // Dropdown Header
+                                      Material(
+                                        color: Colors.transparent,
+                                        child: InkWell(
+                                          onTap: () {
+                                            setState(() {
+                                              isDropdownOpen = !isDropdownOpen;
+                                            });
+                                          },
+                                          borderRadius: BorderRadius.circular(20),
+                                          child: Container(
+                                            padding: const EdgeInsets.all(20),
+                                            child: Row(
+                                              children: [
+                                                Container(
+                                                  padding: const EdgeInsets.all(12),
+                                                  decoration: BoxDecoration(
+                                                    gradient: LinearGradient(
+                                                      colors: selectedReasonId != null
+                                                          ? [const Color(0xFFFF6B6B), Colors.red.shade600]
+                                                          : [Colors.grey.shade300, Colors.grey.shade400],
+                                                    ),
+                                                    borderRadius: BorderRadius.circular(14),
+                                                  ),
+                                                  child: const Icon(
+                                                    Icons.format_list_bulleted_rounded,
+                                                    color: Colors.white,
+                                                    size: 20,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 16),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                                    children: [
+                                                      Text(
+                                                        'Cancellation Reason',
+                                                        style: TextStyle(
+                                                          fontSize: 12,
+                                                          fontWeight: FontWeight.w600,
+                                                          color: Colors.grey.shade600,
+                                                          letterSpacing: 0.8,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(height: 4),
+                                                      Text(
+                                                        selectedReasonText ?? 'Choose a reason',
+                                                        style: TextStyle(
+                                                          fontSize: 16,
+                                                          fontWeight: FontWeight.w600,
+                                                          color: selectedReasonId != null
+                                                              ? Colors.black87
+                                                              : Colors.grey.shade500,
+                                                        ),
+                                                        maxLines: 2,
+                                                        overflow: TextOverflow.ellipsis,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 12),
+                                                AnimatedRotation(
+                                                  turns: isDropdownOpen ? 0.5 : 0.0,
+                                                  duration: const Duration(milliseconds: 300),
+                                                  child: Container(
+                                                    padding: const EdgeInsets.all(8),
+                                                    decoration: BoxDecoration(
+                                                      color: const Color(0xFFFF6B6B).withOpacity(0.1),
+                                                      borderRadius: BorderRadius.circular(10),
+                                                    ),
+                                                    child: const Icon(
+                                                      Icons.keyboard_arrow_down_rounded,
+                                                      color: Color(0xFFFF6B6B),
+                                                      size: 20,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+
+                                      // Dropdown Options with Animation (capped & scrollable)
+                                      AnimatedContainer(
+                                        duration: const Duration(milliseconds: 350),
+                                        curve: Curves.easeInOutCubic,
+                                        // Cap height to avoid RenderFlex overflow; list inside will scroll if needed
+                                        height: isDropdownOpen
+                                            ? min(6, cancellationReasons.length) * 56.0
+                                            : 0,
+                                        clipBehavior: Clip.hardEdge,
+                                        decoration: const BoxDecoration(
+                                          borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
+                                        ),
+                                        child: isDropdownOpen
+                                            ? Container(
+                                          decoration: BoxDecoration(
+                                            border: Border(
+                                              top: BorderSide(
+                                                color: Colors.grey.shade100,
+                                                width: 1,
+                                              ),
+                                            ),
+                                          ),
+                                          child: ListView.builder(
+                                            padding: EdgeInsets.zero,
+                                            itemCount: cancellationReasons.length,
+                                            itemBuilder: (context, index) {
+                                              final reason = cancellationReasons[index];
+                                              final isSelected = selectedReasonId == reason['id'];
+                                              final isLast = index == cancellationReasons.length - 1;
+
+                                              return Material(
+                                                color: Colors.transparent,
+                                                child: InkWell(
+                                                  onTap: () => _onReasonSelected(
+                                                      reason['id'], reason['reason_text']),
+                                                  borderRadius: isLast
+                                                      ? const BorderRadius.vertical(
+                                                      bottom: Radius.circular(20))
+                                                      : null,
+                                                  child: Container(
+                                                    height: 56,
+                                                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                                                    decoration: BoxDecoration(
+                                                      color: isSelected
+                                                          ? const Color(0xFFFF6B6B).withOpacity(0.08)
+                                                          : Colors.transparent,
+                                                      border: !isLast
+                                                          ? Border(
+                                                        bottom: BorderSide(
+                                                          color: Colors.grey.shade100,
+                                                          width: 0.5,
+                                                        ),
+                                                      )
+                                                          : null,
+                                                      borderRadius: isLast
+                                                          ? const BorderRadius.vertical(
+                                                          bottom: Radius.circular(20))
+                                                          : null,
+                                                    ),
+                                                    child: Row(
+                                                      children: [
+                                                        AnimatedContainer(
+                                                          duration:
+                                                          const Duration(milliseconds: 200),
+                                                          width: 20,
+                                                          height: 20,
+                                                          decoration: BoxDecoration(
+                                                            gradient: isSelected
+                                                                ? LinearGradient(colors: [
+                                                              const Color(0xFFFF6B6B),
+                                                              Colors.red.shade600
+                                                            ])
+                                                                : null,
+                                                            color: isSelected
+                                                                ? null
+                                                                : Colors.transparent,
+                                                            border: Border.all(
+                                                              color: isSelected
+                                                                  ? const Color(0xFFFF6B6B)
+                                                                  : Colors.grey.shade400,
+                                                              width: 2,
+                                                            ),
+                                                            shape: BoxShape.circle,
+                                                          ),
+                                                          child: isSelected
+                                                              ? const Icon(Icons.check_rounded,
+                                                              color: Colors.white, size: 12)
+                                                              : null,
+                                                        ),
+                                                        const SizedBox(width: 16),
+                                                        Expanded(
+                                                          child: Text(
+                                                            reason['reason_text'],
+                                                            style: TextStyle(
+                                                              fontSize: 15,
+                                                              fontWeight: isSelected
+                                                                  ? FontWeight.w600
+                                                                  : FontWeight.w500,
+                                                              color: isSelected
+                                                                  ? const Color(0xFFFF6B6B)
+                                                                  : Colors.black87,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        if (isSelected)
+                                                          Container(
+                                                            padding: const EdgeInsets.symmetric(
+                                                                horizontal: 10, vertical: 4),
+                                                            decoration: BoxDecoration(
+                                                              gradient: LinearGradient(colors: [
+                                                                const Color(0xFFFF6B6B),
+                                                                Colors.red.shade600
+                                                              ]),
+                                                              borderRadius:
+                                                              BorderRadius.circular(12),
+                                                            ),
+                                                            child: const Text(
+                                                              'SELECTED',
+                                                              style: TextStyle(
+                                                                color: Colors.white,
+                                                                fontSize: 10,
+                                                                fontWeight: FontWeight.w700,
+                                                                letterSpacing: 0.5,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                        )
+                                            : const SizedBox.shrink(),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+
+                                // Custom Input Section
+                                if (showCustomInput) ...[
+                                  const SizedBox(height: 24),
+                                  Container(
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          const Color(0xFFFF6B6B).withOpacity(0.05),
+                                          Colors.red.shade600.withOpacity(0.03),
+                                        ],
+                                      ),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(
+                                          color: const Color(0xFFFF6B6B).withOpacity(0.2), width: 1.5),
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(20),
+                                          child: Row(
+                                            children: [
+                                              Container(
+                                                padding: const EdgeInsets.all(10),
+                                                decoration: BoxDecoration(
+                                                  gradient: LinearGradient(
+                                                    colors: [const Color(0xFFFF6B6B), Colors.red.shade600],
+                                                  ),
+                                                  borderRadius: BorderRadius.circular(12),
+                                                ),
+                                                child: const Icon(Icons.edit_rounded,
+                                                    color: Colors.white, size: 18),
+                                              ),
+                                              const SizedBox(width: 12),
+                                              const Expanded(
+                                                child: Text(
+                                                  'Please specify your reason',
+                                                  style: TextStyle(
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: Color(0xFFFF6B6B),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Container(
+                                          margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            borderRadius: BorderRadius.circular(16),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.grey.withOpacity(0.1),
+                                                blurRadius: 15,
+                                                offset: const Offset(0, 5),
+                                              ),
+                                            ],
+                                          ),
+                                          child: TextField(
+                                            controller: _customReasonController,
+                                            maxLines: 4,
+                                            maxLength: 200,
+                                            decoration: InputDecoration(
+                                              hintText: 'Enter your specific reason here...',
+                                              hintStyle: TextStyle(
+                                                  color: Colors.grey.shade500,
+                                                  fontWeight: FontWeight.w500),
+                                              filled: true,
+                                              fillColor: Colors.white,
+                                              border: OutlineInputBorder(
+                                                borderRadius: BorderRadius.circular(16),
+                                                borderSide: BorderSide.none,
+                                              ),
+                                              focusedBorder: OutlineInputBorder(
+                                                borderRadius: BorderRadius.circular(16),
+                                                borderSide: const BorderSide(
+                                                    color: Color(0xFFFF6B6B), width: 2),
+                                              ),
+                                              contentPadding: const EdgeInsets.all(16),
+                                              counterStyle: TextStyle(
+                                                color: Colors.grey.shade500,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                            style: const TextStyle(
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+
+                                const SizedBox(height: 32),
+                              ],
+                            ),
+                          ),
+                        ),
+
+                        // Bottom Actions
+                        Container(
+                          padding: const EdgeInsets.all(28),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: const BorderRadius.vertical(bottom: Radius.circular(28)),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: SizedBox(
+                                  height: 56,
+                                  child: TextButton(
+                                    onPressed: isSubmitting ? null : widget.onCancel,
+                                    style: TextButton.styleFrom(
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(16),
+                                        side: BorderSide(color: Colors.grey.shade300, width: 2),
+                                      ),
+                                      backgroundColor: Colors.white,
+                                    ),
+                                    child: Text(
+                                      'Keep Order',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.grey.shade700,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Container(
+                                  height: 56,
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [const Color(0xFFFF6B6B), Colors.red.shade600],
+                                    ),
+                                    borderRadius: BorderRadius.circular(16),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(0xFFFF6B6B).withOpacity(0.4),
+                                        blurRadius: 20,
+                                        offset: const Offset(0, 8),
+                                      ),
+                                    ],
+                                  ),
+                                  child: ElevatedButton(
+                                    onPressed: isSubmitting ? null : _handleSubmit,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.transparent,
+                                      foregroundColor: Colors.white,
+                                      shadowColor: Colors.transparent,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                    ),
+                                    child: isSubmitting
+                                        ? const SizedBox(
+                                      height: 24,
+                                      width: 24,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.5,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                        : const Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(Icons.cancel_rounded, size: 20),
+                                        SizedBox(width: 8),
+                                        Text(
+                                          'Cancel',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+
+class _CancellationSuccessDialog extends StatefulWidget {
+  @override
+  State<_CancellationSuccessDialog> createState() => _CancellationSuccessDialogState();
+}
+
+class _CancellationSuccessDialogState extends State<_CancellationSuccessDialog>
+    with TickerProviderStateMixin {
+  late AnimationController _scaleController;
+  late AnimationController _checkController;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _checkAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _scaleController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+
+    _checkController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _scaleAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _scaleController, curve: Curves.elasticOut),
+    );
+
+    _checkAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _checkController, curve: Curves.easeIn),
+    );
+
+    _startAnimation();
+  }
+
+  Future<void> _startAnimation() async {
+    await _scaleController.forward();
+    await _checkController.forward();
+
+    // Auto close after 2 seconds
+    await Future.delayed(const Duration(seconds: 2));
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  void dispose() {
+    _scaleController.dispose();
+    _checkController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: AnimatedBuilder(
+        animation: Listenable.merge([_scaleController, _checkController]),
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _scaleAnimation.value,
+            child: Container(
+              padding: const EdgeInsets.all(40),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Colors.red.shade400, Colors.red.shade600],
+                      ),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Transform.scale(
+                      scale: _checkAnimation.value,
+                      child: const Icon(
+                        Icons.cancel_rounded,
+                        color: Colors.white,
+                        size: 40,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Order Cancelled!',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Your order has been successfully cancelled',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
