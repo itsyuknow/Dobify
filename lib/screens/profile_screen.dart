@@ -1678,7 +1678,7 @@ class _ProfileScreenState extends State<ProfileScreen>
   void _navigateToSupport() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const SupportScreen()),
+      MaterialPageRoute(builder: (context) => const PremiumSupportScreen()),
     );
   }
 

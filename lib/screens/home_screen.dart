@@ -510,7 +510,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                 borderRadius: BorderRadius.circular(21),
                 onTap: () => Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const SupportScreen()),
+                  MaterialPageRoute(builder: (_) => const PremiumSupportScreen()),
                 ),
                 child: Center(
                   child: Icon(
