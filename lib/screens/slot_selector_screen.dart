@@ -57,6 +57,9 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
   DateTime selectedDeliveryDate = DateTime.now();
   final ScrollController _pickupDateScrollController = ScrollController();
   final ScrollController _deliveryDateScrollController = ScrollController();
+  final ScrollController _mainScrollController = ScrollController();
+  final GlobalKey _deliverySlotSectionKey = GlobalKey();
+  final GlobalKey _paymentSectionKey = GlobalKey();
   late List<DateTime> pickupDates;
   late List<DateTime> deliveryDates;
 
@@ -92,6 +95,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     _pickupDateScrollController.dispose();
     _deliveryDateScrollController.dispose();
     _billingAnimationController.dispose();
+    _mainScrollController.dispose();
     _razorpay.clear();
     super.dispose();
   }
@@ -389,11 +393,50 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
         selectedDeliveryDate = selectedPickupDate; // Fallback to pickup date
       }
     });
+
+    // Auto-scroll to delivery slot section
+    _autoScrollToDeliverySection();
   }
 
   void _onDeliverySlotSelected(Map<String, dynamic> slot) {
     setState(() {
       selectedDeliverySlot = slot;
+    });
+
+    // Auto-scroll to payment section after delivery slot selection
+    _autoScrollToPaymentSection();
+  }
+
+  // Scroll to delivery slot section
+  void _autoScrollToDeliverySection() {
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (_deliverySlotSectionKey.currentContext != null && _mainScrollController.hasClients) {
+        final RenderBox renderBox = _deliverySlotSectionKey.currentContext!.findRenderObject() as RenderBox;
+        final position = renderBox.localToGlobal(Offset.zero);
+        final screenHeight = MediaQuery.of(context).size.height;
+
+        // Calculate scroll position to center the delivery section
+        double scrollOffset = _mainScrollController.offset + position.dy - (screenHeight * 0.2);
+
+        _mainScrollController.animateTo(
+          scrollOffset.clamp(0.0, _mainScrollController.position.maxScrollExtent),
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.easeInOut,
+        );
+      }
+    });
+  }
+
+// Scroll to payment section (scroll to bottom)
+  void _autoScrollToPaymentSection() {
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (_mainScrollController.hasClients) {
+        _mainScrollController.animateTo(
+          _mainScrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.easeInOut,
+        );
+      }
     });
   }
 
@@ -964,6 +1007,19 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     );
   }
 
+  // Auto-scroll function to smoothly scroll to specific sections
+  void _autoScrollToSection(double offset, {int delay = 300}) {
+    Future.delayed(Duration(milliseconds: delay), () {
+      if (_mainScrollController.hasClients) {
+        _mainScrollController.animateTo(
+          offset,
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.easeInOut,
+        );
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     // ✅ RESPONSIVE: Get screen dimensions for universal phone display
@@ -997,6 +1053,8 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
             children: [
               Expanded(
                 child: SingleChildScrollView(
+                  controller: _mainScrollController,
+                  physics: const BouncingScrollPhysics(),
                   child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: cardMargin / 2),
                     child: Column(
@@ -1026,7 +1084,10 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                               ),
                             )
                           else
-                            _buildDeliverySlotsSection(cardMargin, cardPadding, isSmallScreen),
+                            Container(
+                              key: _deliverySlotSectionKey, // Add this line
+                              child: _buildDeliverySlotsSection(cardMargin, cardPadding, isSmallScreen),
+                            ),
                         ],
                         if (selectedPickupSlot != null || selectedDeliverySlot != null)
                           _buildSelectionSummary(cardMargin, cardPadding, isSmallScreen),
@@ -1036,10 +1097,14 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                           _buildBillingSummary(cardMargin, cardPadding, isSmallScreen),
 
                         // Payment Method Selection
+                        // Payment Method Selection
                         if (selectedPickupSlot != null && selectedDeliverySlot != null)
-                          _buildPaymentMethodSelection(cardMargin, cardPadding, isSmallScreen),
+                          Container(
+                            key: _paymentSectionKey, // Add this line
+                            child: _buildPaymentMethodSelection(cardMargin, cardPadding, isSmallScreen),
+                          ),
 
-                        SizedBox(height: screenHeight * 0.12), // ✅ RESPONSIVE: Bottom spacing
+                        SizedBox(height: 16), // Reduced bottom spacing
                       ],
                     ),
                   ),

@@ -10,6 +10,8 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'colors.dart';
+// NEW: open cart screen after reorder
+import '../screens/cart_screen.dart';
 
 class OrderHistoryScreen extends StatefulWidget {
   const OrderHistoryScreen({super.key});
@@ -29,6 +31,13 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
 
+  // ===================== REVIEW STATE (for dialog) =====================
+  int _dialogSelectedRating = 0;
+  List<String> _dialogSelectedFeedback = [];
+  List<Map<String, dynamic>> _reviewFeedbackOptions = [];
+  final TextEditingController _dialogFeedbackController = TextEditingController();
+  // =====================================================================
+
   @override
   void initState() {
     super.initState();
@@ -39,17 +48,33 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
     );
+    _loadReviewFeedbackOptions(); // LOAD feedback chips once
     _loadOrders();
   }
 
   @override
   void dispose() {
     _animationController.dispose();
-    // Dispose all timers
     for (var timer in _cancelTimers.values) {
       timer?.cancel();
     }
+    _dialogFeedbackController.dispose(); // NEW
     super.dispose();
+  }
+
+  Future<void> _loadReviewFeedbackOptions() async {
+    try {
+      final response = await supabase
+          .from('review_feedback_options')
+          .select('*')
+          .order('id');
+      setState(() {
+        _reviewFeedbackOptions = List<Map<String, dynamic>>.from(response);
+      });
+    } catch (e) {
+      // Silent fail; dialog will still work without chips
+      debugPrint('Error loading review feedback options: $e');
+    }
   }
 
   Future<void> _loadOrders() async {
@@ -58,12 +83,8 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
     try {
       setState(() => isLoading = true);
-      print('Loading orders for user: ${user.id}');
-
-      // Get orders from past 30 days with optimized query
       final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
 
-      // ✅ OPTIMIZED: Single query with proper filtering and joins to reduce API calls
       final ordersResponse = await supabase
           .from('orders')
           .select('''
@@ -75,11 +96,9 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
             delivery_slot_start_time,
             delivery_slot_end_time
           ''')
-          .eq('user_id', user.id) // ✅ OPTIMIZED: Filter by user_id first
+          .eq('user_id', user.id)
           .gte('created_at', thirtyDaysAgo.toIso8601String())
           .order('created_at', ascending: false);
-
-      print('Found ${ordersResponse.length} orders from past 30 days');
 
       List<Map<String, dynamic>> ordersWithDetails = [];
 
@@ -87,22 +106,16 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
         Map<String, dynamic> orderWithDetails = Map<String, dynamic>.from(order);
 
         try {
-          // ✅ OPTIMIZED: Get order items with single query
           final orderItemsResponse = await supabase
               .from('order_items')
               .select('*, product_image')
               .eq('order_id', order['id']);
 
-          print('Found ${orderItemsResponse.length} items for order ${order['id']}');
-
-          // Process order items
           List<Map<String, dynamic>> processedItems = [];
           for (var item in orderItemsResponse) {
             Map<String, dynamic> processedItem = Map<String, dynamic>.from(item);
-
             String? productImageUrl = item['product_image'];
 
-            // Get additional product details if product_id exists
             if (item['product_id'] != null) {
               try {
                 final productResponse = await supabase
@@ -120,7 +133,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                     'category_id': productResponse['category_id'],
                   };
                 } else {
-                  // Fallback product data
                   processedItem['products'] = {
                     'id': item['product_id'],
                     'name': item['product_name'] ?? 'Product ${item['product_id']}',
@@ -130,8 +142,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                   };
                 }
               } catch (e) {
-                print('Error loading product ${item['product_id']}: $e');
-                // Fallback product data
                 processedItem['products'] = {
                   'id': item['product_id'],
                   'name': item['product_name'] ?? 'Unknown Product',
@@ -141,7 +151,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                 };
               }
             } else {
-              // No product_id, use item data
               processedItem['products'] = {
                 'id': null,
                 'name': item['product_name'] ?? 'Unknown Product',
@@ -156,16 +165,14 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
           orderWithDetails['order_items'] = processedItems;
 
-          // Get delivery address if available
           if (order['address_details'] != null) {
             try {
               orderWithDetails['address_info'] = order['address_details'];
             } catch (e) {
-              print('Error parsing address details: $e');
+              debugPrint('Error parsing address details: $e');
             }
           }
 
-          // ✅ OPTIMIZED: Get billing details with single query
           try {
             final billingResponse = await supabase
                 .from('order_billing_details')
@@ -177,10 +184,9 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
               orderWithDetails['order_billing_details'] = [billingResponse];
             }
           } catch (e) {
-            print('Error loading billing details for order ${order['id']}: $e');
+            debugPrint('Error loading billing details for order ${order['id']}: $e');
           }
 
-          // ✅ NEW: Use stored slot details from orders table instead of separate queries
           if (order['pickup_slot_display_time'] != null) {
             orderWithDetails['pickup_slot'] = {
               'display_time': order['pickup_slot_display_time'],
@@ -197,11 +203,28 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
             };
           }
 
-          // Setup cancel timer if order can be cancelled
           _setupCancelTimer(orderWithDetails);
 
+          // ===================== NEW: review existence for delivered =====================
+          final statusStr = (order['order_status'] ?? '').toString().toLowerCase();
+          if (statusStr == 'delivered') {
+            try {
+              final existingReview = await supabase
+                  .from('reviews')
+                  .select('id')
+                  .eq('order_id', order['id'])
+                  .maybeSingle();
+              orderWithDetails['has_review'] = existingReview != null;
+            } catch (e) {
+              orderWithDetails['has_review'] = false;
+            }
+          } else {
+            orderWithDetails['has_review'] = false;
+          }
+          // ==============================================================================
+
         } catch (e) {
-          print('Error loading order items for order ${order['id']}: $e');
+          debugPrint('Error loading order items for order ${order['id']}: $e');
           orderWithDetails['order_items'] = [];
         }
 
@@ -214,10 +237,9 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
           isLoading = false;
         });
         _animationController.forward();
-        print('Successfully loaded ${orders.length} orders with details');
       }
     } catch (e) {
-      print('Error loading orders: $e');
+      debugPrint('Error loading orders: $e');
       if (mounted) {
         setState(() {
           orders = [];
@@ -235,23 +257,17 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     }
 
     try {
-      // Show loading overlay
       _showLoadingDialog('Adding items to cart...');
 
       final orderItems = order['order_items'] as List<dynamic>? ?? [];
       int addedItems = 0;
 
-      // First, clear any existing cart for fresh reorder
-      await supabase
-          .from('cart')
-          .delete()
-          .eq('user_id', user.id);
+      await supabase.from('cart').delete().eq('user_id', user.id);
 
       for (var item in orderItems) {
         final product = item['products'];
         if (product != null) {
           try {
-            // Check if product is still available (if product_id exists)
             if (product['id'] != null) {
               final productCheck = await supabase
                   .from('products')
@@ -262,8 +278,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
               if (productCheck != null) {
                 final imageUrl = product['image_url'] ?? productCheck['image_url'];
-
-                // Add item to cart with same service type
                 await supabase.from('cart').insert({
                   'user_id': user.id,
                   'product_name': productCheck['product_name'],
@@ -280,7 +294,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                 addedItems++;
               }
             } else {
-              // For products without product_id, add based on name
               await supabase.from('cart').insert({
                 'user_id': user.id,
                 'product_name': product['name'] ?? item['product_name'],
@@ -297,33 +310,29 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
               addedItems++;
             }
           } catch (e) {
-            print('Error adding item ${product['name']} to cart: $e');
+            debugPrint('Error adding item ${product['name']} to cart: $e');
           }
         }
       }
 
-      // Close loading dialog
       if (mounted) Navigator.pop(context);
 
       if (addedItems > 0) {
-        // Show success message and navigate to cart
         _showSuccessSnackBar('$addedItems items added to cart!');
-
-        // Navigate to cart screen
-        Future.delayed(const Duration(milliseconds: 1000), () {
+        // NEW: open the cart screen
+        Future.delayed(const Duration(milliseconds: 600), () {
           if (mounted) {
-            Navigator.of(context).pushNamed('/cart');
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const CartScreen()),
+            );
           }
         });
       } else {
         _showErrorSnackBar('No items could be added. Products may be unavailable.');
       }
-
     } catch (e) {
-      // Close loading dialog
       if (mounted) Navigator.pop(context);
-
-      print('Error during reorder: $e');
+      debugPrint('Error during reorder: $e');
       _showErrorSnackBar('Failed to reorder items');
     }
   }
@@ -338,23 +347,20 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     if (orderDate == null || pickupSlot == null) return;
 
     try {
-      // Parse order date and pickup slot time
       final pickupDate = DateTime.parse(orderDate);
       final startTimeStr = pickupSlot['start_time'].toString();
 
-      // Parse time (format: HH:mm:ss or HH:mm)
       final timeParts = startTimeStr.split(':');
       final hour = int.parse(timeParts[0]);
       final minute = int.parse(timeParts[1]);
 
-      // Create pickup deadline (pickup date + pickup time - 1 hour buffer)
       final pickupDeadline = DateTime(
           pickupDate.year,
           pickupDate.month,
           pickupDate.day,
           hour,
           minute
-      ).subtract(const Duration(hours: 1)); // 1 hour before pickup
+      ).subtract(const Duration(hours: 1));
 
       final now = DateTime.now();
 
@@ -380,7 +386,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
         });
       }
     } catch (e) {
-      print('Error setting up cancel timer: $e');
+      debugPrint('Error setting up cancel timer: $e');
     }
   }
 
@@ -396,11 +402,9 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       return false;
     }
 
-    // Then check if we're within the reschedule time window (same as cancel logic)
     final orderId = order['id'].toString();
     final remainingTime = _getRemainingCancelTime(orderId);
 
-    // Can only reschedule if there's remaining time (same as cancel button logic)
     return remainingTime > 0;
   }
 
@@ -422,7 +426,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
   }
 
   Future<void> _cancelOrder(Map<String, dynamic> order) async {
-    // Show cancellation reason dialog instead of direct confirmation
     await _showCancellationReasonDialog(order);
   }
 
@@ -434,13 +437,12 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
         order: order,
         onCancel: () => Navigator.pop(context),
         onConfirm: (String reason, int? reasonId) async {
-          Navigator.pop(context); // Close dialog first
+          Navigator.pop(context);
           await _performOrderCancellationWithReason(order, reason, reasonId);
         },
       ),
     );
   }
-
 
   Future<void> _performOrderCancellationWithReason(
       Map<String, dynamic> order,
@@ -454,10 +456,8 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     }
 
     try {
-      // Show loading overlay
       _showLoadingDialog('Cancelling your order...');
 
-      // Update order status
       await supabase
           .from('orders')
           .update({
@@ -468,7 +468,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       })
           .eq('id', order['id']);
 
-      // Log cancellation reason
       await supabase.from('order_cancellation_logs').insert({
         'order_id': order['id'],
         'user_id': user.id,
@@ -477,26 +476,19 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
         'cancelled_at': DateTime.now().toIso8601String(),
       });
 
-      // Stop the timer for this order
       final orderId = order['id'].toString();
       _cancelTimers[orderId]?.cancel();
       _cancelTimers.remove(orderId);
       _cancelTimeRemaining.remove(orderId);
 
-      // Close loading dialog
       if (mounted) Navigator.pop(context);
 
-      // Show success animation and message
       await _showCancellationSuccessAnimation();
-
-      // Reload orders
       await _loadOrders();
 
     } catch (e) {
-      // Close loading dialog
       if (mounted) Navigator.pop(context);
-
-      print('Error cancelling order: $e');
+      debugPrint('Error cancelling order: $e');
       _showErrorSnackBar('Failed to cancel order. Please try again.');
     }
   }
@@ -511,7 +503,189 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     );
   }
 
+  // ========================= REVIEW DIALOG FLOW =========================
+  Future<void> _showReviewDialog(Map<String, dynamic> order) async {
+    _dialogSelectedRating = 0;
+    _dialogSelectedFeedback = [];
+    _dialogFeedbackController.clear();
 
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        final isSmall = MediaQuery.of(context).size.height < 700;
+
+        return StatefulBuilder(
+          builder: (context, modalSetState) {
+            return Dialog(
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: const [
+                          Icon(Icons.star_rate_rounded, color: Colors.amber, size: 24),
+                          SizedBox(width: 8),
+                          Text(
+                            'Rate your experience',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Stars
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(5, (i) {
+                          final s = i + 1;
+                          final filled = s <= _dialogSelectedRating;
+                          return IconButton(
+                            onPressed: () => modalSetState(() {
+                              _dialogSelectedRating = s;
+                            }),
+                            icon: Icon(
+                              filled ? Icons.star_rounded : Icons.star_border_rounded,
+                              color: filled ? Colors.orange : Colors.grey.shade400,
+                              size: isSmall ? 28 : 32,
+                            ),
+                          );
+                        }),
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      if (_reviewFeedbackOptions.isNotEmpty) ...[
+                        const Text(
+                          'What went well?',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: _reviewFeedbackOptions.map((opt) {
+                            final txt = opt['text'] as String;
+                            final isSelected = _dialogSelectedFeedback.contains(txt);
+                            return GestureDetector(
+                              onTap: () => modalSetState(() {
+                                if (isSelected) {
+                                  _dialogSelectedFeedback.remove(txt);
+                                } else {
+                                  _dialogSelectedFeedback.add(txt);
+                                }
+                              }),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: isSelected ? kPrimaryColor.withOpacity(0.1) : Colors.grey[100],
+                                  border: Border.all(color: isSelected ? kPrimaryColor : Colors.grey[300]!),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  txt,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: isSelected ? kPrimaryColor : Colors.grey[700],
+                                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      // Comment
+                      TextField(
+                        controller: _dialogFeedbackController,
+                        maxLines: 3,
+                        decoration: InputDecoration(
+                          hintText: 'Add a comment (optional)',
+                          hintStyle: TextStyle(color: Colors.grey[500]),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: Colors.grey[300]!),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: kPrimaryColor),
+                          ),
+                          contentPadding: const EdgeInsets.all(12),
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // Submit
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _dialogSelectedRating == 0
+                              ? null
+                              : () async {
+                            await _submitReviewForOrder(order);
+                            if (mounted) Navigator.pop(context);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: kPrimaryColor,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          child: const Text(
+                            'Submit Review',
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+
+  Future<void> _submitReviewForOrder(Map<String, dynamic> order) async {
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) return;
+
+    try {
+      await supabase.from('reviews').insert({
+        'order_id': order['id'],
+        'user_id': userId,
+        'rating': _dialogSelectedRating,
+        'feedback_options': _dialogSelectedFeedback,
+        'custom_feedback': _dialogFeedbackController.text.trim().isEmpty
+            ? null
+            : _dialogFeedbackController.text.trim(),
+        'created_at': DateTime.now().toIso8601String(),
+      });
+
+      // flip button to "Reviewed" without full reload
+      final idx = orders.indexWhere((o) => o['id'].toString() == order['id'].toString());
+      if (idx != -1) {
+        setState(() {
+          orders[idx]['has_review'] = true;
+        });
+      }
+
+      _showSuccessSnackBar('Thank you for your review!');
+    } catch (e) {
+      _showErrorSnackBar('Error submitting review: $e');
+    }
+  }
+  // =====================================================================
 
   // NEW METHOD: Show reschedule dialog
   Future<void> _showRescheduleDialog(Map<String, dynamic> order) async {
@@ -526,7 +700,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     );
   }
 
-  // NEW METHOD: Reschedule order
   Future<void> _rescheduleOrder(
       Map<String, dynamic> order,
       Map<String, dynamic> newPickupSlot,
@@ -537,13 +710,11 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     try {
       _showLoadingDialog('Rescheduling your order...');
 
-      // Update order with new slots and dates
       await supabase.from('orders').update({
         'pickup_slot_id': newPickupSlot['id'],
         'delivery_slot_id': newDeliverySlot['id'],
         'pickup_date': newPickupDate.toIso8601String().split('T')[0],
         'delivery_date': newDeliveryDate.toIso8601String().split('T')[0],
-        // ✅ NEW: Update stored slot details
         'pickup_slot_display_time': newPickupSlot['display_time'],
         'pickup_slot_start_time': newPickupSlot['start_time'],
         'pickup_slot_end_time': newPickupSlot['end_time'],
@@ -553,24 +724,20 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', order['id']);
 
-      // Close loading dialog
       if (mounted) Navigator.pop(context);
 
       _showSuccessSnackBar('Order rescheduled successfully!');
-
-      // Reload orders to reflect changes
       await _loadOrders();
 
     } catch (e) {
       if (mounted) Navigator.pop(context);
-      print('Error rescheduling order: $e');
+      debugPrint('Error rescheduling order: $e');
       _showErrorSnackBar('Failed to reschedule order');
     }
   }
 
   Future<void> _generateInvoice(Map<String, dynamic> order) async {
     try {
-      // Show loading overlay
       _showLoadingDialog('Generating invoice...');
 
       final pdf = pw.Document();
@@ -587,7 +754,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
             return pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                // Header
                 pw.Container(
                   padding: const pw.EdgeInsets.all(20),
                   decoration: pw.BoxDecoration(
@@ -637,7 +803,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
                 pw.SizedBox(height: 20),
 
-                // Order Items
                 pw.Text(
                   'Order Items',
                   style: pw.TextStyle(
@@ -650,7 +815,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                 pw.Table(
                   border: pw.TableBorder.all(),
                   children: [
-                    // Header row
                     pw.TableRow(
                       decoration: pw.BoxDecoration(color: PdfColors.grey300),
                       children: [
@@ -676,7 +840,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                         ),
                       ],
                     ),
-                    // Item rows
                     ...orderItems.map((item) => pw.TableRow(
                       children: [
                         pw.Padding(
@@ -706,7 +869,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
                 pw.SizedBox(height: 20),
 
-                // Bill Summary
                 pw.Text(
                   'Bill Summary',
                   style: pw.TextStyle(
@@ -755,7 +917,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
                 pw.SizedBox(height: 20),
 
-                // Footer
                 pw.Container(
                   padding: const pw.EdgeInsets.all(15),
                   decoration: pw.BoxDecoration(
@@ -785,15 +946,12 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
         ),
       );
 
-      // Save and share PDF
       final output = await getTemporaryDirectory();
       final file = File('${output.path}/invoice_${order['id'].toString().substring(0, 8)}.pdf');
       await file.writeAsBytes(await pdf.save());
 
-      // Close loading dialog
       if (mounted) Navigator.pop(context);
 
-      // Share the PDF
       await Share.shareXFiles(
         [XFile(file.path)],
         text: 'Invoice for Order #${order['id'].toString().substring(0, 8)}',
@@ -802,10 +960,9 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       _showSuccessSnackBar('Invoice generated successfully!');
 
     } catch (e) {
-      // Close loading dialog
       if (mounted) Navigator.pop(context);
 
-      print('Error generating invoice: $e');
+      debugPrint('Error generating invoice: $e');
       _showErrorSnackBar('Failed to generate invoice');
     }
   }
@@ -835,7 +992,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     );
   }
 
-  // Helper methods for UI feedback
   void _showLoadingDialog(String message) {
     showDialog(
       context: context,
@@ -963,7 +1119,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
         elevation: 0,
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
-          icon: Icon(
+          icon: const Icon(
             Icons.arrow_back,
             color: Colors.white,
             size: 24,
@@ -1035,8 +1191,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                 const SizedBox(height: 24),
                 Container(
                   width: double.infinity,
-                  constraints:
-                  BoxConstraints(maxWidth: screenWidth * 0.8),
+                  constraints: BoxConstraints(maxWidth: screenWidth * 0.8),
                   child: ElevatedButton(
                     onPressed: () {
                       Navigator.of(context).pushNamedAndRemoveUntil(
@@ -1075,8 +1230,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                 left: cardMargin,
                 right: cardMargin,
                 top: cardMargin,
-                bottom: cardMargin +
-                    MediaQuery.of(context).padding.bottom,
+                bottom: cardMargin + MediaQuery.of(context).padding.bottom,
               ),
               itemCount: orders.length,
               itemBuilder: (context, index) {
@@ -1090,7 +1244,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     );
   }
 
-
   Widget _buildEnhancedOrderCard(Map<String, dynamic> order, int index, double cardPadding, bool isSmallScreen) {
     final orderItems = order['order_items'] as List<dynamic>? ?? [];
     final totalItems = orderItems.length;
@@ -1099,6 +1252,10 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     final canCancel = _canShowCancelButton(order);
     final canReschedule = _canReschedule(order);
     final remainingTime = _getRemainingCancelTime(orderId);
+
+    final statusStr = (order['order_status'] ?? '').toString().toLowerCase();
+    final isDelivered = statusStr == 'delivered';
+    final hasReview = (order['has_review'] ?? false) == true;
 
     return Container(
       margin: EdgeInsets.only(bottom: isSmallScreen ? 12 : 16, top: index == 0 ? 8 : 0),
@@ -1141,7 +1298,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                               const SizedBox(width: 8),
                               Flexible(
                                 child: Text(
-                                  // 🔧 CHANGED: show only the full ID (no "#" and no substring)
                                   order['id']?.toString() ?? 'N/A',
                                   style: TextStyle(
                                     fontWeight: FontWeight.w800,
@@ -1164,7 +1320,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                         ],
                       ),
                     ),
-                    // Show countdown timer for cancellable orders, otherwise show status badge
                     canCancel && remainingTime > 0
                         ? _buildCountdownBadge(remainingTime, isSmallScreen)
                         : _buildStatusBadge(order['order_status'], isSmallScreen),
@@ -1173,11 +1328,9 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
                 SizedBox(height: isSmallScreen ? 12 : 16),
 
-                // Product Preview with proper image handling
                 if (firstProduct != null && firstProduct['products'] != null) ...[
                   Row(
                     children: [
-                      // Product Image
                       Container(
                         width: isSmallScreen ? 50 : 60,
                         height: isSmallScreen ? 50 : 60,
@@ -1225,8 +1378,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                         ),
                       ),
                       const SizedBox(width: 12),
-
-                      // Product Info
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1328,14 +1479,39 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
                 SizedBox(height: isSmallScreen ? 12 : 16),
 
-                // Action Buttons Row - UPDATED: Reschedule button instead of View Details
+                // Action Buttons Row
                 Row(
                   children: [
-                    // Reschedule Button (was View Details)
+                    // LEFT BUTTON:
+                    // If delivered -> Review / Reviewed
+                    // Else -> original Reschedule behavior (enabled/disabled)
                     Expanded(
-                      child: Container(
+                      child: SizedBox(
                         height: isSmallScreen ? 42 : 48,
-                        child: ElevatedButton.icon(
+                        child: isDelivered
+                            ? ElevatedButton.icon(
+                          onPressed: hasReview ? null : () => _showReviewDialog(order),
+                          icon: Icon(
+                            hasReview ? Icons.check_circle_outline : Icons.rate_review_outlined,
+                            size: isSmallScreen ? 16 : 18,
+                            color: hasReview ? Colors.grey.shade600 : kPrimaryColor,
+                          ),
+                          label: Text(
+                            hasReview ? 'Reviewed' : 'Review',
+                            style: TextStyle(
+                              color: hasReview ? Colors.grey.shade600 : kPrimaryColor,
+                              fontWeight: FontWeight.w700,
+                              fontSize: isSmallScreen ? 12 : 14,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: hasReview ? Colors.grey.shade100 : kPrimaryColor.withOpacity(0.1),
+                            foregroundColor: hasReview ? Colors.grey.shade600 : kPrimaryColor,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        )
+                            : ElevatedButton.icon(
                           onPressed: (canReschedule && remainingTime > 0) ? () => _showRescheduleDialog(order) : null,
                           icon: Icon(
                             (canReschedule && remainingTime > 0) ? Icons.schedule : Icons.block,
@@ -1364,15 +1540,15 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                         ),
                       ),
                     ),
+
                     const SizedBox(width: 12),
 
-                    // Cancel Order or Reorder Button - FIXED LOGIC
+                    // RIGHT BUTTON (unchanged logic: Cancel / Reorder / Disabled status)
                     Expanded(
-                      child: Container(
+                      child: SizedBox(
                         height: isSmallScreen ? 42 : 48,
                         child: canCancel
                             ? ElevatedButton.icon(
-                          // Button is enabled only when there's remaining time
                           onPressed: remainingTime > 0 ? () => _cancelOrder(order) : null,
                           icon: Icon(
                             remainingTime > 0 ? Icons.cancel_outlined : Icons.block,
@@ -1445,7 +1621,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       ),
     );
   }
-
 
   Widget _buildCountdownBadge(int remainingTime, bool isSmallScreen) {
     return Container(
@@ -1584,6 +1759,9 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     }
   }
 }
+
+// (Your existing _RescheduleDialog, _CancellationReasonDialog, _OrderDetailsSheet, etc. remain unchanged below)
+
 
 // End of OrderHistoryScreenState class
 // NEW CLASS: Reschedule Dialog Widget
