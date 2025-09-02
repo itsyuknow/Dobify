@@ -89,38 +89,59 @@ class _ProfileScreenState extends State<ProfileScreen>
     }
   }
 
+  bool get _isPhoneLogin {
+    final user = supabase.auth.currentUser;
+    if (user == null) return false;
+
+    // Supabase sets this to 'email', 'phone', 'google', etc.
+    final provider = (user.appMetadata?['provider'] as String?)?.toLowerCase() ?? '';
+
+    // You only want email editing when the session provider is 'phone'
+    return provider == 'phone';
+  }
+
+  bool get _canEditEmail => _isPhoneLogin;
+
+
   /// If email changed in dialog, update auth email (Supabase may send verification).
   Future<void> _updateEmailIfChanged(String newEmail) async {
     if (!mounted) return;
 
-    final currentEmail = supabase.auth.currentUser?.email ?? '';
+    final current = supabase.auth.currentUser;
+    final currentEmail = current?.email ?? '';
 
-    // Trim and normalize both emails for comparison
-    final trimmedNewEmail = newEmail.trim().toLowerCase();
-    final trimmedCurrentEmail = currentEmail.trim().toLowerCase();
+    final trimmedNew = newEmail.trim().toLowerCase();
+    final trimmedCurrent = currentEmail.trim().toLowerCase();
 
-    // Don't attempt update if emails are the same or new email is empty
-    if (trimmedNewEmail.isEmpty || trimmedNewEmail == trimmedCurrentEmail) {
-      return;
-    }
+    // No-op if empty or unchanged
+    if (trimmedNew.isEmpty || trimmedNew == trimmedCurrent) return;
 
     try {
-      await supabase.auth.updateUser(UserAttributes(email: newEmail));
-      if (mounted) {
-        _showSuccessSnackBar('Email update requested. Check your inbox to verify.');
+      await supabase.auth.updateUser(UserAttributes(email: trimmedNew));
+
+      if (!mounted) return;
+      _showSuccessSnackBar(
+          'We’ve sent a verification link to $trimmedNew. '
+              'Open it to finish updating your email.'
+      );
+    } on AuthException catch (e) {
+      final msg = e.message.toLowerCase();
+
+      if (msg.contains('already') && msg.contains('registered')) {
+        _showErrorSnackBar('That email is already in use. Please try another.');
+        return;
       }
+      if (msg.contains('rate limit') || msg.contains('too many')) {
+        _showErrorSnackBar('Too many requests. Please try again in a minute.');
+        return;
+      }
+
+      _showErrorSnackBar('Could not update email: ${e.message}');
     } catch (e) {
-      if (mounted) {
-        // Don't show error for "email already exists" if it's the same user
-        final errorMessage = e.toString().toLowerCase();
-        if (errorMessage.contains('email_exists') || errorMessage.contains('already been registered')) {
-          // Silent fail - this means they're trying to set it to their current email
-          return;
-        }
-        _showErrorSnackBar('Could not update email: ${e.toString()}');
-      }
+      _showErrorSnackBar('Could not update email: ${e.toString()}');
     }
   }
+
 
 
   Map<String, dynamic>? userProfile;
@@ -1726,6 +1747,12 @@ class _ProfileScreenState extends State<ProfileScreen>
     final dobController = TextEditingController(text: userProfile?['date_of_birth'] ?? '');
     final emailController = TextEditingController(text: supabase.auth.currentUser?.email ?? '');
 
+    // Determine if current session allows editing email (only for phone logins)
+    final provider = (supabase.auth.currentUser?.appMetadata?['provider'] as String?)
+        ?.toLowerCase() ??
+        '';
+    final bool canEditEmail = provider == 'phone';
+
     String selectedGender = userProfile?['gender'] ?? '';
     String? localAvatarUrl = userProfile?['avatar_url'] as String?;
 
@@ -1859,14 +1886,85 @@ class _ProfileScreenState extends State<ProfileScreen>
                               ),
                               const SizedBox(height: 16),
 
-                              // Email
-                              _buildCompactEditField(
-                                emailController,
-                                'Email',
-                                Icons.email_rounded,
-                                TextInputType.emailAddress,
-                              ),
-                              const SizedBox(height: 16),
+                              // Email — editable only for phone login; otherwise locked read-only block
+                              if (canEditEmail) ...[
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _buildCompactEditField(
+                                      emailController,
+                                      'Email',
+                                      Icons.email_rounded,
+                                      TextInputType.emailAddress,
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Changing your email requires confirming a link we send to the new address.',
+                                      style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                              ] else ...[
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade50,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: Colors.grey.shade300),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.shade200,
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: const Icon(
+                                          Icons.lock_outline_rounded,
+                                          size: 18,
+                                          color: Colors.black54,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Email',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey.shade600,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 3),
+                                            Text(
+                                              supabase.auth.currentUser?.email ?? '—',
+                                              style: const TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              'Email changes are disabled for your login method.',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey.shade600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                              ],
 
                               // DOB
                               GestureDetector(
@@ -2059,8 +2157,8 @@ class _ProfileScreenState extends State<ProfileScreen>
                                                   width: selectedGender == 'Male' ? 2 : 1,
                                                 ),
                                                 boxShadow: selectedGender == 'Male'
-                                                    ? [BoxShadow(color: kPrimaryColor.withOpacity(0.25), blurRadius: 8, offset: const Offset(0, 4))]
-                                                    : [BoxShadow(color: Colors.grey.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, 2))],
+                                                    ? [BoxShadow(color: kPrimaryColor.withOpacity(0.25), blurRadius: 8, offset: Offset(0, 4))]
+                                                    : [BoxShadow(color: Colors.grey.withOpacity(0.1), blurRadius: 4, offset: Offset(0, 2))],
                                               ),
                                               child: Column(
                                                 children: [
@@ -2098,8 +2196,8 @@ class _ProfileScreenState extends State<ProfileScreen>
                                                   width: selectedGender == 'Female' ? 2 : 1,
                                                 ),
                                                 boxShadow: selectedGender == 'Female'
-                                                    ? [BoxShadow(color: kPrimaryColor.withOpacity(0.25), blurRadius: 8, offset: const Offset(0, 4))]
-                                                    : [BoxShadow(color: Colors.grey.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, 2))],
+                                                    ? [BoxShadow(color: kPrimaryColor.withOpacity(0.25), blurRadius: 8, offset: Offset(0, 4))]
+                                                    : [BoxShadow(color: Colors.grey.withOpacity(0.1), blurRadius: 4, offset: Offset(0, 2))],
                                               ),
                                               child: Column(
                                                 children: [
@@ -2147,12 +2245,14 @@ class _ProfileScreenState extends State<ProfileScreen>
                                         style: TextButton.styleFrom(
                                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                         ),
-                                        child: Text('Cancel',
-                                            style: TextStyle(
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.w600,
-                                                color: Colors.grey.shade700
-                                            )),
+                                        child: Text(
+                                          'Cancel',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.grey.shade700,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -2164,7 +2264,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                                       decoration: BoxDecoration(
                                         gradient: LinearGradient(colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)]),
                                         borderRadius: BorderRadius.circular(12),
-                                        boxShadow: [BoxShadow(color: kPrimaryColor.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4))],
+                                        boxShadow: [BoxShadow(color: kPrimaryColor.withOpacity(0.3), blurRadius: 8, offset: Offset(0, 4))],
                                       ),
                                       child: ElevatedButton(
                                         onPressed: () async {
@@ -2220,6 +2320,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
+
   Future<void> _handleSaveProfile(
       BuildContext dialogContext,
       TextEditingController firstNameController,
@@ -2230,6 +2331,12 @@ class _ProfileScreenState extends State<ProfileScreen>
       String selectedGender,
       String? localAvatarUrl,
       ) async {
+    // Determine whether current session allows editing email (only for phone login)
+    final provider = (supabase.auth.currentUser?.appMetadata?['provider'] as String?)
+        ?.toLowerCase() ??
+        '';
+    final bool canEditEmail = provider == 'phone';
+
     try {
       // Show loading dialog
       showDialog(
@@ -2280,15 +2387,28 @@ class _ProfileScreenState extends State<ProfileScreen>
         updateData['avatar_url'] = localAvatarUrl ?? '';
       }
 
-      // Update profile
+      // Update profile (names/phone/dob/gender/avatar)
       await _updateProfile(updateData);
 
-      // Update email if changed
-      // Update email if changed
+      // Update email only if session provider allows it (phone login)
       final newEmail = emailController.text.trim();
       final currentEmail = supabase.auth.currentUser?.email ?? '';
-      if (newEmail.isNotEmpty && newEmail.toLowerCase() != currentEmail.toLowerCase()) {
-        await _updateEmailIfChanged(newEmail);
+
+      if (canEditEmail) {
+        if (newEmail.isNotEmpty &&
+            newEmail.toLowerCase() != currentEmail.toLowerCase()) {
+          await _updateEmailIfChanged(newEmail);
+        }
+      } else {
+        // If provider is not phone and user tried to change email, inform and ignore
+        if (newEmail.isNotEmpty &&
+            newEmail.toLowerCase() != currentEmail.toLowerCase()) {
+          if (mounted) {
+            _showErrorSnackBar(
+              'Email changes are disabled for your login method.',
+            );
+          }
+        }
       }
 
       // Close loading dialog
@@ -2301,24 +2421,23 @@ class _ProfileScreenState extends State<ProfileScreen>
         Navigator.of(dialogContext).pop();
       }
 
-      // Show success message
+      // Success toast
       if (mounted) {
         _showSuccessSnackBar('Profile updated successfully!');
         HapticFeedback.mediumImpact();
       }
-
     } catch (e) {
       // Close loading dialog if open
       if (dialogContext.mounted) {
         Navigator.of(dialogContext).pop();
       }
 
-      // Show error message
       if (mounted) {
         _showErrorSnackBar('Update failed: ${e.toString()}');
       }
     }
   }
+
 
   Widget _buildCompactEditField(
       TextEditingController controller,

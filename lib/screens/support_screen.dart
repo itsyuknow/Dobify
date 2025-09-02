@@ -158,7 +158,6 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
   Future<void> _sendMessage(String message) async {
     if (message.trim().isEmpty) return;
 
-    // Haptic feedback for premium feel
     HapticFeedback.lightImpact();
 
     setState(() {
@@ -298,18 +297,89 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
   }
 
   PreferredSizeWidget _buildAppBar() {
-    return AppBar(
-      title: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 300),
-        child: Text(
-          _showChat ? 'Any Questions ? Feel Free Too ASK' : 'Customer Support',
-          key: ValueKey(_showChat),
-          style: const TextStyle(
-            fontWeight: FontWeight.w800,
-            fontSize: 20,
-            letterSpacing: 0.5,
+    if (_showChat) {
+      // AppBar while chat is open
+      return AppBar(
+        elevation: 0,
+        backgroundColor: kPrimaryColor,
+        foregroundColor: Colors.white,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.85)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
           ),
         ),
+        titleSpacing: 12,
+        title: Row(
+          children: [
+            // Bot avatar
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [Colors.white, Colors.white70]),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.12),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Icon(Icons.smart_toy_rounded, color: kPrimaryColor, size: 18),
+            ),
+            const SizedBox(width: 12),
+            // Title + status
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'IronBot AI Assistant',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, letterSpacing: 0.5),
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        color: Colors.greenAccent,
+                        shape: BoxShape.circle,
+                        boxShadow: [BoxShadow(color: Colors.greenAccent, blurRadius: 3, spreadRadius: 1)],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'Online • Ready to assist',
+                      style: TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+        automaticallyImplyLeading: false,
+        actions: [
+          IconButton(
+            onPressed: _toggleChat,
+            icon: const Icon(Icons.close_rounded, size: 20, color: Colors.white),
+            tooltip: 'Close chat',
+          ),
+        ],
+      );
+    }
+
+    // Normal support app bar (when chat is closed)
+    return AppBar(
+      title: const Text(
+        'Customer Support',
+        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, letterSpacing: 0.5),
       ),
       backgroundColor: kPrimaryColor,
       foregroundColor: Colors.white,
@@ -326,61 +396,17 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
       leading: IconButton(
         onPressed: () {
           HapticFeedback.lightImpact();
-          if (_showChat) {
-            _toggleChat();
-          } else {
-            Navigator.pop(context);
-          }
+          Navigator.pop(context);
         },
-        icon: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 200),
-          child: Icon(
-            _showChat ? Icons.close_rounded : Icons.arrow_back_ios_rounded,
-            key: ValueKey(_showChat),
-            size: 24,
-          ),
-        ),
+        icon: const Icon(Icons.arrow_back_ios_rounded, size: 22),
       ),
-      actions: [
-        if (!_showChat && supportPhone != null)
-          _buildHeaderAction(
-            icon: Icons.phone_rounded,
-            tooltip: 'Call Support',
-            onPressed: _makePhoneCall,
-          ),
-        if (!_showChat)
-          _buildHeaderAction(
-            icon: Icons.chat_bubble_rounded,
-            tooltip: 'Chat with IronBot',
-            onPressed: _toggleChat,
-          ),
-        const SizedBox(width: 8),
-      ],
     );
   }
 
-  Widget _buildHeaderAction({
-    required IconData icon,
-    required String tooltip,
-    required VoidCallback onPressed,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(right: 8),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: IconButton(
-        icon: Icon(icon, color: Colors.white, size: 22),
-        tooltip: tooltip,
-        onPressed: onPressed,
-      ),
-    );
-  }
 
   Widget _buildSupportCard() {
     return Container(
-      margin: const EdgeInsets.all(20),
+      margin: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
@@ -391,27 +417,26 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(32),
+        borderRadius: BorderRadius.circular(24),
         border: Border.all(color: kPrimaryColor.withOpacity(0.1), width: 1.5),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.08),
-            blurRadius: 40,
-            offset: const Offset(0, 16),
+            blurRadius: 30,
+            offset: const Offset(0, 12),
             spreadRadius: 0,
           ),
           BoxShadow(
             color: kPrimaryColor.withOpacity(0.1),
-            blurRadius: 25,
-            offset: const Offset(0, 8),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(32),
+        borderRadius: BorderRadius.circular(24),
         child: Stack(
           children: [
-            // Animated background pattern
             Positioned.fill(
               child: AnimatedBuilder(
                 animation: _shimmerAnimation,
@@ -434,16 +459,16 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
               ),
             ),
             Padding(
-              padding: const EdgeInsets.all(32),
+              padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _buildPremiumLogo(),
-                  const SizedBox(height: 32),
-                  _buildTitleSection(),
-                  const SizedBox(height: 36),
-                  _buildActionButtons(),
                   const SizedBox(height: 24),
+                  _buildTitleSection(),
+                  const SizedBox(height: 28),
+                  _buildActionButtons(),
+                  const SizedBox(height: 20),
                   _buildContactOptions(),
                 ],
               ),
@@ -461,7 +486,7 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
         return Transform.scale(
           scale: _pulseAnimation.value * 0.05 + 0.95,
           child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 36),
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
@@ -472,17 +497,17 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              borderRadius: BorderRadius.circular(28),
+              borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
                   color: kPrimaryColor.withOpacity(0.4),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
+                  blurRadius: 15,
+                  offset: const Offset(0, 6),
                 ),
                 BoxShadow(
                   color: kPrimaryColor.withOpacity(0.2),
-                  blurRadius: 40,
-                  offset: const Offset(0, 16),
+                  blurRadius: 30,
+                  offset: const Offset(0, 12),
                 ),
               ],
             ),
@@ -490,25 +515,25 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(
                     Icons.local_laundry_service_rounded,
                     color: Colors.white,
-                    size: 24,
+                    size: 20,
                   ),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 12),
                 const Text(
                   'IronXpress',
                   style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.w900,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
                     color: Colors.white,
-                    letterSpacing: 1.5,
+                    letterSpacing: 1.2,
                   ),
                 ),
               ],
@@ -526,14 +551,14 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
           'At your service',
           style: TextStyle(
             color: Colors.black87,
-            fontSize: 28,
-            fontWeight: FontWeight.w800,
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
             letterSpacing: 0.5,
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
@@ -541,17 +566,17 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
                 kPrimaryColor.withOpacity(0.05),
               ],
             ),
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(color: kPrimaryColor.withOpacity(0.2)),
           ),
           child: Text(
             "Experience our AI-powered support with instant responses, 24/7 availability, and personalized assistance for all your ironing needs! 🚀",
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 16,
+              fontSize: 14,
               color: Colors.grey.shade700,
-              height: 1.6,
-              fontWeight: FontWeight.w600,
+              height: 1.5,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ),
@@ -564,7 +589,7 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
       children: [
         Container(
           width: double.infinity,
-          height: 64,
+          height: 56,
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
@@ -575,31 +600,31 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
                 color: kPrimaryColor.withOpacity(0.4),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
+                blurRadius: 15,
+                offset: const Offset(0, 6),
               ),
               BoxShadow(
                 color: kPrimaryColor.withOpacity(0.2),
-                blurRadius: 30,
-                offset: const Offset(0, 16),
+                blurRadius: 25,
+                offset: const Offset(0, 12),
               ),
             ],
           ),
           child: ElevatedButton.icon(
             icon: Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(8),
               ),
               child: const Icon(
                 Icons.smart_toy_rounded,
                 color: Colors.white,
-                size: 20,
+                size: 18,
               ),
             ),
             style: ElevatedButton.styleFrom(
@@ -607,13 +632,13 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
               elevation: 0,
               shadowColor: Colors.transparent,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(20),
               ),
             ),
             label: const Text(
               "Start Chat with IronBot",
               style: TextStyle(
-                fontSize: 18,
+                fontSize: 16,
                 fontWeight: FontWeight.w700,
                 color: Colors.white,
                 letterSpacing: 0.5,
@@ -630,12 +655,12 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
     return Column(
       children: [
         Container(
-          margin: const EdgeInsets.symmetric(vertical: 24),
+          margin: const EdgeInsets.symmetric(vertical: 20),
           child: Row(
             children: [
               Expanded(
                 child: Container(
-                  height: 2,
+                  height: 1.5,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [
@@ -648,25 +673,25 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                 decoration: BoxDecoration(
                   color: kPrimaryColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: kPrimaryColor.withOpacity(0.2)),
                 ),
                 child: Text(
                   'Alternative Support',
                   style: TextStyle(
                     color: kPrimaryColor,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
                     letterSpacing: 0.3,
                   ),
                 ),
               ),
               Expanded(
                 child: Container(
-                  height: 2,
+                  height: 1.5,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [
@@ -694,7 +719,7 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
                 ),
               ),
             if (supportPhone != null && supportEmail != null)
-              const SizedBox(width: 16),
+              const SizedBox(width: 12),
             if (supportEmail != null)
               Expanded(
                 child: _buildContactButton(
@@ -721,7 +746,7 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
@@ -731,20 +756,21 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: color.withOpacity(0.3), width: 1.5),
           boxShadow: [
             BoxShadow(
               color: color.withOpacity(0.1),
-              blurRadius: 15,
-              offset: const Offset(0, 4),
+              blurRadius: 12,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [color, color.withOpacity(0.8)],
@@ -753,24 +779,26 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
                 boxShadow: [
                   BoxShadow(
                     color: color.withOpacity(0.3),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
                   ),
                 ],
               ),
-              child: Icon(icon, color: Colors.white, size: 24),
+              child: Icon(icon, color: Colors.white, size: 20),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Text(
               label,
               style: TextStyle(
                 color: color,
-                fontWeight: FontWeight.w700,
-                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
                 letterSpacing: 0.3,
               ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 3),
             Text(
               subtitle,
               style: TextStyle(
@@ -778,6 +806,8 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
                 fontWeight: FontWeight.w500,
                 fontSize: 12,
               ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
             ),
           ],
         ),
@@ -786,36 +816,33 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
   }
 
   Widget _buildFullScreenChat() {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Colors.grey.shade50,
-            Colors.white,
-            Colors.grey.shade50,
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-      ),
+    return MediaQuery.removePadding(
+      context: context,
+      removeTop: true,
+      removeBottom: true, // ← cancel the SafeArea from the parent Scaffold
       child: Column(
         children: [
-          _buildChatHeader(),
           Expanded(child: _buildChatMessages()),
           if (_showEmojiPicker) _buildEmojiPicker(),
-          _buildChatInput(),
+          // Apply exactly one SafeArea only at the bottom of the chat
+          SafeArea(
+            top: false,
+            bottom: true,
+            child: _buildChatInput(), // ← this version below has NO SafeArea inside
+          ),
         ],
       ),
     );
   }
 
+
   Widget _buildChatHeader() {
     return Container(
       padding: EdgeInsets.only(
-        top: MediaQuery.of(context).padding.top + 16,
-        left: 20,
-        right: 20,
-        bottom: 20,
+        top: MediaQuery.of(context).padding.top + 8,
+        left: 16,
+        right: 16,
+        bottom: 16,
       ),
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -823,22 +850,18 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(32),
-          bottomRight: Radius.circular(32),
-        ),
         boxShadow: [
           BoxShadow(
             color: kPrimaryColor.withOpacity(0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+            blurRadius: 15,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [Colors.white, Colors.white.withOpacity(0.9)],
@@ -847,14 +870,14 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
                 ),
               ],
             ),
-            child: Icon(Icons.smart_toy_rounded, color: kPrimaryColor, size: 24),
+            child: Icon(Icons.smart_toy_rounded, color: kPrimaryColor, size: 18),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -863,37 +886,40 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
                 const Text(
                   'IronBot AI Assistant',
                   style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
                     color: Colors.white,
                     letterSpacing: 0.5,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Row(
                   children: [
                     Container(
-                      width: 8,
-                      height: 8,
+                      width: 6,
+                      height: 6,
                       decoration: const BoxDecoration(
                         color: Colors.greenAccent,
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
                             color: Colors.greenAccent,
-                            blurRadius: 4,
+                            blurRadius: 3,
                             spreadRadius: 1,
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'Online • Ready to assist',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white70,
-                        fontWeight: FontWeight.w500,
+                    const SizedBox(width: 6),
+                    const Flexible(
+                      child: Text(
+                        'Online • Ready to assist',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.white70,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
@@ -902,14 +928,16 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
             ),
           ),
           Container(
-            padding: const EdgeInsets.all(8),
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
             ),
             child: IconButton(
               onPressed: _toggleChat,
-              icon: const Icon(Icons.close_rounded, color: Colors.white, size: 24),
+              icon: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+              padding: EdgeInsets.zero,
             ),
           ),
         ],
@@ -919,9 +947,10 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
 
   Widget _buildChatMessages() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: Colors.grey.shade50,
       child: ListView.builder(
         controller: _scrollController,
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
         itemCount: _messages.length + (_isSendingMessage ? 1 : 0),
         itemBuilder: (context, index) {
           if (index == _messages.length && _isSendingMessage) {
@@ -943,15 +972,16 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
           child: Opacity(
             opacity: value,
             child: Container(
-              margin: const EdgeInsets.symmetric(vertical: 6),
+              margin: const EdgeInsets.symmetric(vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Row(
                 mainAxisAlignment: message.isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   if (!message.isUser) ...[
                     Container(
-                      width: 36,
-                      height: 36,
+                      width: 28,
+                      height: 28,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
@@ -960,81 +990,89 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
                         boxShadow: [
                           BoxShadow(
                             color: kPrimaryColor.withOpacity(0.3),
-                            blurRadius: 8,
+                            blurRadius: 6,
                             offset: const Offset(0, 2),
                           ),
                         ],
                       ),
-                      child: const Icon(Icons.smart_toy_rounded, color: Colors.white, size: 18),
+                      child: const Icon(Icons.smart_toy_rounded, color: Colors.white, size: 14),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 6),
                   ],
                   Flexible(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                      decoration: BoxDecoration(
-                        gradient: message.isUser
-                            ? LinearGradient(
-                          colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        )
-                            : LinearGradient(
-                          colors: [Colors.white, Colors.grey.shade50],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.only(
-                          topLeft: const Radius.circular(24),
-                          topRight: const Radius.circular(24),
-                          bottomLeft: Radius.circular(message.isUser ? 24 : 8),
-                          bottomRight: Radius.circular(message.isUser ? 8 : 24),
-                        ),
-                        border: message.isUser
-                            ? null
-                            : Border.all(color: Colors.grey.shade200, width: 1),
-                        boxShadow: [
-                          BoxShadow(
-                            color: message.isUser
-                                ? kPrimaryColor.withOpacity(0.2)
-                                : Colors.black.withOpacity(0.05),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: MediaQuery.of(context).size.width * 0.65,
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            message.text,
-                            style: TextStyle(
-                              color: message.isUser ? Colors.white : Colors.black87,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w500,
-                              height: 1.5,
-                            ),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          gradient: message.isUser
+                              ? LinearGradient(
+                            colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          )
+                              : LinearGradient(
+                            colors: [Colors.white, Colors.grey.shade50],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
                           ),
-                          const SizedBox(height: 6),
-                          Text(
-                            _formatTime(message.timestamp),
-                            style: TextStyle(
+                          borderRadius: BorderRadius.only(
+                            topLeft: const Radius.circular(16),
+                            topRight: const Radius.circular(16),
+                            bottomLeft: Radius.circular(message.isUser ? 16 : 6),
+                            bottomRight: Radius.circular(message.isUser ? 6 : 16),
+                          ),
+                          border: message.isUser
+                              ? null
+                              : Border.all(color: Colors.grey.shade200, width: 1),
+                          boxShadow: [
+                            BoxShadow(
                               color: message.isUser
-                                  ? Colors.white.withOpacity(0.7)
-                                  : Colors.grey.shade500,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
+                                  ? kPrimaryColor.withOpacity(0.2)
+                                  : Colors.black.withOpacity(0.05),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              message.text,
+                              style: TextStyle(
+                                color: message.isUser ? Colors.white : Colors.black87,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                                height: 1.4,
+                              ),
+                              softWrap: true,
+                              overflow: TextOverflow.visible,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _formatTime(message.timestamp),
+                              style: TextStyle(
+                                color: message.isUser
+                                    ? Colors.white.withOpacity(0.7)
+                                    : Colors.grey.shade500,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                   if (message.isUser) ...[
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 6),
                     Container(
-                      width: 36,
-                      height: 36,
+                      width: 28,
+                      height: 28,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [Colors.grey.shade300, Colors.grey.shade200],
@@ -1043,12 +1081,12 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withOpacity(0.1),
-                            blurRadius: 8,
+                            blurRadius: 6,
                             offset: const Offset(0, 2),
                           ),
                         ],
                       ),
-                      child: Icon(Icons.person_rounded, color: Colors.grey.shade600, size: 18),
+                      child: Icon(Icons.person_rounded, color: Colors.grey.shade600, size: 14),
                     ),
                   ],
                 ],
@@ -1062,12 +1100,14 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
 
   Widget _buildTypingIndicator() {
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 6),
+      margin: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Container(
-            width: 36,
-            height: 36,
+            width: 28,
+            height: 28,
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
@@ -1076,54 +1116,59 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
               boxShadow: [
                 BoxShadow(
                   color: kPrimaryColor.withOpacity(0.3),
-                  blurRadius: 8,
+                  blurRadius: 6,
                   offset: const Offset(0, 2),
                 ),
               ],
             ),
-            child: const Icon(Icons.smart_toy_rounded, color: Colors.white, size: 18),
+            child: const Icon(Icons.smart_toy_rounded, color: Colors.white, size: 14),
           ),
-          const SizedBox(width: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.white, Colors.grey.shade50],
-              ),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(24),
-                topRight: Radius.circular(24),
-                bottomRight: Radius.circular(24),
-                bottomLeft: Radius.circular(8),
-              ),
-              border: Border.all(color: Colors.grey.shade200),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.white, Colors.grey.shade50],
                 ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildAnimatedDot(0),
-                const SizedBox(width: 6),
-                _buildAnimatedDot(200),
-                const SizedBox(width: 6),
-                _buildAnimatedDot(400),
-                const SizedBox(width: 8),
-                Text(
-                  'IronBot is typing...',
-                  style: TextStyle(
-                    color: Colors.grey.shade600,
-                    fontSize: 13,
-                    fontStyle: FontStyle.italic,
-                    fontWeight: FontWeight.w500,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
+                  bottomRight: Radius.circular(16),
+                  bottomLeft: Radius.circular(6),
+                ),
+                border: Border.all(color: Colors.grey.shade200),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
                   ),
-                ),
-              ],
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildAnimatedDot(),
+                  const SizedBox(width: 3),
+                  _buildAnimatedDot(),
+                  const SizedBox(width: 3),
+                  _buildAnimatedDot(),
+                  const SizedBox(width: 6),
+                  const Flexible(
+                    child: Text(
+                      'IronBot is typing...',
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontSize: 12,
+                        fontStyle: FontStyle.italic,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -1131,28 +1176,14 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
     );
   }
 
-  Widget _buildAnimatedDot(int delay) {
+  Widget _buildAnimatedDot() {
     return TweenAnimationBuilder<double>(
       duration: const Duration(milliseconds: 800),
       tween: Tween(begin: 0.4, end: 1.0),
       builder: (context, value, child) {
-        return Future.delayed(Duration(milliseconds: delay), () {
-          return Transform.scale(
-            scale: value,
-            child: Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.7)],
-                ),
-                shape: BoxShape.circle,
-              ),
-            ),
-          );
-        }) as Widget? ?? Container(
-          width: 8,
-          height: 8,
+        return Container(
+          width: 6,
+          height: 6,
           decoration: BoxDecoration(
             color: kPrimaryColor.withOpacity(0.7),
             shape: BoxShape.circle,
@@ -1164,170 +1195,169 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
 
   Widget _buildChatInput() {
     return Container(
-      padding: const EdgeInsets.all(20),
+      // keep this compact; SafeArea is applied by the caller above
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(32),
-          topRight: Radius.circular(32),
-        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 20,
-            offset: const Offset(0, -8),
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, -4),
           ),
         ],
       ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                // Emoji button
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: _showEmojiPicker
-                          ? [kPrimaryColor.withOpacity(0.2), kPrimaryColor.withOpacity(0.1)]
-                          : [Colors.grey.shade100, Colors.grey.shade50],
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: _showEmojiPicker
-                          ? kPrimaryColor.withOpacity(0.3)
-                          : Colors.grey.shade300,
-                    ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_messageController.text.trim().isEmpty && !_isSendingMessage)
+            _buildQuickResponses(),
+          if (_messageController.text.trim().isEmpty && !_isSendingMessage)
+            const SizedBox(height: 4),
+
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              // Emoji button
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: _showEmojiPicker
+                        ? [kPrimaryColor.withOpacity(0.2), kPrimaryColor.withOpacity(0.1)]
+                        : [Colors.grey.shade100, Colors.grey.shade50],
                   ),
-                  child: IconButton(
-                    onPressed: _toggleEmojiPicker,
-                    icon: Icon(
-                      _showEmojiPicker ? Icons.keyboard_rounded : Icons.emoji_emotions_rounded,
-                      color: _showEmojiPicker ? kPrimaryColor : Colors.grey.shade600,
-                      size: 24,
-                    ),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _showEmojiPicker
+                        ? kPrimaryColor.withOpacity(0.3)
+                        : Colors.grey.shade300,
                   ),
                 ),
-                const SizedBox(width: 12),
-
-                // Message input
-                Expanded(
-                  child: Container(
-                    constraints: const BoxConstraints(maxHeight: 120),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Colors.grey.shade50, Colors.white],
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                      ),
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: Colors.grey.shade200, width: 1.5),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.03),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: TextField(
-                      controller: _messageController,
-                      focusNode: _messageFocusNode,
-                      decoration: const InputDecoration(
-                        hintText: 'Type your message...',
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                        hintStyle: TextStyle(
-                          color: Colors.grey,
-                          fontWeight: FontWeight.w500,
-                          fontSize: 15,
-                        ),
-                      ),
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                        height: 1.4,
-                      ),
-                      maxLines: 4,
-                      minLines: 1,
-                      textCapitalization: TextCapitalization.sentences,
-                      enabled: !_isSendingMessage,
-                      onChanged: (value) {
-                        setState(() {});
-                      },
-                      onSubmitted: (value) {
-                        if (value.trim().isNotEmpty) {
-                          _sendMessage(value);
-                        }
-                      },
-                    ),
+                child: IconButton(
+                  onPressed: _toggleEmojiPicker,
+                  icon: Icon(
+                    _showEmojiPicker ? Icons.keyboard_rounded : Icons.emoji_emotions_rounded,
+                    color: _showEmojiPicker ? kPrimaryColor : Colors.grey.shade600,
+                    size: 18,
                   ),
+                  padding: EdgeInsets.zero,
                 ),
-                const SizedBox(width: 12),
+              ),
+              const SizedBox(width: 6),
 
-                // Send button
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
+              // Text field
+              Expanded(
+                child: Container(
+                  constraints: const BoxConstraints(maxHeight: 92, minHeight: 36),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      colors: _messageController.text.trim().isNotEmpty && !_isSendingMessage
-                          ? [kPrimaryColor, kPrimaryColor.withOpacity(0.8)]
-                          : [Colors.grey.shade300, Colors.grey.shade400],
+                      colors: [Colors.grey.shade50, Colors.white],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
                     ),
-                    shape: BoxShape.circle,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.grey.shade200, width: 1.5),
                     boxShadow: [
                       BoxShadow(
-                        color: (_messageController.text.trim().isNotEmpty && !_isSendingMessage
-                            ? kPrimaryColor
-                            : Colors.grey).withOpacity(0.3),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
+                        color: Colors.black.withOpacity(0.03),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
                       ),
                     ],
                   ),
-                  child: IconButton(
-                    onPressed: _isSendingMessage || _messageController.text.trim().isEmpty
-                        ? null
-                        : () {
-                      final message = _messageController.text.trim();
-                      if (message.isNotEmpty) {
-                        _sendMessage(message);
-                      }
-                    },
-                    icon: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 200),
-                      child: _isSendingMessage
-                          ? SizedBox(
-                        key: const ValueKey('loading'),
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2.5,
-                        ),
-                      )
-                          : Icon(
-                        Icons.send_rounded,
-                        key: const ValueKey('send'),
-                        color: Colors.white,
-                        size: 22,
+                  child: TextField(
+                    controller: _messageController,
+                    focusNode: _messageFocusNode,
+                    decoration: const InputDecoration(
+                      hintText: 'Type your message...',
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      hintStyle: TextStyle(
+                        color: Colors.grey,
+                        fontWeight: FontWeight.w500,
+                        fontSize: 14,
                       ),
+                      isDense: true,
+                    ),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      height: 1.3,
+                    ),
+                    maxLines: 3,
+                    minLines: 1,
+                    textCapitalization: TextCapitalization.sentences,
+                    enabled: !_isSendingMessage,
+                    onChanged: (_) => setState(() {}),
+                    onSubmitted: (v) {
+                      final msg = v.trim();
+                      if (msg.isNotEmpty) _sendMessage(msg);
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+
+              // Send button
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: _messageController.text.trim().isNotEmpty && !_isSendingMessage
+                        ? [kPrimaryColor, kPrimaryColor.withOpacity(0.8)]
+                        : [Colors.grey.shade300, Colors.grey.shade400],
+                  ),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: (_messageController.text.trim().isNotEmpty && !_isSendingMessage
+                          ? kPrimaryColor
+                          : Colors.grey)
+                          .withOpacity(0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: IconButton(
+                  onPressed: _isSendingMessage || _messageController.text.trim().isEmpty
+                      ? null
+                      : () {
+                    final msg = _messageController.text.trim();
+                    if (msg.isNotEmpty) _sendMessage(msg);
+                  },
+                  padding: EdgeInsets.zero,
+                  icon: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    child: _isSendingMessage
+                        ? const SizedBox(
+                      key: ValueKey('loading'),
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                        : const Icon(
+                      Icons.send_rounded,
+                      key: ValueKey('send'),
+                      color: Colors.white,
+                      size: 16,
                     ),
                   ),
                 ),
-              ],
-            ),
-
-            // Quick responses (when no message typed)
-            if (_messageController.text.trim().isEmpty && !_isSendingMessage)
-              _buildQuickResponses(),
-          ],
-        ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
+
 
   Widget _buildQuickResponses() {
     final quickResponses = [
@@ -1337,18 +1367,15 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
       '📍 Pickup locations',
     ];
 
-    return Container(
-      margin: const EdgeInsets.only(top: 12),
-      height: 40,
-      child: ListView.builder(
+    return SizedBox(
+      height: 32,
+      child: ListView.separated(
         scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
         itemCount: quickResponses.length,
+        separatorBuilder: (context, index) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
-          return Container(
-            margin: EdgeInsets.only(
-              left: index == 0 ? 0 : 8,
-              right: index == quickResponses.length - 1 ? 0 : 8,
-            ),
+          return IntrinsicWidth(
             child: GestureDetector(
               onTap: () {
                 HapticFeedback.selectionClick();
@@ -1356,7 +1383,7 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
                 setState(() {});
               },
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
@@ -1364,15 +1391,19 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
                       kPrimaryColor.withOpacity(0.05),
                     ],
                   ),
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: kPrimaryColor.withOpacity(0.2)),
                 ),
-                child: Text(
-                  quickResponses[index],
-                  style: TextStyle(
-                    color: kPrimaryColor,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
+                child: Center(
+                  child: Text(
+                    quickResponses[index],
+                    style: TextStyle(
+                      color: kPrimaryColor,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
                 ),
               ),
@@ -1386,7 +1417,7 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
   Widget _buildEmojiPicker() {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
-      height: _showEmojiPicker ? 280 : 0,
+      height: _showEmojiPicker ? 250 : 0,
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border(
@@ -1406,7 +1437,7 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
               ),
               child: TabBar(
                 indicatorColor: kPrimaryColor,
-                indicatorWeight: 3,
+                indicatorWeight: 2.5,
                 labelColor: kPrimaryColor,
                 unselectedLabelColor: Colors.grey,
                 tabs: const [
@@ -1438,11 +1469,11 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
 
   Widget _buildEmojiGrid(List<String> emojis) {
     return GridView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 8,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
+        crossAxisSpacing: 6,
+        mainAxisSpacing: 6,
       ),
       itemCount: emojis.length,
       itemBuilder: (context, index) {
@@ -1454,13 +1485,13 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
           child: Container(
             decoration: BoxDecoration(
               color: Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
               border: Border.all(color: Colors.grey.shade200),
             ),
             child: Center(
               child: Text(
                 emojis[index],
-                style: const TextStyle(fontSize: 24),
+                style: const TextStyle(fontSize: 20),
               ),
             ),
           ),
@@ -1472,22 +1503,22 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
   Widget _buildLoadingWidget() {
     return Center(
       child: Container(
-        padding: const EdgeInsets.all(40),
+        padding: const EdgeInsets.all(32),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [Colors.white, Colors.grey.shade50],
           ),
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.1),
-              blurRadius: 30,
-              offset: const Offset(0, 12),
+              blurRadius: 25,
+              offset: const Offset(0, 10),
             ),
             BoxShadow(
               color: kPrimaryColor.withOpacity(0.1),
-              blurRadius: 20,
-              offset: const Offset(0, 4),
+              blurRadius: 15,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
@@ -1495,8 +1526,8 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 60,
-              height: 60,
+              width: 50,
+              height: 50,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
@@ -1506,35 +1537,35 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
               child: const Icon(
                 Icons.support_agent_rounded,
                 color: Colors.white,
-                size: 30,
-              ),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: 40,
-              height: 40,
-              child: CircularProgressIndicator(
-                color: kPrimaryColor,
-                strokeWidth: 4,
-                backgroundColor: kPrimaryColor.withOpacity(0.1),
+                size: 25,
               ),
             ),
             const SizedBox(height: 20),
+            SizedBox(
+              width: 32,
+              height: 32,
+              child: CircularProgressIndicator(
+                color: kPrimaryColor,
+                strokeWidth: 3,
+                backgroundColor: kPrimaryColor.withOpacity(0.1),
+              ),
+            ),
+            const SizedBox(height: 16),
             Text(
               'Loading premium support...',
               style: TextStyle(
                 color: Colors.grey.shade700,
                 fontWeight: FontWeight.w600,
-                fontSize: 16,
+                fontSize: 14,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Text(
               'Preparing your personalized experience',
               style: TextStyle(
                 color: Colors.grey.shade500,
                 fontWeight: FontWeight.w500,
-                fontSize: 14,
+                fontSize: 12,
               ),
             ),
           ],
@@ -1590,9 +1621,9 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
                   physics: const BouncingScrollPhysics(),
                   child: Column(
                     children: [
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
                       _buildSupportCard(),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
                     ],
                   ),
                 ),

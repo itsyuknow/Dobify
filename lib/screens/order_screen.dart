@@ -84,6 +84,24 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   Offset _clearZoneCenter = Offset.zero;
 
+  // Add this near your other fields
+  final Map<String, GlobalKey> _categoryKeys = {};
+
+// Add this helper method in _OrdersScreenState
+  void _centerSelectedCategoryByName(String name) {
+    final key = _categoryKeys[name];
+    final ctx = key?.currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 0.5, // center in the viewport
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOutCubic,
+      );
+    }
+  }
+
+
 
   Future<void> _fetchCategoriesAndProducts() async {
     if (mounted) setState(() => _isLoading = true);
@@ -93,7 +111,8 @@ class _OrdersScreenState extends State<OrdersScreen>
       final response = await supabase
           .from('products')
           .select(
-          'id, product_name, product_price, image_url, category_id, is_enabled, created_at, sort_order, tag, recommended_service_id, categories(name)')
+        'id, product_name, product_price, image_url, category_id, is_enabled, created_at, sort_order, tag, recommended_service_id, categories(name)',
+      )
           .eq('is_enabled', true)
           .order('sort_order', ascending: true) // ✅ Primary sort by sort_order
           .order('product_name', ascending: true); // ✅ Secondary sort by name
@@ -168,20 +187,22 @@ class _OrdersScreenState extends State<OrdersScreen>
 
     if (mounted) setState(() => _isLoading = false);
 
-    if (widget.category != null && widget.category != 'All') {
-      final index = _categories.indexOf(widget.category!);
-      if (index != -1 && mounted && _scrollController.hasClients) {
-        await Future.delayed(const Duration(milliseconds: 300));
-        if (mounted && _scrollController.hasClients) {
-          _scrollController.animateTo(
-            index * 120.0,
-            duration: const Duration(milliseconds: 400),
-            curve: Curves.easeInOut,
-          );
-        }
+    // ✅ NEW: Center the initial category chip using the GlobalKey + ensureVisible approach
+    if (widget.category != null &&
+        widget.category!.trim().isNotEmpty &&
+        widget.category != 'All') {
+      final catName = widget.category!;
+      if (_categories.contains(catName)) {
+        if (mounted) setState(() => _selectedCategory = catName);
+        // Wait for the next frame so that the tabs are built and keys attached,
+        // then center the selected chip.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _centerSelectedCategoryByName(catName);
+        });
       }
     }
   }
+
 
   Future<void> _loadCategoriesForTabs() async {
     try {
@@ -1712,36 +1733,54 @@ class _OrdersScreenState extends State<OrdersScreen>
         itemBuilder: (context, index) {
           final cat = _categories[index];
           final isSelected = _selectedCategory == cat;
+
+          // Ensure each category has a stable GlobalKey
+          final key = _categoryKeys.putIfAbsent(cat, () => GlobalKey());
+
           return GestureDetector(
-            onTap: () => setState(() => _selectedCategory = cat),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 250),
-              margin: const EdgeInsets.only(right: 12, top: 4, bottom: 4),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              constraints: const BoxConstraints(minWidth: 80),
-              decoration: BoxDecoration(
-                gradient: isSelected ? LinearGradient(colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)]) : null,
-                color: isSelected ? null : Colors.white,
-                borderRadius: BorderRadius.circular(25),
-                border: Border.all(color: isSelected ? Colors.transparent : Colors.grey.shade200, width: 1),
-                boxShadow: [
-                  BoxShadow(
-                    color: isSelected ? kPrimaryColor.withOpacity(0.3) : Colors.black.withOpacity(0.05),
-                    blurRadius: isSelected ? 8 : 4,
-                    offset: const Offset(0, 2),
+            onTap: () {
+              setState(() => _selectedCategory = cat);
+              // Center the tapped chip
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _centerSelectedCategoryByName(cat);
+              });
+            },
+            child: Container(
+              key: key, // <-- important: attach the key to a wrapping widget
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 250),
+                margin: const EdgeInsets.only(right: 12, top: 4, bottom: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                constraints: const BoxConstraints(minWidth: 80),
+                decoration: BoxDecoration(
+                  gradient: isSelected
+                      ? LinearGradient(colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)])
+                      : null,
+                  color: isSelected ? null : Colors.white,
+                  borderRadius: BorderRadius.circular(25),
+                  border: Border.all(
+                    color: isSelected ? Colors.transparent : Colors.grey.shade200,
+                    width: 1,
                   ),
-                ],
-              ),
-              child: Center(
-                child: Text(
-                  cat,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                    color: isSelected ? Colors.white : Colors.black87,
+                  boxShadow: [
+                    BoxShadow(
+                      color: isSelected ? kPrimaryColor.withOpacity(0.3) : Colors.black.withOpacity(0.05),
+                      blurRadius: isSelected ? 8 : 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Text(
+                    cat,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                      color: isSelected ? Colors.white : Colors.black87,
+                    ),
+                    textAlign: TextAlign.center,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  textAlign: TextAlign.center,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ),
@@ -1750,6 +1789,7 @@ class _OrdersScreenState extends State<OrdersScreen>
       ),
     );
   }
+
 
 
   Widget _buildProductButton(Map<String, dynamic> item, String productId) {

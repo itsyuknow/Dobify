@@ -587,7 +587,6 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
 
   Widget _buildSelectionFooter() {
     return Container(
-      padding: EdgeInsets.fromLTRB(16, 12, 16, MediaQuery.of(context).padding.bottom + 16),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border(top: BorderSide(color: Colors.grey.shade200)),
@@ -600,24 +599,28 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
         ],
       ),
       child: SafeArea(
-        child: SizedBox(
-          width: double.infinity,
-          height: 50,
-          child: ElevatedButton(
-            onPressed: _confirmSelection,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(25),
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), // <-- same as MapView
+          child: SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton(
+              onPressed: _confirmSelection,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(25),
+                ),
+                elevation: 2,
               ),
-              elevation: 2,
-            ),
-            child: const Text(
-              'Use This Address',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
+              child: const Text(
+                'Use This Address',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
               ),
             ),
           ),
@@ -797,43 +800,44 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
     }
   }
 
-
-
-
   Future<void> _getCurrentLocationOnInit() async {
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        return;
-      }
+      if (!serviceEnabled) return;
 
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          return;
-        }
+        if (permission == LocationPermission.denied) return;
       }
+      if (permission == LocationPermission.deniedForever) return;
 
-      if (permission == LocationPermission.deniedForever) {
-        return;
-      }
-
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
+      final position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final latLng = LatLng(position.latitude, position.longitude);
 
       setState(() {
         currentPosition = position;
         latitude = position.latitude;
         longitude = position.longitude;
+        _hasSelectedLocation = true;
       });
 
-      _addMarker(LatLng(position.latitude, position.longitude));
+      _selectedLocation = latLng;
+      if (_mapController != null) {
+        await _mapController!.animateCamera(CameraUpdate.newLatLngZoom(latLng, 16));
+      }
+
+      // Update address immediately
+      await _onMapTap(latLng);
+
+      // (No snackbar here)
+
     } catch (e) {
+      // Silent fail is OK for init; keep your log if you want
       print('Auto location detection failed: $e');
     }
   }
+
 
   void _populateFields() {
     final address = widget.existingAddress!;
@@ -978,8 +982,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        throw Exception(
-            'Location services are disabled. Please enable them in settings.');
+        throw Exception('Location services are disabled. Please enable them in settings.');
       }
 
       LocationPermission permission = await Geolocator.checkPermission();
@@ -994,49 +997,28 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
         throw Exception('Location permissions are permanently denied');
       }
 
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
+      final position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final latLng = LatLng(position.latitude, position.longitude);
 
-      List<Placemark> placemarks = await placemarkFromCoordinates(
-        position.latitude,
-        position.longitude,
-      );
+      // Save coords
+      setState(() {
+        currentPosition = position;
+        latitude = position.latitude;
+        longitude = position.longitude;
+        _hasSelectedLocation = true;
+      });
 
-      if (placemarks.isNotEmpty) {
-        Placemark place = placemarks[0];
-
-        setState(() {
-          currentPosition = position;
-          latitude = position.latitude;
-          longitude = position.longitude;
-
-          _addressLine1Controller.text =
-              '${place.street ?? ''} ${place.name ?? ''}'.trim();
-          _addressLine2Controller.text =
-              '${place.subLocality ?? ''} ${place.locality ?? ''}'.trim();
-          _landmarkController.text = place.subThoroughfare ?? '';
-          _cityController.text = place.locality ?? '';
-          _stateController.text = place.administrativeArea ?? '';
-          _pincodeController.text = place.postalCode ?? '';
-
-          isDetectingLocation = false;
-          _hasSelectedLocation = true;
-        });
-
-        _addMarker(LatLng(position.latitude, position.longitude));
-
-        if (place.postalCode != null && place.postalCode!.length == 6) {
-          _checkServiceAvailability(place.postalCode!);
-        }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Location detected successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
+      // Center the map immediately
+      _selectedLocation = latLng;
+      if (_mapController != null) {
+        await _mapController!.animateCamera(CameraUpdate.newLatLngZoom(latLng, 16));
       }
+
+      // Update address right away (don’t wait for onCameraIdle)
+      await _onMapTap(latLng);
+
+      // ❌ Removed the green success snackbar
+
     } catch (e) {
       setState(() {
         isDetectingLocation = false;
@@ -1054,8 +1036,14 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
               : null,
         ),
       );
+      return;
     }
+
+    setState(() {
+      isDetectingLocation = false;
+    });
   }
+
 
   void _proceedToForm() {
     if (!_hasSelectedLocation) {
@@ -1604,9 +1592,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                     hint: 'Enter recipient name',
                     icon: Icons.person_outline,
                     validator: (value) {
-                      if (value
-                          ?.trim()
-                          .isEmpty ?? true) {
+                      if (value?.trim().isEmpty ?? true) {
                         return 'Name is required';
                       }
                       return null;
@@ -1620,9 +1606,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                     icon: Icons.phone_outlined,
                     keyboardType: TextInputType.phone,
                     validator: (value) {
-                      if (value
-                          ?.trim()
-                          .isEmpty ?? true) {
+                      if (value?.trim().isEmpty ?? true) {
                         return 'Phone number is required';
                       }
                       if (value!.length != 10) {
@@ -1640,9 +1624,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                     hint: 'House/Flat/Office No, Building Name',
                     icon: Icons.home_outlined,
                     validator: (value) {
-                      if (value
-                          ?.trim()
-                          .isEmpty ?? true) {
+                      if (value?.trim().isEmpty ?? true) {
                         return 'Address is required';
                       }
                       return null;
@@ -1675,9 +1657,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                           icon: Icons.pin_drop_outlined,
                           keyboardType: TextInputType.number,
                           validator: (value) {
-                            if (value
-                                ?.trim()
-                                .isEmpty ?? true) {
+                            if (value?.trim().isEmpty ?? true) {
                               return 'Pincode is required';
                             }
                             if (value!.length != 6) {
@@ -1706,9 +1686,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                           hint: 'Enter city',
                           icon: Icons.location_city_outlined,
                           validator: (value) {
-                            if (value
-                                ?.trim()
-                                .isEmpty ?? true) {
+                            if (value?.trim().isEmpty ?? true) {
                               return 'City is required';
                             }
                             return null;
@@ -1724,15 +1702,12 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                     hint: 'Enter state',
                     icon: Icons.map_outlined,
                     validator: (value) {
-                      if (value
-                          ?.trim()
-                          .isEmpty ?? true) {
+                      if (value?.trim().isEmpty ?? true) {
                         return 'State is required';
                       }
                       return null;
                     },
                   ),
-
 
                   if (_pincodeController.text.length == 6) ...[
                     const SizedBox(height: 8),
@@ -1763,10 +1738,12 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                             )
                           else
                             Icon(
-                              isServiceAvailable ? Icons.check_circle : Icons
-                                  .cancel,
-                              color: isServiceAvailable ? Colors.green : Colors
-                                  .red,
+                              isServiceAvailable
+                                  ? Icons.check_circle
+                                  : Icons.cancel,
+                              color: isServiceAvailable
+                                  ? Colors.green
+                                  : Colors.red,
                               size: 16,
                             ),
                           const SizedBox(width: 8),
@@ -1816,48 +1793,50 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
               ),
             ),
           ),
+
+          // 🔻 FOOTER FIX (same as MapView confirm button)
           Container(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, MediaQuery
-                .of(context)
-                .padding
-                .bottom + 16),
             decoration: BoxDecoration(
               border: Border(top: BorderSide(color: Colors.grey.shade200)),
               color: Colors.white,
             ),
             child: SafeArea(
-              child: SizedBox(
-                width: double.infinity,
-                height: 60,
-                child: ElevatedButton(
-                  onPressed: isLoading ? null : _saveAddress,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kPrimaryColor,
-                    padding: const EdgeInsets.symmetric(vertical: 18),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 60,
+                  child: ElevatedButton(
+                    onPressed: isLoading ? null : _saveAddress,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: kPrimaryColor,
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      elevation: 8,
+                      shadowColor: kPrimaryColor.withOpacity(0.3),
                     ),
-                    elevation: 8,
-                    shadowColor: kPrimaryColor.withOpacity(0.3),
-                  ),
-                  child: isLoading
-                      ? const SizedBox(
-                    height: 24,
-                    width: 24,
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 3,
-                    ),
-                  )
-                      : Text(
-                    widget.existingAddress != null
-                        ? 'Update Address'
-                        : 'Save Address',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                      letterSpacing: 0.5,
+                    child: isLoading
+                        ? const SizedBox(
+                      height: 24,
+                      width: 24,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 3,
+                      ),
+                    )
+                        : Text(
+                      widget.existingAddress != null
+                          ? 'Update Address'
+                          : 'Save Address',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                        letterSpacing: 0.5,
+                      ),
                     ),
                   ),
                 ),
@@ -1868,6 +1847,8 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
       ),
     );
   }
+
+
 
   Widget _buildSectionTitle(String title) {
     return Padding(
