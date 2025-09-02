@@ -27,7 +27,7 @@
 
         <!-- Google Maps API Key -->
         <meta-data android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyDNNBEcTzdgnS3kwCG1xbctiU0kGkvkVK8"/>
+            android:value="AIzaSyDjxtVK1EXQuaYOc0-a0V5-Wb8xR-koHZ0"/>
 
         <!-- Firebase Configuration -->
         <meta-data

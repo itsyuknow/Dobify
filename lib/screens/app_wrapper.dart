@@ -10,7 +10,15 @@
   import 'home_screen.dart';
   import 'login_screen.dart';
   import 'colors.dart';
-  
+
+  import 'dart:convert';
+  import 'package:http/http.dart' as http;
+  import 'package:flutter/foundation.dart' show kIsWeb;
+
+  // Same key you loaded in web/index.html
+  const String _gmapsKey = 'AIzaSyDjxtVK1EXQuaYOc0-a0V5-Wb8xR-koHZ0';
+
+
   class AppWrapper extends StatefulWidget {
   const AppWrapper({super.key});
   
@@ -60,8 +68,57 @@
   _initializeAnimations();
   _initializeSupabase();
   }
-  
-    /// Move camera so the center pin's TIP aligns with [target].
+
+  Future<String?> _reverseAddress(double lat, double lng) async {
+    if (kIsWeb) {
+      final url = Uri.parse(
+        'https://maps.googleapis.com/maps/api/geocode/json?latlng=$lat,$lng&key=$_gmapsKey',
+      );
+      final res = await http.get(url);
+      if (res.statusCode != 200) return null;
+      final data = json.decode(res.body) as Map<String, dynamic>;
+      final results = (data['results'] as List?) ?? [];
+      if (results.isEmpty) return null;
+      return results.first['formatted_address'] as String?;
+    } else {
+      final placemarks = await placemarkFromCoordinates(lat, lng);
+      if (placemarks.isEmpty) return null;
+      final p = placemarks.first;
+      return [
+        if ((p.street ?? '').isNotEmpty) p.street,
+        if ((p.subLocality ?? '').isNotEmpty) p.subLocality,
+        if ((p.locality ?? '').isNotEmpty) p.locality,
+        if ((p.postalCode ?? '').isNotEmpty) p.postalCode,
+      ].where((e) => e != null && e!.isNotEmpty).join(', ');
+    }
+  }
+
+  Future<String?> _pinFromLatLng(double lat, double lng) async {
+    if (kIsWeb) {
+      final url = Uri.parse(
+        'https://maps.googleapis.com/maps/api/geocode/json?latlng=$lat,$lng&key=$_gmapsKey',
+      );
+      final res = await http.get(url);
+      if (res.statusCode != 200) return null;
+      final data = json.decode(res.body) as Map<String, dynamic>;
+      final results = (data['results'] as List?) ?? [];
+      if (results.isEmpty) return null;
+      for (final comp in results.first['address_components'] as List<dynamic>) {
+        final types = List<String>.from(comp['types'] as List);
+        if (types.contains('postal_code')) {
+          return (comp['long_name'] as String?)?.replaceAll(RegExp(r'[^0-9]'), '');
+        }
+      }
+      return null;
+    } else {
+      final placemarks = await placemarkFromCoordinates(lat, lng);
+      if (placemarks.isEmpty) return null;
+      return placemarks.first.postalCode?.replaceAll(RegExp(r'[^0-9]'), '');
+    }
+  }
+
+
+  /// Move camera so the center pin's TIP aligns with [target].
     /// [tipOffsetPx] ≈ distance in screen pixels from pin center to its tip.
     /// Tune if your pin asset height changes (70px pin → ~34–40px tip offset).
     Future<void> _animateToWithPinTip(LatLng target,
@@ -336,93 +393,92 @@
   print('📍 Starting location verification for iron services...');
   await _checkLocationAndService();
   }
-  
+
   Future<void> _checkLocationAndService() async {
-  if (mounted) {
-  setState(() {
-  _isLocationLoading = true;
-  _currentLocation = 'Detecting your area...';
-  _hasLocationChecked = false;
-  _showMap = false;
-  _locationVerifiedSuccessfully = false;
-  });
+    if (mounted) {
+      setState(() {
+        _isLocationLoading = true;
+        _currentLocation = 'Detecting your area...';
+        _hasLocationChecked = false;
+        _showMap = false;
+        _locationVerifiedSuccessfully = false;
+      });
+    }
+
+    _pulseController.repeat(reverse: true);
+
+    try {
+      // Check if location services enabled
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        await _handleLocationError('Please enable location services for ironXpress pickup/delivery');
+        return;
+      }
+
+      // Check & request permissions (mobile only)
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          await _handleLocationError('Location permission needed for ironXpress');
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        await _handleLocationError('Please enable location in settings for ironXpress');
+        return;
+      }
+
+      if (mounted) {
+        setState(() {
+          _currentLocation = 'Getting your location...';
+        });
+      }
+
+      // Get current position
+      _currentPosition = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 15),
+      );
+
+      print('📍 Got coordinates: ${_currentPosition!.latitude}, ${_currentPosition!.longitude}');
+
+      final lat = _currentPosition!.latitude;
+      final lng = _currentPosition!.longitude;
+
+      // ✅ Get human-readable address
+      String? address = await _reverseAddress(lat, lng);
+
+      if (address != null && mounted) {
+        setState(() {
+          _currentLocation = address;
+          _selectedLocation = LatLng(lat, lng);
+          _selectedAddress = address;
+          _isLocationLoading = false;
+          _showMap = true;
+          _markers = {
+            Marker(
+              markerId: const MarkerId('selected_location'),
+              position: _selectedLocation!,
+              icon: _createCustomMarker(),
+              infoWindow: InfoWindow(title: 'Your Location', snippet: address),
+            ),
+          };
+        });
+        _pulseController.stop();
+        print('✅ Location detected: $address');
+      } else {
+        await _handleLocationError('Unable to get address for ironXpress');
+      }
+    } catch (e) {
+      _pulseController.stop();
+      print('❌ Location error: $e');
+      await _handleLocationError('Unable to get your location. Please try again.');
+    }
   }
-  
-  _pulseController.repeat(reverse: true);
-  
-  try {
-  bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-  if (!serviceEnabled) {
-  await _handleLocationError('Please enable location services for ironXpress pickup/delivery');
-  return;
-  }
-  
-  LocationPermission permission = await Geolocator.checkPermission();
-  if (permission == LocationPermission.denied) {
-  permission = await Geolocator.requestPermission();
-  if (permission == LocationPermission.denied) {
-  await _handleLocationError('Location permission needed for ironXpress ');
-  return;
-  }
-  }
-  
-  if (permission == LocationPermission.deniedForever) {
-  await _handleLocationError('Please enable location in settings for ironXpress ');
-  return;
-  }
-  
-  if (mounted) {
-  setState(() {
-  _currentLocation = 'Getting your location...';
-  });
-  }
-  
-  _currentPosition = await Geolocator.getCurrentPosition(
-  desiredAccuracy: LocationAccuracy.high,
-  timeLimit: const Duration(seconds: 15),
-  );
-  
-  print('📍 Got coordinates: ${_currentPosition!.latitude}, ${_currentPosition!.longitude}');
-  
-  List<Placemark> placemarks = await placemarkFromCoordinates(
-  _currentPosition!.latitude,
-  _currentPosition!.longitude,
-  );
-  
-  if (placemarks.isNotEmpty) {
-  final place = placemarks[0];
-  final address = '${place.name ?? place.subLocality ?? ''}, ${place.locality ?? ''}, ${place.postalCode ?? ''}';
-  
-  if (mounted) {
-  setState(() {
-  _currentLocation = address;
-  _selectedLocation = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
-  _selectedAddress = address;
-  _isLocationLoading = false;
-  _showMap = true;
-  _markers = {
-  Marker(
-  markerId: const MarkerId('selected_location'),
-  position: _selectedLocation!,
-  icon: _createCustomMarker(),
-  infoWindow: InfoWindow(title: 'Your Location', snippet: address),
-  ),
-  };
-  });
-  }
-  
-  _pulseController.stop();
-  print('✅ Location detected: $address');
-  } else {
-  await _handleLocationError('Unable to get address for ironXpress ');
-  }
-  } catch (e) {
-  _pulseController.stop();
-  print('❌ Location error: $e');
-  await _handleLocationError('Unable to get your location. Please try again.');
-  }
-  }
-  
+
+
   BitmapDescriptor _createCustomMarker() {
   return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
   }
@@ -515,145 +571,132 @@
   _bounceController.forward();
   }
   }
-  
+
   Future<bool> _checkIronServiceAvailability(double latitude, double longitude) async {
-  if (supabase == null) return false;
-  
-  try {
-  print('🔍 Getting area details for your service...');
-  
-  List<Placemark> placemarks = await placemarkFromCoordinates(
-  latitude,
-  longitude,
-  ).timeout(const Duration(seconds: 5));
-  
-  if (placemarks.isEmpty) {
-  print('❌ No area details found');
-  return false;
+    if (supabase == null) return false;
+
+    try {
+      print('🔍 Getting area details for your service...');
+
+      // ✅ Get PIN code (web-safe)
+      final String? pincode = await _pinFromLatLng(latitude, longitude);
+
+      if (pincode == null || pincode.isEmpty) {
+        print('❌ No pincode found for ironXpress area check');
+        return false;
+      }
+
+      final cleanPincode = pincode.replaceAll(RegExp(r'[^0-9]'), '');
+      print('🔍 Checking ironXpress for pincode: $pincode (cleaned: $cleanPincode)');
+
+      final response = await supabase!
+          .from('service_areas')
+          .select()
+          .or('pincode.eq.$pincode,pincode.eq.$cleanPincode')
+          .eq('is_active', true)
+          .maybeSingle();
+
+      final isAvailable = response != null;
+      print('🔍 IronXpress check result: $isAvailable');
+
+      if (isAvailable) {
+        print('✅ Excellent! We provide pickup/delivery service in this area');
+      } else {
+        print('❌ Sorry, ironXpress not available in this pincode yet');
+      }
+
+      return isAvailable;
+    } catch (e) {
+      print('❌ Error checking ironXpress availability: $e');
+      return false;
+    }
   }
-  
-  final place = placemarks[0];
-  final pincode = place.postalCode;
-  
-  if (pincode == null || pincode.isEmpty) {
-  print('❌ No pincode found for ironXpress area check');
-  return false;
-  }
-  
-  final cleanPincode = pincode.replaceAll(RegExp(r'[^0-9]'), '');
-  print('🔍 Checking ironXpress for pincode: $pincode (cleaned: $cleanPincode)');
-  
-  final response = await supabase!
-      .from('service_areas')
-      .select()
-      .or('pincode.eq.$pincode,pincode.eq.$cleanPincode')
-      .eq('is_active', true)
-      .maybeSingle();
-  
-  bool isAvailable = response != null;
-  print('🔍 IronXpress check result: $isAvailable');
-  
-  if (isAvailable) {
-  print('✅ Excellent! We provide pickup/delivery service in this area');
-  } else {
-  print('❌ Sorry, ironXpress not available in this pincode yet');
-  }
-  
-  return isAvailable;
-  } catch (e) {
-  print('❌ Error checking ironXpress availability: $e');
-  return false;
-  }
-  }
-  
+
+
   Future<void> _saveLocationToProfile() async {
-  if (supabase == null) {
-  print('❌ Supabase not ready for saving location');
-  return;
+    if (supabase == null) {
+      print('❌ Supabase not ready for saving location');
+      return;
+    }
+
+    final user = supabase!.auth.currentUser;
+    if (user == null || _selectedLocation == null) return;
+
+    try {
+      // ✅ Get pincode (web-safe)
+      final pincode = await _pinFromLatLng(
+        _selectedLocation!.latitude,
+        _selectedLocation!.longitude,
+      );
+
+      print('🔄 Saving ironXpress location...');
+      print('📍 Location: $_selectedAddress');
+      print('📍 Coordinates: ${_selectedLocation!.latitude}, ${_selectedLocation!.longitude}');
+      print('📍 Pincode: $pincode');
+
+      await supabase!.from('profiles').upsert({
+        'id': user.id,
+        'location': _selectedAddress,
+        'latitude': _selectedLocation!.latitude,
+        'longitude': _selectedLocation!.longitude,
+        'pincode': pincode,
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+
+      print('✅ IronXpress location saved successfully');
+    } catch (e) {
+      print('❌ Error saving location: $e');
+      throw e;
+    }
   }
-  
-  final user = supabase!.auth.currentUser;
-  if (user == null || _selectedLocation == null) return;
-  
-  try {
-  List<Placemark> placemarks = await placemarkFromCoordinates(
-  _selectedLocation!.latitude,
-  _selectedLocation!.longitude,
-  );
-  
-  String? pincode;
-  if (placemarks.isNotEmpty) {
-  pincode = placemarks[0].postalCode?.replaceAll(RegExp(r'[^0-9]'), '');
-  }
-  
-  print('🔄 Saving ironXpress location...');
-  print('📍 Location: $_selectedAddress');
-  print('📍 Coordinates: ${_selectedLocation!.latitude}, ${_selectedLocation!.longitude}');
-  print('📍 Pincode: $pincode');
-  
-  await supabase!.from('profiles').upsert({
-  'id': user.id,
-  'location': _selectedAddress,
-  'latitude': _selectedLocation!.latitude,
-  'longitude': _selectedLocation!.longitude,
-  'pincode': pincode,
-  'updated_at': DateTime.now().toIso8601String(),
-  });
-  
-  print('✅ IronXpress location saved successfully');
-  } catch (e) {
-  print('❌ Error saving location: $e');
-  throw e;
-  }
-  }
-  
+
+
   Future<void> _onMapTap(LatLng location) async {
-  if (mounted) {
-  setState(() {
-  _selectedLocation = location;
-  _markers = {
-  Marker(
-  markerId: const MarkerId('selected_location'),
-  position: location,
-  icon: _createCustomMarker(),
-  infoWindow: const InfoWindow(title: 'Selected Location'),
-  ),
-  };
-  });
+    // 1) Immediately reflect the tap in UI
+    if (mounted) {
+      setState(() {
+        _selectedLocation = location;
+        _markers = {
+          Marker(
+            markerId: const MarkerId('selected_location'),
+            position: location,
+            icon: _createCustomMarker(),
+            infoWindow: const InfoWindow(title: 'Selected Location'),
+          ),
+        };
+      });
+    }
+
+    // 2) Resolve a human-readable address (web-safe)
+    try {
+      final addr = await _reverseAddress(location.latitude, location.longitude);
+
+      if (mounted) {
+        setState(() {
+          _selectedAddress = addr ?? 'Selected location';
+          _markers = {
+            Marker(
+              markerId: const MarkerId('selected_location'),
+              position: location,
+              icon: _createCustomMarker(),
+              infoWindow: InfoWindow(
+                title: 'Selected Location',
+                snippet: _selectedAddress,
+              ),
+            ),
+          };
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _selectedAddress = 'Selected location';
+        });
+      }
+    }
   }
-  
-  try {
-  List<Placemark> placemarks = await placemarkFromCoordinates(
-  location.latitude,
-  location.longitude,
-  );
-  
-  if (placemarks.isNotEmpty) {
-  final place = placemarks[0];
-  final address = '${place.name ?? place.subLocality ?? ''}, ${place.locality ?? ''}, ${place.postalCode ?? ''}';
-  if (mounted) {
-  setState(() {
-  _selectedAddress = address;
-  _markers = {
-  Marker(
-  markerId: const MarkerId('selected_location'),
-  position: location,
-  icon: _createCustomMarker(),
-  infoWindow: InfoWindow(title: 'Selected Location', snippet: address),
-  ),
-  };
-  });
-  }
-  }
-  } catch (e) {
-  if (mounted) {
-  setState(() {
-  _selectedAddress = 'Selected location';
-  });
-  }
-  }
-  }
-  
+
+
   Future<void> _handleLocationError(String errorMessage) async {
   if (mounted) {
   setState(() {
