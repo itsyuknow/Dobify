@@ -10,8 +10,14 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'colors.dart';
-// NEW: open cart screen after reorder
+import 'package:gal/gal.dart';
 import '../screens/cart_screen.dart';
+import 'package:http/http.dart' as http;
+import 'package:permission_handler/permission_handler.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_file/open_file.dart';
+import 'package:share_plus/share_plus.dart';
+
 
 class OrderHistoryScreen extends StatefulWidget {
   const OrderHistoryScreen({super.key});
@@ -1824,6 +1830,15 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
     isExpressDelivery = deliveryType == 'express';
   }
 
+  Future<String> getDownloadsPath() async {
+    if (Platform.isAndroid) {
+      return '/storage/emulated/0/Download';
+    } else {
+      final directory = await getApplicationDocumentsDirectory();
+      return directory.path;
+    }
+  }
+
   Future<void> _loadSlots() async {
     try {
       final pickupResponse = await supabase
@@ -2603,8 +2618,6 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
   }
 }
 
-// End of _RescheduleDialog class
-// Enhanced Order Details Sheet with Premium Design
 class _OrderDetailsSheet extends StatelessWidget {
   final Map<String, dynamic> order;
   final VoidCallback onGenerateInvoice;
@@ -2622,6 +2635,10 @@ class _OrderDetailsSheet extends StatelessWidget {
         (order['order_billing_details'] as List).isNotEmpty
         ? (order['order_billing_details'] as List)[0]
         : null;
+
+    // ✅ CHECK: Order status for invoice download
+    final orderStatus = order['order_status']?.toString() ?? '';
+    final isOrderDelivered = orderStatus == 'Delivered';
 
     // ✅ RESPONSIVE: Get screen dimensions for universal phone display
     final screenSize = MediaQuery.of(context).size;
@@ -2751,29 +2768,67 @@ class _OrderDetailsSheet extends StatelessWidget {
                       Container(
                         height: isSmallScreen ? 32 : 36,
                         child: ElevatedButton.icon(
-                          onPressed: onGenerateInvoice,
+                          // ✅ FIX: Disable button if order is not delivered
+                          onPressed: isOrderDelivered ? () => _downloadInvoice(context) : null,
                           icon: Icon(Icons.picture_as_pdf,
                               size: isSmallScreen ? 14 : 16,
-                              color: Colors.white),
+                              color: isOrderDelivered ? Colors.white : Colors.grey.shade400),
                           label: Text(
-                            'Get Invoice',
+                            isOrderDelivered ? 'Get Invoice' : 'Get Invoice',
                             style: TextStyle(
                               fontSize: isSmallScreen ? 12 : 14,
                               fontWeight: FontWeight.w600,
-                              color: Colors.white,
+                              color: isOrderDelivered ? Colors.white : Colors.grey.shade400,
                             ),
                           ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: kPrimaryColor,
+                            backgroundColor: isOrderDelivered
+                                ? kPrimaryColor
+                                : Colors.grey.shade300,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
+                            // ✅ Disable interaction when not delivered
+                            disabledBackgroundColor: Colors.grey.shade300,
+                            disabledForegroundColor: Colors.grey.shade400,
                           ),
                         ),
                       ),
                     ],
                   ),
+
+                  // ✅ NEW: Show status message for non-delivered orders
+                  if (!isOrderDelivered) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline,
+                              color: Colors.orange.shade600,
+                              size: isSmallScreen ? 14 : 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Invoice will be available once order is delivered',
+                              style: TextStyle(
+                                color: Colors.orange.shade700,
+                                fontSize: isSmallScreen ? 11 : 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
                   const SizedBox(height: 12),
                   Container(
                     padding: EdgeInsets.all(isSmallScreen ? 16 : 20),
@@ -2980,6 +3035,10 @@ class _OrderDetailsSheet extends StatelessWidget {
                               order['delivery_type'].toString().toUpperCase(),
                               isSmallScreen),
                         ],
+                        // ✅ NEW: Show order status
+                        const SizedBox(height: 12),
+                        _buildTimelineRow('Order Status',
+                            orderStatus, isSmallScreen),
                       ],
                     ),
                   ),
@@ -2991,6 +3050,182 @@ class _OrderDetailsSheet extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // ✅ NEW: Simple download function that works on all devices
+  Future<void> _downloadInvoice(BuildContext context) async {
+    try {
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(color: kPrimaryColor),
+              const SizedBox(width: 16),
+              Text('Downloading invoice...'),
+            ],
+          ),
+        ),
+      );
+
+      // Generate filename
+      final orderId = order['id']?.toString() ?? 'unknown';
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileName = 'Invoice_Order_${orderId}_$timestamp.pdf';
+
+      // TODO: Replace with your actual API endpoint
+      final invoiceUrl = 'YOUR_API_BASE_URL/generate-invoice/${order['id']}';
+
+      // Download the PDF using http
+      final response = await http.get(
+        Uri.parse(invoiceUrl),
+        headers: {
+          // Add your authorization headers if needed
+          // 'Authorization': 'Bearer $yourToken',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        // For Android, try to save to Downloads directory
+        if (Platform.isAndroid) {
+          try {
+            // Request permission
+            var status = await Permission.storage.request();
+            if (status.isGranted) {
+              // Try to save to Downloads folder
+              final directory = Directory('/storage/emulated/0/Download');
+              if (await directory.exists()) {
+                final file = File('${directory.path}/$fileName');
+                await file.writeAsBytes(response.bodyBytes);
+                Navigator.of(context).pop();
+                _showSuccessSnackbar(context, 'Invoice saved to Downloads', fileName);
+                return;
+              }
+            }
+          } catch (e) {
+            print('Failed to save to Downloads: $e');
+          }
+        }
+
+        // Fallback: Save to app directory (works on all platforms)
+        final directory = await getApplicationDocumentsDirectory();
+        final file = File('${directory.path}/$fileName');
+        await file.writeAsBytes(response.bodyBytes);
+
+        // Close loading dialog
+        Navigator.of(context).pop();
+
+        // Show success with option to share/open
+        _showSuccessWithOptions(context, file.path, fileName);
+
+      } else {
+        throw Exception('Failed to download invoice: ${response.statusCode}');
+      }
+
+    } catch (e) {
+      // Close loading dialog if still open
+      if (Navigator.canPop(context)) {
+        Navigator.of(context).pop();
+      }
+
+      print('Download error: $e');
+      _showErrorSnackbar(context, 'Failed to download invoice. Please try again.');
+    }
+  }
+
+  void _showSuccessWithOptions(BuildContext context, String filePath, String fileName) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.download_done, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Invoice saved successfully!')),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              fileName,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.white.withOpacity(0.8),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        duration: Duration(seconds: 4),
+        action: SnackBarAction(
+          label: 'OPEN',
+          textColor: Colors.white,
+          onPressed: () async {
+            try {
+              await OpenFile.open(filePath);
+            } catch (e) {
+              // If can't open directly, try to share
+              await Share.shareXFiles([XFile(filePath)], text: 'Invoice');
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  void _showSuccessSnackbar(BuildContext context, String message, String fileName) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.download_done, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(child: Text(message)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              fileName,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.white.withOpacity(0.8),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        duration: Duration(seconds: 4),
+      ),
+    );
+  }
+
+  void _showErrorSnackbar(BuildContext context, String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.error_outline, color: Colors.white),
+            const SizedBox(width: 8),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
   }
@@ -3292,8 +3527,6 @@ class _OrderDetailsSheet extends StatelessWidget {
     }
   }
 }
-
-
 
 
 class _CancellationReasonDialog extends StatefulWidget {
