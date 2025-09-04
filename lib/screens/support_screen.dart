@@ -19,6 +19,7 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
     with TickerProviderStateMixin {
   String? supportPhone;
   String? supportEmail;
+  String? supportWhatsApp;
   bool _isLoading = true;
   bool _showChat = false;
   bool _showEmojiPicker = false;
@@ -143,6 +144,8 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
             supportPhone = contact['value'];
           } else if (key == 'mail') {
             supportEmail = contact['value'];
+          } else if (key == 'whatsapp') {
+            supportWhatsApp = contact['value'];
           }
         }
       }
@@ -152,6 +155,16 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
       setState(() {
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _openWhatsApp() async {
+    if (supportWhatsApp != null) {
+      HapticFeedback.lightImpact();
+      final whatsappUrl = 'https://wa.me/${supportWhatsApp!.replaceAll('+', '').replaceAll(' ', '')}?text=Hello, I need assistance with my laundry service.';
+      if (await canLaunchUrl(Uri.parse(whatsappUrl))) {
+        await launchUrl(Uri.parse(whatsappUrl), mode: LaunchMode.externalApplication);
+      }
     }
   }
 
@@ -403,7 +416,6 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
     );
   }
 
-
   Widget _buildSupportCard() {
     return Container(
       margin: const EdgeInsets.all(16),
@@ -652,6 +664,13 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
   }
 
   Widget _buildContactOptions() {
+    // Count available contact methods
+    final availableContacts = [
+      if (supportPhone != null) 'phone',
+      if (supportWhatsApp != null) 'whatsapp',
+      if (supportEmail != null) 'email'
+    ];
+
     return Column(
       children: [
         Container(
@@ -706,34 +725,88 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
             ],
           ),
         ),
-        Row(
-          children: [
-            if (supportPhone != null)
-              Expanded(
-                child: _buildContactButton(
-                  icon: Icons.phone_rounded,
-                  label: 'Call Now',
-                  subtitle: 'Instant Support',
-                  color: Colors.green,
-                  onTap: _makePhoneCall,
-                ),
-              ),
-            if (supportPhone != null && supportEmail != null)
-              const SizedBox(width: 12),
-            if (supportEmail != null)
-              Expanded(
-                child: _buildContactButton(
-                  icon: Icons.email_rounded,
-                  label: 'Send Email',
-                  subtitle: 'Detailed Query',
-                  color: Colors.blue,
-                  onTap: _sendEmail,
-                ),
-              ),
-          ],
-        ),
+
+        // Dynamic contact buttons layout
+        if (availableContacts.length == 1)
+        // Single contact method - full width
+          _buildSingleContactRow(availableContacts.first)
+        else if (availableContacts.length == 2)
+        // Two contact methods - side by side
+          _buildTwoContactsRow(availableContacts)
+        else if (availableContacts.length == 3)
+          // Three contact methods - stacked layout
+            _buildThreeContactsLayout()
+          else
+            const SizedBox.shrink(),
       ],
     );
+  }
+
+  Widget _buildSingleContactRow(String contactType) {
+    return Row(
+      children: [
+        Expanded(child: _getContactButton(contactType)),
+      ],
+    );
+  }
+
+  Widget _buildThreeContactsLayout() {
+    return Column(
+      children: [
+        // Top row with two buttons (smaller)
+        Row(
+          children: [
+            Expanded(child: _buildCompactContactButton('phone')),
+            const SizedBox(width: 8),
+            Expanded(child: _buildCompactContactButton('whatsapp')),
+          ],
+        ),
+        const SizedBox(height: 8),
+        // Bottom row with single email button (full width but compact)
+        _buildCompactContactButton('email'),
+      ],
+    );
+  }
+
+  Widget _buildTwoContactsRow(List<String> contacts) {
+    return Row(
+      children: [
+        Expanded(child: _getContactButton(contacts[0])),
+        const SizedBox(width: 12),
+        Expanded(child: _getContactButton(contacts[1])),
+      ],
+    );
+  }
+
+  Widget _getContactButton(String contactType) {
+    switch (contactType) {
+      case 'phone':
+        return _buildContactButton(
+          icon: Icons.phone_rounded,
+          label: 'Call Now',
+          subtitle: 'Instant Support',
+          color: Colors.green,
+          onTap: _makePhoneCall,
+        );
+      case 'whatsapp':
+        return _buildContactButton(
+          icon: Icons.chat_rounded,
+          label: 'WhatsApp',
+          subtitle: 'Quick Chat',
+          color: const Color(0xFF25D366), // WhatsApp green
+          onTap: _openWhatsApp,
+        );
+      case 'email':
+        return _buildContactButton(
+          icon: Icons.email_rounded,
+          label: 'Send Email',
+          subtitle: 'Detailed Query',
+          color: Colors.blue,
+          onTap: _sendEmail,
+        );
+      default:
+        return const SizedBox.shrink();
+    }
   }
 
   Widget _buildContactButton({
@@ -815,6 +888,121 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
     );
   }
 
+  Widget _buildCompactContactButton(String contactType) {
+    IconData icon;
+    String label;
+    String subtitle;
+    Color color;
+    VoidCallback onTap;
+
+    switch (contactType) {
+      case 'phone':
+        if (supportPhone == null) return const SizedBox.shrink();
+        icon = Icons.phone_rounded;
+        label = 'Call Now';
+        subtitle = 'Instant Support';
+        color = Colors.green;
+        onTap = _makePhoneCall;
+        break;
+      case 'whatsapp':
+        if (supportWhatsApp == null) return const SizedBox.shrink();
+        icon = Icons.chat_rounded;
+        label = 'WhatsApp';
+        subtitle = 'Quick Chat';
+        color = const Color(0xFF25D366);
+        onTap = _openWhatsApp;
+        break;
+      case 'email':
+        if (supportEmail == null) return const SizedBox.shrink();
+        icon = Icons.email_rounded;
+        label = 'Send Email';
+        subtitle = 'Detailed Query';
+        color = Colors.blue;
+        onTap = _sendEmail;
+        break;
+      default:
+        return const SizedBox.shrink();
+    }
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(12), // Reduced padding for compact version
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              color.withOpacity(0.1),
+              color.withOpacity(0.05),
+            ],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+          borderRadius: BorderRadius.circular(12), // Smaller border radius
+          border: Border.all(color: color.withOpacity(0.3), width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.1),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row( // Horizontal layout for compact version
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8), // Smaller icon container
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [color, color.withOpacity(0.8)],
+                ),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withOpacity(0.3),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Icon(icon, color: Colors.white, size: 16), // Smaller icon
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: color,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12, // Smaller font
+                      letterSpacing: 0.3,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: color.withOpacity(0.7),
+                      fontWeight: FontWeight.w500,
+                      fontSize: 10, // Smaller subtitle
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildFullScreenChat() {
     return MediaQuery.removePadding(
       context: context,
@@ -834,7 +1022,6 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
       ),
     );
   }
-
 
   Widget _buildChatHeader() {
     return Container(
@@ -1195,8 +1382,8 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
 
   Widget _buildChatInput() {
     return Container(
-      // keep this compact; SafeArea is applied by the caller above
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      // was: EdgeInsets.fromLTRB(12, 8, 12, 8)
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -1357,7 +1544,6 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
       ),
     );
   }
-
 
   Widget _buildQuickResponses() {
     final quickResponses = [
@@ -1607,7 +1793,10 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       appBar: _buildAppBar(),
+      // ⬇️ Only top safe area here, let the chat handle bottom insets itself
       body: SafeArea(
+        top: true,
+        bottom: false,
         child: _isLoading
             ? _buildLoadingWidget()
             : Stack(

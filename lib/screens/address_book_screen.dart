@@ -1008,14 +1008,25 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
         _hasSelectedLocation = true;
       });
 
-      // Center the map immediately
+      // Center the map immediately (preserve current zoom)
       _selectedLocation = latLng;
       if (_mapController != null) {
-        await _mapController!.animateCamera(CameraUpdate.newLatLngZoom(latLng, 16));
+        try {
+          final currentZoom = await _mapController!.getZoomLevel();
+          await _mapController!.animateCamera(
+            CameraUpdate.newCameraPosition(
+              CameraPosition(target: latLng, zoom: currentZoom),
+            ),
+          );
+        } catch (_) {
+          // Fallback if getZoomLevel() isn't available on a platform
+          await _mapController!.animateCamera(CameraUpdate.newLatLng(latLng));
+        }
       }
 
-      // Update address right away (don’t wait for onCameraIdle)
+// Update address right away (don’t wait for onCameraIdle)
       await _onMapTap(latLng);
+
 
       // ❌ Removed the green success snackbar
 
@@ -1265,6 +1276,10 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
     final double searchLeft = sideGap + circleDiameter + betweenGap;
     final double searchRight = sideGap;
 
+    // 🔧 Lift the visual pin so its TIP sits at the map center (logical px)
+    // For a ~70px tall pin, 28–32 works well. Tune if you change the asset.
+    const double pinTipLift = 30;
+
     // ✅ Confirm button style: Solid Blue + premium shape
     final ButtonStyle confirmStyle = ElevatedButton.styleFrom(
       elevation: 2,
@@ -1290,21 +1305,55 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
           myLocationEnabled: true,
           myLocationButtonEnabled: false,
           zoomControlsEnabled: false,
+
+          // Keep track of the visual center (not the pin tip yet)
           onCameraMove: (CameraPosition p) => _selectedLocation = p.target,
+
+          // When camera stops, compute the TIP LatLng and reverse-geocode that
           onCameraIdle: () async {
-            if (_selectedLocation != null) {
-              await _onMapTap(_selectedLocation!);
-            }
+            if (_selectedLocation == null || _mapController == null) return;
+
+            // Convert the visual center to screen coords, then shift UP by the
+            // amount we visually lifted the pin so we get the TIP position.
+            final dpr = MediaQuery.of(context).devicePixelRatio;
+            final centerScreen =
+            await _mapController!.getScreenCoordinate(_selectedLocation!);
+            final tipScreen = ScreenCoordinate(
+              x: centerScreen.x,
+              y: (centerScreen.y - (pinTipLift * dpr)).round(),
+            );
+
+            final tipLatLng = await _mapController!.getLatLng(tipScreen);
+
+            // Now reverse-geocode / update address based on the TIP’s LatLng
+            await _onMapTap(tipLatLng);
           },
         ),
 
-        // --- CENTER PIN ---
+        // --- CENTER PIN (tip aligned) ---
         Center(
           child: IgnorePointer(
-            child: Image.asset(
-              'assets/images/blue_pin.png',
-              width: 70,
-              height: 70,
+            ignoring: true,
+            child: Transform.translate(
+              offset: const Offset(0, -pinTipLift),
+              child: Container(
+                decoration: BoxDecoration(
+                  boxShadow: [
+                    // Soft shadow for contrast on light map tiles
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.15),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Image.asset(
+                  'assets/images/blue_pin.png',
+                  width: 70,
+                  height: 70,
+                  filterQuality: FilterQuality.high, // crisper scaling
+                ),
+              ),
             ),
           ),
         ),
@@ -1391,8 +1440,13 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                           fontSize: 15,
                         ),
                         border: InputBorder.none,
-                        prefixIcon: Icon(Icons.search_rounded,
-                            color: kPrimaryColor.withOpacity(0.8), size: 20),
+                        enabledBorder: InputBorder.none, // ✅ remove blue outline
+                        focusedBorder: InputBorder.none, // ✅ remove blue outline
+                        prefixIcon: Icon(
+                          Icons.search_rounded,
+                          color: kPrimaryColor.withOpacity(0.8),
+                          size: 20,
+                        ),
                         suffixIcon: controller.text.isNotEmpty
                             ? IconButton(
                           icon: const Icon(Icons.close_rounded,
@@ -1514,6 +1568,8 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
       ],
     );
   }
+
+
 
 
 

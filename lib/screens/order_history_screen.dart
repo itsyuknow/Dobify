@@ -44,6 +44,32 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
   List<String> _dialogSelectedFeedback = [];
   List<Map<String, dynamic>> _reviewFeedbackOptions = [];
   final TextEditingController _dialogFeedbackController = TextEditingController();
+
+  bool _isExpressOrder(Map<String, dynamic> order) {
+    // If backend already marks express
+    final rawOrderExpress = order['is_express'];
+    if (rawOrderExpress is bool && rawOrderExpress == true) return true;
+    if (rawOrderExpress is String && rawOrderExpress.toLowerCase() == 'true') return true;
+
+    // Other common flags some schemas use
+    final deliveryType = order['delivery_type']?.toString().toLowerCase();
+    if (deliveryType == 'express') return true;
+    final speed = order['delivery_speed']?.toString().toLowerCase();
+    if (speed == 'express') return true;
+
+    // Infer from items if needed
+    final items = order['order_items'] as List<dynamic>? ?? const [];
+    for (final it in items) {
+      final st = it['service_type']?.toString().toLowerCase();
+      if (st == 'express') return true;
+      final itemExpress = it['is_express'];
+      if (itemExpress is bool && itemExpress == true) return true;
+      if (itemExpress is String && itemExpress.toLowerCase() == 'true') return true;
+    }
+
+    return false;
+  }
+
   // =====================================================================
 
   @override
@@ -170,6 +196,9 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
             processedItems.add(processedItem);
           }
+
+          orderWithDetails['is_express'] = _isExpressOrder(orderWithDetails);
+
 
           orderWithDetails['order_items'] = processedItems;
 
@@ -362,13 +391,17 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
       final hour = int.parse(timeParts[0]);
       final minute = int.parse(timeParts[1]);
 
+      // 👉 Key change: deadline depends on Express vs Standard
+      final bool isExpress = (order['is_express'] == true) || _isExpressOrder(order);
+
+      // Standard: 1 hour before start; Express: at start
       final pickupDeadline = DateTime(
-          pickupDate.year,
-          pickupDate.month,
-          pickupDate.day,
-          hour,
-          minute
-      ).subtract(const Duration(hours: 1));
+        pickupDate.year,
+        pickupDate.month,
+        pickupDate.day,
+        hour,
+        minute,
+      ).subtract(isExpress ? Duration.zero : const Duration(hours: 1));
 
       final now = DateTime.now();
 
@@ -376,6 +409,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
         final remainingSeconds = pickupDeadline.difference(now).inSeconds;
         _cancelTimeRemaining[orderId] = remainingSeconds;
 
+        _cancelTimers[orderId]?.cancel();
         _cancelTimers[orderId] = Timer.periodic(const Duration(seconds: 1), (timer) {
           if (!mounted) {
             timer.cancel();
@@ -392,11 +426,17 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
             _cancelTimeRemaining.remove(orderId);
           }
         });
+      } else {
+        // Already past deadline: ensure no timer & disable cancel by clearing remaining time
+        _cancelTimers[orderId]?.cancel();
+        _cancelTimers.remove(orderId);
+        _cancelTimeRemaining.remove(orderId);
       }
     } catch (e) {
       debugPrint('Error setting up cancel timer: $e');
     }
   }
+
 
   bool _canShowCancelButton(Map<String, dynamic> order) {
     final status = order['order_status']?.toString().toLowerCase() ?? '';
@@ -3079,12 +3119,14 @@ class _OrderDetailsSheet extends StatelessWidget {
       final orderId = (order['id'] ?? order['order_code'] ?? 'unknown').toString();
       final fileName = 'Invoice_Order_$orderId.pdf';
 
-      // 1) Build PDF safely
+      // 1) Build PDF
       final Uint8List pdfBytes = await _buildInvoicePdfBytes(order);
 
       // 2) Save
       String savedPath = '';
+
       if (kIsWeb) {
+        // Web: triggers browser download
         await FileSaver.instance.saveFile(
           name: fileName,
           bytes: pdfBytes,
@@ -3093,17 +3135,15 @@ class _OrderDetailsSheet extends StatelessWidget {
         );
       } else if (Platform.isAndroid) {
         try {
+          // Save to Downloads via MediaStore
           savedPath = await FileSaver.instance.saveFile(
             name: fileName,
             bytes: pdfBytes,
             ext: 'pdf',
             mimeType: MimeType.pdf,
           );
-        } catch (e, st) {
-          // Fallback to app Documents if MediaStore fails
-          // (some emulators/ROMs can throw)
-          // ignore: avoid_print
-          print('FileSaver failed on Android: $e\n$st');
+        } catch (e) {
+          // Fallback to app documents
           final dir = await getApplicationDocumentsDirectory();
           final file = File('${dir.path}/$fileName');
           await file.writeAsBytes(pdfBytes);
@@ -3118,6 +3158,25 @@ class _OrderDetailsSheet extends StatelessWidget {
 
       if (Navigator.canPop(context)) Navigator.of(context).pop();
 
+      // 3) Auto-open (mobile/desktop only)
+      if (!kIsWeb) {
+        // Some Android ROMs return empty from FileSaver; if so, write a temp copy to open.
+        String openPath = savedPath;
+        if (openPath.isEmpty) {
+          final tempDir = await getTemporaryDirectory();
+          final tempFile = File('${tempDir.path}/$fileName');
+          await tempFile.writeAsBytes(pdfBytes);
+          openPath = tempFile.path;
+        }
+
+        final result = await OpenFilex.open(openPath);
+        if (result.type != ResultType.done) {
+          // Optional: show a hint if no PDF app is installed
+          _showErrorSnackbar(context, 'Could not open PDF. Please install a PDF viewer.');
+        }
+      }
+
+      // 4) Success toast
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
@@ -3130,24 +3189,17 @@ class _OrderDetailsSheet extends StatelessWidget {
           backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          duration: const Duration(seconds: 4),
-          action: (!kIsWeb && savedPath.isNotEmpty)
-              ? SnackBarAction(
-            label: 'OPEN',
-            textColor: Colors.white,
-            onPressed: () async => OpenFilex.open(savedPath),
-          )
-              : null,
+          duration: const Duration(seconds: 3),
         ),
       );
     } catch (e, st) {
       if (Navigator.canPop(context)) Navigator.of(context).pop();
-      // TEMP: print the real reason so we can see it in the console
       // ignore: avoid_print
       print('❌ Invoice generation error: $e\n$st');
       _showErrorSnackbar(context, 'Failed to generate invoice. Please try again.');
     }
   }
+
 
 
   Future<Uint8List> _buildInvoicePdfBytes(Map<String, dynamic> order) async {
