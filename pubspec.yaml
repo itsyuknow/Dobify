@@ -39,9 +39,8 @@ dependencies:
   pdf: ^3.10.4
   path_provider: ^2.1.1
   share_plus: ^11.0.0
-  open_filex: ^4.4.0
+  open_filex: ^4.4.0   # ✅ keep only this
   file_saver: ^0.2.12
-
 
   # ✅ Firebase & Notifications
   firebase_core: ^3.15.1
@@ -54,11 +53,6 @@ dependencies:
   # ✅ Supabase packages
   supabase_flutter: ^2.9.1
   flutter_dotenv: ^5.2.1
-
-  # ✅ REMOVED: external_path (causing namespace issues)
-  # Use path_provider instead for file paths
-
-  open_file: ^3.3.2
 
   # ✅ Image & file support
   image_picker: ^1.0.4
