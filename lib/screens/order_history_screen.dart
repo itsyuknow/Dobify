@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -10,13 +9,12 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'colors.dart';
-import 'package:gal/gal.dart';
 import '../screens/cart_screen.dart';
 import 'package:http/http.dart' as http;
-import 'package:permission_handler/permission_handler.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:file_saver/file_saver.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 
 class OrderHistoryScreen extends StatefulWidget {
@@ -3056,83 +3054,112 @@ class _OrderDetailsSheet extends StatelessWidget {
 
   // ✅ NEW: Simple download function that works on all devices
   Future<void> _downloadInvoice(BuildContext context) async {
+    // ✅ Safety: block on web (implement separately if needed)
+    if (kIsWeb) {
+      _showErrorSnackbar(context, 'Download not supported on web in this flow.');
+      return;
+    }
+
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(color: kPrimaryColor),
+            const SizedBox(width: 16),
+            const Expanded(child: Text('Downloading invoice...')),
+          ],
+        ),
+      ),
+    );
+
     try {
-      // Show loading indicator
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          content: Row(
+      final orderId = order['id']?.toString() ?? 'unknown';
+      final fileName = 'Invoice_Order_$orderId.pdf';
+
+      // TODO: put your real API base here 👇
+      final invoiceUrl = 'YOUR_API_BASE_URL/generate-invoice/$orderId';
+
+      final resp = await http.get(Uri.parse(invoiceUrl));
+      if (resp.statusCode != 200 || resp.bodyBytes.isEmpty) {
+        throw Exception('Bad response: ${resp.statusCode}');
+      }
+
+      String? savedPath;
+
+      if (Platform.isAndroid) {
+        // ✅ ANDROID: Save directly to Downloads using MediaStore via file_saver (no Share sheet)
+        final saved = await FileSaver.instance.saveFile(
+          name: fileName,
+          bytes: resp.bodyBytes,
+          ext: 'pdf',
+          mimeType: MimeType.pdf, // ensures correct placement under Downloads
+        );
+        // `saved` is a path or content URI depending on Android version
+        savedPath = saved;
+      } else if (Platform.isIOS) {
+        // ✅ iOS: Save to app Documents silently, then allow OPEN
+        final dir = await getApplicationDocumentsDirectory();
+        final file = File('${dir.path}/$fileName');
+        await file.writeAsBytes(resp.bodyBytes);
+        savedPath = file.path;
+      } else if (Platform.isMacOS || Platform.isLinux || Platform.isWindows) {
+        // Desktop: save to Documents
+        final dir = await getApplicationDocumentsDirectory();
+        final file = File('${dir.path}/$fileName');
+        await file.writeAsBytes(resp.bodyBytes);
+        savedPath = file.path;
+      } else {
+        throw Exception('Unsupported platform');
+      }
+
+      // Close loading dialog
+      if (Navigator.canPop(context)) Navigator.of(context).pop();
+
+      // ✅ Success UI: show message and OPEN action (no share)
+      if (savedPath == null || savedPath.isEmpty) {
+        _showErrorSnackbar(context, 'Saved, but path unavailable. Please check Downloads.');
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              CircularProgressIndicator(color: kPrimaryColor),
-              const SizedBox(width: 16),
-              Text('Downloading invoice...'),
+              Row(
+                children: const [
+                  Icon(Icons.download_done, color: Colors.white),
+                  SizedBox(width: 8),
+                  Expanded(child: Text('Invoice saved successfully!')),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                fileName,
+                style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.85)),
+              ),
             ],
+          ),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          duration: const Duration(seconds: 4),
+          action: SnackBarAction(
+            label: 'OPEN',
+            textColor: Colors.white,
+            onPressed: () async {
+              // Use OpenFilex; do not fall back to Share.
+              await OpenFilex.open(savedPath!);
+            },
           ),
         ),
       );
-
-      // Generate filename
-      final orderId = order['id']?.toString() ?? 'unknown';
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final fileName = 'Invoice_Order_${orderId}_$timestamp.pdf';
-
-      // TODO: Replace with your actual API endpoint
-      final invoiceUrl = 'YOUR_API_BASE_URL/generate-invoice/${order['id']}';
-
-      // Download the PDF using http
-      final response = await http.get(
-        Uri.parse(invoiceUrl),
-        headers: {
-          // Add your authorization headers if needed
-          // 'Authorization': 'Bearer $yourToken',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        // For Android, try to save to Downloads directory
-        if (Platform.isAndroid) {
-          try {
-            // Request permission
-            var status = await Permission.storage.request();
-            if (status.isGranted) {
-              // Try to save to Downloads folder
-              final directory = Directory('/storage/emulated/0/Download');
-              if (await directory.exists()) {
-                final file = File('${directory.path}/$fileName');
-                await file.writeAsBytes(response.bodyBytes);
-                Navigator.of(context).pop();
-                _showSuccessSnackbar(context, 'Invoice saved to Downloads', fileName);
-                return;
-              }
-            }
-          } catch (e) {
-            print('Failed to save to Downloads: $e');
-          }
-        }
-
-        // Fallback: Save to app directory (works on all platforms)
-        final directory = await getApplicationDocumentsDirectory();
-        final file = File('${directory.path}/$fileName');
-        await file.writeAsBytes(response.bodyBytes);
-
-        // Close loading dialog
-        Navigator.of(context).pop();
-
-        // Show success with option to share/open
-        _showSuccessWithOptions(context, file.path, fileName);
-
-      } else {
-        throw Exception('Failed to download invoice: ${response.statusCode}');
-      }
-
     } catch (e) {
-      // Close loading dialog if still open
-      if (Navigator.canPop(context)) {
-        Navigator.of(context).pop();
-      }
-
-      print('Download error: $e');
+      if (Navigator.canPop(context)) Navigator.of(context).pop();
       _showErrorSnackbar(context, 'Failed to download invoice. Please try again.');
     }
   }
