@@ -10,11 +10,15 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'colors.dart';
 import '../screens/cart_screen.dart';
-import 'package:http/http.dart' as http;
-import 'package:open_file/open_file.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:file_saver/file_saver.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'order_screen.dart'; // 👈 adjust path if needed
+
+import 'dart:io' show Platform, File;
+import 'dart:typed_data';
+
+
 
 
 class OrderHistoryScreen extends StatefulWidget {
@@ -1198,8 +1202,10 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                   constraints: BoxConstraints(maxWidth: screenWidth * 0.8),
                   child: ElevatedButton(
                     onPressed: () {
-                      Navigator.of(context).pushNamedAndRemoveUntil(
-                          '/orders', (route) => false);
+                      Navigator.of(context).pushAndRemoveUntil(
+                        MaterialPageRoute(builder: (_) => const OrdersScreen()), // 👈 make sure class name matches in order_screen.dart
+                            (route) => false,
+                      );
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: kPrimaryColor,
@@ -1208,7 +1214,8 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                         vertical: isSmallScreen ? 12 : 16,
                       ),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(25)),
+                        borderRadius: BorderRadius.circular(25),
+                      ),
                     ),
                     child: Text(
                       'Start Shopping',
@@ -3054,191 +3061,279 @@ class _OrderDetailsSheet extends StatelessWidget {
 
   // ✅ NEW: Simple download function that works on all devices
   Future<void> _downloadInvoice(BuildContext context) async {
-    // ✅ Safety: block on web (implement separately if needed)
-    if (kIsWeb) {
-      _showErrorSnackbar(context, 'Download not supported on web in this flow.');
-      return;
-    }
-
-    // Show loading dialog
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
+      builder: (c) => AlertDialog(
         content: Row(
           children: [
             CircularProgressIndicator(color: kPrimaryColor),
             const SizedBox(width: 16),
-            const Expanded(child: Text('Downloading invoice...')),
+            const Expanded(child: Text('Generating invoice...')),
           ],
         ),
       ),
     );
 
     try {
-      final orderId = order['id']?.toString() ?? 'unknown';
+      final orderId = (order['id'] ?? order['order_code'] ?? 'unknown').toString();
       final fileName = 'Invoice_Order_$orderId.pdf';
 
-      // TODO: put your real API base here 👇
-      final invoiceUrl = 'YOUR_API_BASE_URL/generate-invoice/$orderId';
+      // 1) Build PDF safely
+      final Uint8List pdfBytes = await _buildInvoicePdfBytes(order);
 
-      final resp = await http.get(Uri.parse(invoiceUrl));
-      if (resp.statusCode != 200 || resp.bodyBytes.isEmpty) {
-        throw Exception('Bad response: ${resp.statusCode}');
-      }
-
-      String? savedPath;
-
-      if (Platform.isAndroid) {
-        // ✅ ANDROID: Save directly to Downloads using MediaStore via file_saver (no Share sheet)
-        final saved = await FileSaver.instance.saveFile(
+      // 2) Save
+      String savedPath = '';
+      if (kIsWeb) {
+        await FileSaver.instance.saveFile(
           name: fileName,
-          bytes: resp.bodyBytes,
+          bytes: pdfBytes,
           ext: 'pdf',
-          mimeType: MimeType.pdf, // ensures correct placement under Downloads
+          mimeType: MimeType.pdf,
         );
-        // `saved` is a path or content URI depending on Android version
-        savedPath = saved;
-      } else if (Platform.isIOS) {
-        // ✅ iOS: Save to app Documents silently, then allow OPEN
+      } else if (Platform.isAndroid) {
+        try {
+          savedPath = await FileSaver.instance.saveFile(
+            name: fileName,
+            bytes: pdfBytes,
+            ext: 'pdf',
+            mimeType: MimeType.pdf,
+          );
+        } catch (e, st) {
+          // Fallback to app Documents if MediaStore fails
+          // (some emulators/ROMs can throw)
+          // ignore: avoid_print
+          print('FileSaver failed on Android: $e\n$st');
+          final dir = await getApplicationDocumentsDirectory();
+          final file = File('${dir.path}/$fileName');
+          await file.writeAsBytes(pdfBytes);
+          savedPath = file.path;
+        }
+      } else if (Platform.isIOS || Platform.isMacOS || Platform.isLinux || Platform.isWindows) {
         final dir = await getApplicationDocumentsDirectory();
         final file = File('${dir.path}/$fileName');
-        await file.writeAsBytes(resp.bodyBytes);
+        await file.writeAsBytes(pdfBytes);
         savedPath = file.path;
-      } else if (Platform.isMacOS || Platform.isLinux || Platform.isWindows) {
-        // Desktop: save to Documents
-        final dir = await getApplicationDocumentsDirectory();
-        final file = File('${dir.path}/$fileName');
-        await file.writeAsBytes(resp.bodyBytes);
-        savedPath = file.path;
-      } else {
-        throw Exception('Unsupported platform');
       }
 
-      // Close loading dialog
       if (Navigator.canPop(context)) Navigator.of(context).pop();
-
-      // ✅ Success UI: show message and OPEN action (no share)
-      if (savedPath == null || savedPath.isEmpty) {
-        _showErrorSnackbar(context, 'Saved, but path unavailable. Please check Downloads.');
-        return;
-      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: const [
-                  Icon(Icons.download_done, color: Colors.white),
-                  SizedBox(width: 8),
-                  Expanded(child: Text('Invoice saved successfully!')),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                fileName,
-                style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.85)),
-              ),
+          content: Row(
+            children: const [
+              Icon(Icons.download_done, color: Colors.white),
+              SizedBox(width: 8),
+              Expanded(child: Text('Invoice saved successfully!')),
             ],
           ),
           backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           duration: const Duration(seconds: 4),
-          action: SnackBarAction(
+          action: (!kIsWeb && savedPath.isNotEmpty)
+              ? SnackBarAction(
             label: 'OPEN',
             textColor: Colors.white,
-            onPressed: () async {
-              // Use OpenFilex; do not fall back to Share.
-              await OpenFilex.open(savedPath!);
-            },
-          ),
+            onPressed: () async => OpenFilex.open(savedPath),
+          )
+              : null,
         ),
       );
-    } catch (e) {
+    } catch (e, st) {
       if (Navigator.canPop(context)) Navigator.of(context).pop();
-      _showErrorSnackbar(context, 'Failed to download invoice. Please try again.');
+      // TEMP: print the real reason so we can see it in the console
+      // ignore: avoid_print
+      print('❌ Invoice generation error: $e\n$st');
+      _showErrorSnackbar(context, 'Failed to generate invoice. Please try again.');
     }
   }
 
-  void _showSuccessWithOptions(BuildContext context, String filePath, String fileName) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.download_done, color: Colors.white),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Invoice saved successfully!')),
-              ],
+
+  Future<Uint8List> _buildInvoicePdfBytes(Map<String, dynamic> order) async {
+    // Safe helpers
+    String _text(dynamic v) => (v == null || v.toString() == 'null') ? '' : v.toString();
+    num _num(dynamic v) {
+      if (v == null) return 0;
+      if (v is num) return v;
+      return num.tryParse(v.toString()) ?? 0;
+    }
+    Map<String, dynamic> _map(dynamic v) {
+      if (v == null) return <String, dynamic>{};
+      if (v is Map) return Map<String, dynamic>.from(v as Map);
+      return <String, dynamic>{};
+    }
+    List<Map<String, dynamic>> _listOfMaps(dynamic v) {
+      if (v is List) {
+        return v.map((e) => _map(e)).toList();
+      }
+      return <Map<String, dynamic>>[];
+    }
+
+    final pdf = pw.Document();
+
+    final billingList = _listOfMaps(order['order_billing_details']);
+    final billing = billingList.isNotEmpty ? billingList.first : <String, dynamic>{};
+
+    final address = _map(order['address_info']).isNotEmpty
+        ? _map(order['address_info'])
+        : _map(order['address_details']);
+
+    final items = _listOfMaps(order['order_items']);
+
+    String money(num v, {bool neg = false}) => (neg ? '-₹' : '₹') + v.toStringAsFixed(2);
+
+    // Compute subtotal from items if billing subtotal missing
+    num subtotal = 0;
+    for (final it in items) {
+      subtotal += _num(it['total_price']);
+    }
+
+    final createdAt = _text(order['created_at']);
+    final orderId = _text(order['id'] ?? order['order_code']);
+    final status = _text(order['order_status']);
+    final paymentMethod = _text(order['payment_method']).toUpperCase();
+
+    // Totals (prefer billing when present)
+    final minCart = _num(billing['minimum_cart_fee']);
+    final platformFee = _num(billing['platform_fee']);
+    final serviceTax = _num(billing['service_tax']);
+    final deliveryFee = _num(billing['delivery_fee']);
+    final discount = _num(billing['discount_amount']);
+    final billedSubtotal = _num(billing['subtotal']);
+    if (billedSubtotal > 0) subtotal = billedSubtotal;
+    final totalAmount = _num(billing['total_amount']) > 0 ? _num(billing['total_amount']) : subtotal;
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(24),
+        build: (ctx) => [
+          // Header
+          pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Center(
+                child: pw.Text(
+                  'TAX INVOICE',
+                  style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
+                ),
+              ),
+              pw.SizedBox(height: 8),
+              pw.Text('Order ID: $orderId'),
+              pw.Text('Order Date: ${createdAt.isEmpty ? '-' : createdAt}'),
+              pw.Text('Status: ${status.isEmpty ? '-' : status}'),
+              pw.Text('Payment: ${paymentMethod.isEmpty ? '-' : paymentMethod}'),
+            ],
+          ),
+          pw.SizedBox(height: 16),
+
+          // Address
+          pw.Text('Bill To', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 4),
+          if (_text(address['recipient_name']).isNotEmpty)
+            pw.Text(_text(address['recipient_name']), style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+          if (_text(address['address_line_1']).isNotEmpty) pw.Text(_text(address['address_line_1'])),
+          if (_text(address['city']).isNotEmpty || _text(address['state']).isNotEmpty || _text(address['pincode']).isNotEmpty)
+            pw.Text(
+              '${_text(address['city'])}${_text(address['city']).isNotEmpty && _text(address['state']).isNotEmpty ? ', ' : ''}${_text(address['state'])}'
+                  '${_text(address['pincode']).isNotEmpty ? ' - ${_text(address['pincode'])}' : ''}',
             ),
-            const SizedBox(height: 4),
-            Text(
-              fileName,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.white.withOpacity(0.8),
+          pw.SizedBox(height: 12),
+
+          // Items Table
+          pw.Table(
+            border: pw.TableBorder.all(width: 0.5),
+            columnWidths: {
+              0: const pw.FlexColumnWidth(4),
+              1: const pw.FlexColumnWidth(1),
+              2: const pw.FlexColumnWidth(2),
+            },
+            children: [
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.grey300),
+                children: [
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.all(6),
+                    child: pw.Text('Item', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                  ),
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.all(6),
+                    child: pw.Text('Qty', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                  ),
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.all(6),
+                    child: pw.Text('Total', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                  ),
+                ],
+              ),
+              ...items.map((it) {
+                final prod = _map(it['products']);
+                final String name = _text(
+                  _text(prod['name']).isNotEmpty ? prod['name'] : it['product_name'],
+                );
+                final int qty = _num(it['quantity']).toInt();
+                final num total = _num(it['total_price']);
+
+                return pw.TableRow(
+                  children: [
+                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(name.isEmpty ? 'Item' : name)),
+                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(qty.toString())),
+                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(money(total))),
+                  ],
+                );
+              }),
+            ],
+          ),
+
+          pw.SizedBox(height: 12),
+
+          // Summary
+          pw.Align(
+            alignment: pw.Alignment.centerRight,
+            child: pw.Container(
+              width: 260,
+              child: pw.Column(
+                children: [
+                  _sumRow('Subtotal', money(subtotal)),
+                  if (minCart > 0) _sumRow('Minimum Cart Fee', money(minCart)),
+                  if (platformFee > 0) _sumRow('Platform Fee', money(platformFee)),
+                  if (serviceTax > 0) _sumRow('Service Tax', money(serviceTax)),
+                  if (deliveryFee > 0) _sumRow('Delivery Fee', money(deliveryFee)),
+                  if (discount > 0) _sumRow('Discount', money(discount, neg: true)),
+                  pw.Divider(),
+                  _sumRow('Total Amount', money(totalAmount), bold: true),
+                ],
               ),
             ),
+          ),
+
+          if (_text(billing['applied_coupon_code']).isNotEmpty) ...[
+            pw.SizedBox(height: 8),
+            pw.Text('Coupon Applied: ${_text(billing['applied_coupon_code'])}'),
           ],
-        ),
-        backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        duration: Duration(seconds: 4),
-        action: SnackBarAction(
-          label: 'OPEN',
-          textColor: Colors.white,
-          onPressed: () async {
-            try {
-              await OpenFile.open(filePath);
-            } catch (e) {
-              // If can't open directly, try to share
-              await Share.shareXFiles([XFile(filePath)], text: 'Invoice');
-            }
-          },
-        ),
+
+          pw.SizedBox(height: 24),
+          pw.Center(child: pw.Text('Thank you for your order!')),
+        ],
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  pw.Widget _sumRow(String label, String value, {bool bold = false}) {
+    final style = pw.TextStyle(fontSize: 10, fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal);
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 2),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [pw.Text(label, style: style), pw.Text(value, style: style)],
       ),
     );
   }
 
-  void _showSuccessSnackbar(BuildContext context, String message, String fileName) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.download_done, color: Colors.white),
-                const SizedBox(width: 8),
-                Expanded(child: Text(message)),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              fileName,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.white.withOpacity(0.8),
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        duration: Duration(seconds: 4),
-      ),
-    );
-  }
+
 
   void _showErrorSnackbar(BuildContext context, String message) {
     ScaffoldMessenger.of(context).showSnackBar(
