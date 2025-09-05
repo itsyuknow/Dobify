@@ -8,6 +8,8 @@ import 'dart:math' as math;
 import 'phone_login_screen.dart';
 import 'colors.dart';
 import 'app_wrapper.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key}
@@ -261,25 +263,22 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     });
 
     try {
-      print('🔐 Starting Google OAuth...');
-
-      // ✅ FIXED: Use your existing custom scheme
-      const String redirectUrl = 'com.yuknow.ironly://oauth-callback';
+      // Choose redirect depending on platform
+      // Option: use a dedicated callback path '/auth/callback' for web (recommended)
+      final String redirectUrl = kIsWeb
+          ? Uri.base.origin + '/auth/callback' // e.g. https://yourdomain.com/auth/callback
+          : 'com.yuknow.ironly://oauth-callback'; // your existing mobile scheme
 
       print('🔐 Using redirect URL: $redirectUrl');
 
-      // ✅ FIXED: Simplified OAuth call - let Supabase handle the complexity
-      final authResponse = await supabase.auth.signInWithOAuth(
+      await supabase.auth.signInWithOAuth(
         OAuthProvider.google,
         redirectTo: redirectUrl,
         authScreenLaunchMode: LaunchMode.externalApplication,
       );
 
-      print('🔐 OAuth initiated successfully');
-
-      // Don't handle success here - let the deep link handler and auth listener handle it
-      // The success will be handled by _handleIncomingLink -> _setupAuthListener
-
+      // On web the browser will navigate to Google and then back to redirectUrl.
+      // Auth state changes are handled by your onAuthStateChange listener.
     } catch (e) {
       if (!mounted) return;
 
@@ -288,8 +287,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       });
 
       String errorMessage = e.toString();
-
-      // Handle specific error cases
       if (errorMessage.contains('OAuth state mismatch')) {
         errorMessage = 'Authentication session expired. Please try again.';
       } else if (errorMessage.contains('localhost') || errorMessage.contains('127.0.0.1')) {
@@ -304,6 +301,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       print('❌ Google login error: $e');
     }
   }
+
 
   void _navigateToPhoneLogin() {
     HapticFeedback.selectionClick();

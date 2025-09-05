@@ -1,33 +1,29 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <!-- Base href is replaced by Flutter at build time -->
   <base href="$FLUTTER_BASE_HREF">
-
   <meta charset="UTF-8">
-  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
   <meta name="description" content="a laundry app">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
-  <!-- iOS meta tags & icons -->
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="ironly">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
-
-  <!-- Favicon -->
+  <title>ironXpress</title>
+  <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>ironly</title>
-  <link rel="manifest" href="manifest.json">
+  <!-- Google Maps (deferred) -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjxtVK1EXQuaYOc0-a0V5-Wb8xR-koHZ0&libraries=places&v=weekly" defer></script>
 
-  <!-- ✅ Google Maps JavaScript API (load first, defer) -->
-  <script
-          src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjxtVK1EXQuaYOc0-a0V5-Wb8xR-koHZ0&libraries=places&v=weekly"
-          defer>
-  </script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: white;
+      overflow-x: hidden;
+    }
+  </style>
 </head>
 <body>
-<!-- ✅ Defer Flutter bootstrap so Maps is available when it runs -->
 <script src="flutter_bootstrap.js" defer></script>
 </body>
 </html>

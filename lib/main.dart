@@ -1,22 +1,24 @@
+// lib/main.dart
 // ✅ SIMPLIFIED MAIN.DART — PREMIUM SPLASH WITH TRANSPARENT LOGO (NO 10s ANIMATION)
-// Shows your transparent PNG logo for 3 seconds, then a status line
-// (“Setting up IronXpress…”) and proceeds exactly as before to AppWrapper.
-// Nothing else in your app flow is changed.
-
 import 'dart:math';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:ironly/widgets/mobile_wrapper.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'screens/home_screen.dart';
 import 'screens/colors.dart';
 import 'screens/login_screen.dart';
 import 'screens/app_wrapper.dart';
 import 'widgets/notification_service.dart';
+
+// helper to read force-mobile flag on web only (conditional imports)
+import 'forced_mobile_helper.dart';
 
 // 👇 GLOBAL CART COUNT NOTIFIER
 final ValueNotifier<int> cartItemCountNotifier = ValueNotifier<int>(0);
@@ -129,6 +131,8 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    print('🏗️ MyApp build called - kIsWeb: $kIsWeb');
+
     return ValueListenableBuilder<int>(
       valueListenable: cartItemCountNotifier,
       builder: (context, count, _) {
@@ -171,48 +175,23 @@ class MyApp extends StatelessWidget {
             ),
           ),
           home: const IronXpressPremiumEntry(),
+          // 🔥 CRITICAL: Wrap ENTIRE app with MobileWrapper
           builder: (context, child) {
+            print('🔧 MaterialApp builder called - wrapping with MobileWrapper');
+
+            if (child == null) return Container();
+
+            // Apply basic MediaQuery fixes first
             final mediaQuery = MediaQuery.of(context);
-            final screenHeight = mediaQuery.size.height;
-            final screenWidth = mediaQuery.size.width;
-            final topPadding = mediaQuery.padding.top;
-            final bottomPadding = mediaQuery.padding.bottom;
-            final leftPadding = mediaQuery.padding.left;
-            final rightPadding = mediaQuery.padding.right;
-            final viewInsets = mediaQuery.viewInsets;
-            final viewPadding = mediaQuery.viewPadding;
-            final effectiveBottomPadding =
-            bottomPadding > 0 ? bottomPadding : viewPadding.bottom;
-
-            print('📱 App Builder Debug:');
-            print('📱 Screen: ${screenWidth}x${screenHeight}');
-            print(
-                '📱 Safe Area: top=$topPadding, bottom=$bottomPadding, left=$leftPadding, right=$rightPadding');
-            print(
-                '📱 View Padding: top=${viewPadding.top}, bottom=${viewPadding.bottom}');
-            print(
-                '📱 View Insets: top=${viewInsets.top}, bottom=${viewInsets.bottom}');
-            print(
-                '📱 Effective Bottom: $effectiveBottomPadding, Has Bottom Insets: ${effectiveBottomPadding > 0}');
-
-            return MediaQuery(
+            final adjustedChild = MediaQuery(
               data: mediaQuery.copyWith(
                 textScaleFactor: mediaQuery.textScaleFactor.clamp(0.8, 1.3),
-                padding: EdgeInsets.only(
-                  top: max(topPadding, viewPadding.top),
-                  bottom: max(bottomPadding, viewPadding.bottom),
-                  left: max(leftPadding, viewPadding.left),
-                  right: max(rightPadding, viewPadding.right),
-                ),
-                viewPadding: EdgeInsets.only(
-                  top: max(viewPadding.top, topPadding),
-                  bottom: max(viewPadding.bottom, bottomPadding),
-                  left: max(viewPadding.left, leftPadding),
-                  right: max(viewPadding.right, rightPadding),
-                ),
               ),
-              child: child!,
+              child: child,
             );
+
+            // Then wrap with MobileWrapper (which handles web vs mobile)
+            return MobileWrapper(child: adjustedChild);
           },
         );
       },
@@ -235,6 +214,7 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
   @override
   void initState() {
     super.initState();
+    print('🚀 Splash screen initState called');
     _runSplashSequence();
   }
 
@@ -271,11 +251,12 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
 
   void _navigateToAppWrapper() {
     if (!mounted) return;
+    print('🧭 Navigating to AppWrapper');
     Navigator.pushReplacement(
       context,
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) =>
-        const AppWrapper(),
+        const AppWrapper(), // Don't wrap again - already wrapped by MaterialApp builder
         transitionDuration: const Duration(milliseconds: 800),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return FadeTransition(
@@ -298,11 +279,15 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
 
   @override
   Widget build(BuildContext context) {
+    print('🎨 Splash screen build called');
+
     final mq = MediaQuery.of(context);
     final size = mq.size;
     final padding = mq.padding;
     final viewPadding = mq.viewPadding;
     final viewInsets = mq.viewInsets;
+
+    print('📱 Screen size: ${size.width}x${size.height}');
 
     final effectiveTop = max(padding.top, viewPadding.top);
     final effectiveBottom = max(padding.bottom, viewPadding.bottom);
@@ -312,7 +297,6 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
     final isSmall = availableHeight < 600;
     final isLarge = availableHeight > 800;
 
-    // ⬆️ Increased logo size even more
     final logoSize = isSmall ? 280.0 : (isLarge ? 400.0 : 340.0);
     final statusFontSize = isSmall ? 14.0 : (isLarge ? 20.0 : 17.0);
 
@@ -322,7 +306,6 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
       body: Container(
         width: double.infinity,
         height: double.infinity,
-        // ⬜ Background color to white
         color: Colors.white,
         child: SafeArea(
           minimum: EdgeInsets.only(
@@ -333,7 +316,7 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Transparent PNG logo (now bigger)
+                // Transparent PNG logo
                 SizedBox(
                   width: logoSize,
                   height: logoSize,
@@ -345,7 +328,6 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
                   ),
                 ),
                 SizedBox(height: availableHeight * 0.06),
-
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 300),
                   child: _showStatus
@@ -357,7 +339,7 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
                         height: isSmall ? 50 : 60,
                         child: CircularProgressIndicator(
                           valueColor: AlwaysStoppedAnimation<Color>(
-                            Colors.blueAccent, // matches your brand
+                            Colors.blueAccent,
                           ),
                           strokeWidth: 3,
                         ),
@@ -385,4 +367,3 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
     );
   }
 }
-
