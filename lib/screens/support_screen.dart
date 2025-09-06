@@ -397,6 +397,10 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
       backgroundColor: kPrimaryColor,
       foregroundColor: Colors.white,
       elevation: 0,
+      iconTheme: const IconThemeData(
+        color: Colors.white,
+        size: 22, // tweak if you want slightly bigger/smaller arrow
+      ),
       flexibleSpace: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -406,15 +410,25 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
           ),
         ),
       ),
-      leading: IconButton(
-        onPressed: () {
-          HapticFeedback.lightImpact();
-          Navigator.pop(context);
-        },
-        icon: const Icon(Icons.arrow_back_ios_rounded, size: 22),
+      leadingWidth: 44, // bring arrow closer to edge like screenshot
+      leading: Padding(
+        padding: const EdgeInsets.only(left: 4),
+        child: IconButton(
+          splashRadius: 22,
+          tooltip: 'Back',
+          onPressed: () {
+            HapticFeedback.lightImpact();
+            Navigator.pop(context);
+          },
+          // straight back arrow (not iOS chevron)
+          icon: const Icon(Icons.arrow_back_rounded),
+          // If you prefer even simpler arrow:
+          // icon: const Icon(Icons.arrow_back),
+        ),
       ),
     );
   }
+
 
   Widget _buildSupportCard() {
     return Container(
@@ -819,13 +833,13 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(16),
+        // ↑ extra vertical padding
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 28),
+        // ↑ taller minimum height
+        constraints: const BoxConstraints(minHeight: 112),
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [
-              color.withOpacity(0.1),
-              color.withOpacity(0.05),
-            ],
+            colors: [color.withOpacity(0.1), color.withOpacity(0.05)],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -842,24 +856,23 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // ↑ slightly bigger icon bubble for vertical feel
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(16), // was 14
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [color, color.withOpacity(0.8)],
-                ),
+                gradient: LinearGradient(colors: [color, color.withOpacity(0.8)]),
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
                     color: color.withOpacity(0.3),
                     blurRadius: 8,
-                    offset: const Offset(0, 3),
+                    offset: const Offset(0, 2),
                   ),
                 ],
               ),
-              child: Icon(icon, color: Colors.white, size: 20),
+              child: Icon(icon, color: Colors.white, size: 22), // was 20
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 14), // was 12
             Text(
               label,
               style: TextStyle(
@@ -871,7 +884,7 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
               overflow: TextOverflow.ellipsis,
               maxLines: 1,
             ),
-            const SizedBox(height: 3),
+            const SizedBox(height: 6), // was 4
             Text(
               subtitle,
               style: TextStyle(
@@ -887,6 +900,8 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
       ),
     );
   }
+
+
 
   Widget _buildCompactContactButton(String contactType) {
     IconData icon;
@@ -927,17 +942,17 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(12), // Reduced padding for compact version
+        // ↑ extra vertical padding
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18), // was 14
+        // ↑ taller minimum height
+        constraints: const BoxConstraints(minHeight: 72), // was 60
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [
-              color.withOpacity(0.1),
-              color.withOpacity(0.05),
-            ],
+            colors: [color.withOpacity(0.1), color.withOpacity(0.05)],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
-          borderRadius: BorderRadius.circular(12), // Smaller border radius
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(color: color.withOpacity(0.3), width: 1.5),
           boxShadow: [
             BoxShadow(
@@ -947,15 +962,14 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
             ),
           ],
         ),
-        child: Row( // Horizontal layout for compact version
+        child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            // ↑ slightly bigger icon bubble
             Container(
-              padding: const EdgeInsets.all(8), // Smaller icon container
+              padding: const EdgeInsets.all(10), // was 9
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [color, color.withOpacity(0.8)],
-                ),
+                gradient: LinearGradient(colors: [color, color.withOpacity(0.8)]),
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
@@ -965,9 +979,9 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
                   ),
                 ],
               ),
-              child: Icon(icon, color: Colors.white, size: 16), // Smaller icon
+              child: Icon(icon, color: Colors.white, size: 18), // was 16
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 12), // was 10
             Flexible(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -978,18 +992,19 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
                     style: TextStyle(
                       color: color,
                       fontWeight: FontWeight.w600,
-                      fontSize: 12, // Smaller font
+                      fontSize: 12,
                       letterSpacing: 0.3,
                     ),
                     overflow: TextOverflow.ellipsis,
                     maxLines: 1,
                   ),
+                  const SizedBox(height: 3), // was 2
                   Text(
                     subtitle,
                     style: TextStyle(
                       color: color.withOpacity(0.7),
                       fontWeight: FontWeight.w500,
-                      fontSize: 10, // Smaller subtitle
+                      fontSize: 10,
                     ),
                     overflow: TextOverflow.ellipsis,
                     maxLines: 1,
@@ -1002,6 +1017,7 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
       ),
     );
   }
+
 
   Widget _buildFullScreenChat() {
     return MediaQuery.removePadding(
