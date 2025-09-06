@@ -35,11 +35,22 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
   bool isLoading = true;
   Map<String, Timer?> _cancelTimers = {};
   Map<String, int> _cancelTimeRemaining = {};
+  Map<String, int> _pickupTimeRemaining = {};
+  Map<String, int> _deliveryTimeRemaining = {};
+
 
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
 
   // ===================== REVIEW STATE (for dialog) =====================
+
+  int _getPickupTimeRemaining(String orderId) {
+    return _pickupTimeRemaining[orderId] ?? 0;
+  }
+
+  int _getDeliveryTimeRemaining(String orderId) {
+    return _deliveryTimeRemaining[orderId] ?? 0;
+  }
   int _dialogSelectedRating = 0;
   List<String> _dialogSelectedFeedback = [];
   List<Map<String, dynamic>> _reviewFeedbackOptions = [];
@@ -111,7 +122,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
     }
   }
 
-  Future<void> _loadOrders() async {
+  Future<void>  _loadOrders() async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
 
@@ -240,7 +251,9 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
             };
           }
 
-          _setupCancelTimer(orderWithDetails);
+          _setupCancelTimer(orderWithDetails);  // KEEP THIS
+          _setupPickupTimer(orderWithDetails);
+          _setupDeliveryTimer(orderWithDetails); // ADD THIS LINE
 
           // ===================== NEW: review existence for delivered =====================
           final statusStr = (order['order_status'] ?? '').toString().toLowerCase();
@@ -283,6 +296,57 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
           isLoading = false;
         });
       }
+    }
+  }
+
+  void _setupPickupTimer(Map<String, dynamic> order) {
+    final orderId = order['id'].toString();
+    final pickupDate = order['pickup_date'];
+    final pickupSlot = order['pickup_slot'];
+    final status = order['order_status']?.toString().toLowerCase() ?? '';
+
+    if (status != 'confirmed' && status != 'pickup_scheduled') return;
+    if (pickupDate == null || pickupSlot == null) return;
+
+    try {
+      final pickupDateTime = DateTime.parse(pickupDate);
+      // CHANGED: Use end_time instead of start_time
+      final endTimeStr = pickupSlot['end_time'].toString();
+      final timeParts = endTimeStr.split(':');
+      final hour = int.parse(timeParts[0]);
+      final minute = int.parse(timeParts[1]);
+
+      final pickupEndTime = DateTime(
+        pickupDateTime.year,
+        pickupDateTime.month,
+        pickupDateTime.day,
+        hour,
+        minute,
+      );
+
+      final now = DateTime.now();
+      if (now.isBefore(pickupEndTime)) {
+        final remainingSeconds = pickupEndTime.difference(now).inSeconds;
+        _pickupTimeRemaining[orderId] = remainingSeconds;
+
+        Timer.periodic(const Duration(seconds: 1), (timer) {
+          if (!mounted) {
+            timer.cancel();
+            return;
+          }
+
+          setState(() {
+            _pickupTimeRemaining[orderId] = (_pickupTimeRemaining[orderId] ?? 0) - 1;
+          });
+
+          if ((_pickupTimeRemaining[orderId] ?? 0) <= 0) {
+            timer.cancel();
+            _pickupTimeRemaining.remove(orderId);
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error setting up pickup timer: $e');
     }
   }
 
@@ -458,6 +522,58 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
   int _getRemainingCancelTime(String orderId) {
     return _cancelTimeRemaining[orderId] ?? 0;
+  }
+
+
+  void _setupDeliveryTimer(Map<String, dynamic> order) {
+    final orderId = order['id'].toString();
+    final deliveryDate = order['delivery_date'];
+    final deliverySlot = order['delivery_slot'];
+    final status = order['order_status']?.toString().toLowerCase() ?? '';
+
+    if (status != 'picked_up' && status != 'shipped' && status != 'reached') return;
+    if (deliveryDate == null || deliverySlot == null) return;
+
+    try {
+      final deliveryDateTime = DateTime.parse(deliveryDate);
+      // CHANGED: Use end_time instead of start_time
+      final endTimeStr = deliverySlot['end_time'].toString();
+      final timeParts = endTimeStr.split(':');
+      final hour = int.parse(timeParts[0]);
+      final minute = int.parse(timeParts[1]);
+
+      final deliveryEndTime = DateTime(
+        deliveryDateTime.year,
+        deliveryDateTime.month,
+        deliveryDateTime.day,
+        hour,
+        minute,
+      );
+
+      final now = DateTime.now();
+      if (now.isBefore(deliveryEndTime)) {
+        final remainingSeconds = deliveryEndTime.difference(now).inSeconds;
+        _deliveryTimeRemaining[orderId] = remainingSeconds;
+
+        Timer.periodic(const Duration(seconds: 1), (timer) {
+          if (!mounted) {
+            timer.cancel();
+            return;
+          }
+
+          setState(() {
+            _deliveryTimeRemaining[orderId] = (_deliveryTimeRemaining[orderId] ?? 0) - 1;
+          });
+
+          if ((_deliveryTimeRemaining[orderId] ?? 0) <= 0) {
+            timer.cancel();
+            _deliveryTimeRemaining.remove(orderId);
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error setting up delivery timer: $e');
+    }
   }
 
   String _formatRemainingTime(int seconds) {
@@ -1371,11 +1487,12 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                         ],
                       ),
                     ),
-                    canCancel && remainingTime > 0
-                        ? _buildCountdownBadge(remainingTime, isSmallScreen)
-                        : _buildStatusBadge(order['order_status'], isSmallScreen),
+                    _buildStatusBadge(order['order_status'], isSmallScreen),
                   ],
                 ),
+
+                // Add notification here
+                _buildCompactNotification(order, isSmallScreen),
 
                 SizedBox(height: isSmallScreen ? 12 : 16),
 
@@ -1533,9 +1650,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                 // Action Buttons Row
                 Row(
                   children: [
-                    // LEFT BUTTON:
-                    // If delivered -> Review / Reviewed
-                    // Else -> original Reschedule behavior (enabled/disabled)
+                    // LEFT BUTTON
                     Expanded(
                       child: SizedBox(
                         height: isSmallScreen ? 42 : 48,
@@ -1557,7 +1672,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                           ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: hasReview ? Colors.grey.shade100 : kPrimaryColor.withOpacity(0.1),
-                            foregroundColor: hasReview ? Colors.grey.shade600 : kPrimaryColor,
                             elevation: 0,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
@@ -1582,11 +1696,8 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                             backgroundColor: (canReschedule && remainingTime > 0)
                                 ? kPrimaryColor.withOpacity(0.1)
                                 : Colors.grey.shade100,
-                            foregroundColor: (canReschedule && remainingTime > 0) ? kPrimaryColor : Colors.grey.shade500,
                             elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
                         ),
                       ),
@@ -1594,7 +1705,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 
                     const SizedBox(width: 12),
 
-                    // RIGHT BUTTON (unchanged logic: Cancel / Reorder / Disabled status)
+                    // RIGHT BUTTON - KEEP ORIGINAL CANCEL LOGIC
                     Expanded(
                       child: SizedBox(
                         height: isSmallScreen ? 42 : 48,
@@ -1607,7 +1718,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                             color: remainingTime > 0 ? Colors.white : Colors.grey.shade500,
                           ),
                           label: Text(
-                            remainingTime > 0 ? 'Cancel Order' : 'Cancel ',
+                            remainingTime > 0 ? 'Cancel Order' : 'Cancel Timeout',
                             style: TextStyle(
                               color: remainingTime > 0 ? Colors.white : Colors.grey.shade600,
                               fontWeight: FontWeight.w700,
@@ -1617,9 +1728,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                           style: ElevatedButton.styleFrom(
                             backgroundColor: remainingTime > 0 ? Colors.red.shade600 : Colors.grey.shade200,
                             elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
                         )
                             : (_canReorder(order['order_status'])
@@ -1637,9 +1746,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.green.shade600,
                             elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
                         )
                             : ElevatedButton.icon(
@@ -1656,9 +1763,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.grey.shade100,
                             elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
                         )),
                       ),
@@ -1669,6 +1774,69 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
             ),
           ),
         ),
+      ),
+    );
+  }
+
+
+  Widget _buildCompactNotification(Map<String, dynamic> order, bool isSmallScreen) {
+    final status = order['order_status']?.toString().toLowerCase() ?? '';
+    final orderId = order['id'].toString();
+    final pickupTimeRemaining = _getPickupTimeRemaining(orderId);
+    final deliveryTimeRemaining = _getDeliveryTimeRemaining(orderId);
+
+    String message = '';
+    Color bgColor = Colors.blue.shade50;
+    Color borderColor = Colors.blue.shade200;
+    Color iconColor = Colors.blue.shade600;
+    Color textColor = Colors.blue.shade700;
+    IconData icon = Icons.schedule;
+
+    if ((status == 'confirmed' || status == 'pickup_scheduled' || status == 'processing') && pickupTimeRemaining > 0) {
+      message = 'Pickup in ${_formatRemainingTime(pickupTimeRemaining)} - prepare your items';
+    }
+    else if ((status == 'picked_up' || status == 'shipped' || status == 'reached') && deliveryTimeRemaining > 0) {
+      message = 'Delivery in ${_formatRemainingTime(deliveryTimeRemaining)} - be ready to receive';
+      bgColor = Colors.green.shade50;
+      borderColor = Colors.green.shade200;
+      iconColor = Colors.green.shade600;
+      textColor = Colors.green.shade700;
+      icon = Icons.local_shipping;
+    }
+
+    if (message.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      margin: EdgeInsets.only(top: isSmallScreen ? 8 : 12, bottom: 4),
+      padding: EdgeInsets.symmetric(
+          horizontal: isSmallScreen ? 10 : 12,
+          vertical: isSmallScreen ? 8 : 10
+      ),
+      decoration: BoxDecoration(
+        color: bgColor,
+        border: Border.all(color: borderColor),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: iconColor, size: isSmallScreen ? 14 : 16),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: textColor,
+                fontSize: isSmallScreen ? 11 : 12,
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -3735,6 +3903,99 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
   late Animation<double> _slideAnimation;
   late Animation<double> _fadeAnimation;
 
+
+  String _getOrderType() {
+    final orderType = widget.order['delivery_type'] ?? 'standard';
+    return orderType.toString().toLowerCase();
+  }
+
+  Widget _buildCancellationPolicyNote() {
+    final orderType = _getOrderType();
+    final isExpress = orderType == 'express';
+
+    String policyTitle;
+    String policyMessage;
+
+    if (isExpress) {
+      policyTitle = 'Express Orders:';
+      policyMessage = 'Order cancellation allowed up to the pick-up slot time.';
+    } else {
+      policyTitle = 'Standard Orders:';
+      policyMessage = 'Order cancellation allowed up to 60 minutes before the scheduled pickup.';
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.blue.shade50,
+            Colors.indigo.shade50,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.blue.shade200,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade100,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              Icons.access_time_rounded,
+              color: Colors.blue.shade600,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Cancellation Policy',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.blue.shade800,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                RichText(
+                  text: TextSpan(
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade700,
+                      height: 1.4,
+                    ),
+                    children: [
+                      TextSpan(
+                        text: policyTitle + ' ',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Colors.blue.shade700,
+                        ),
+                      ),
+                      TextSpan(
+                        text: policyMessage,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
   @override
   void initState() {
     super.initState();
@@ -4373,7 +4634,13 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                   ),
                                 ],
 
-                                const SizedBox(height: 32),
+// ADD THE POLICY NOTE HERE (OUTSIDE the if condition):
+                                const SizedBox(height: 12),
+                                _buildCancellationPolicyNote(),
+
+                                const SizedBox(height: 2),
+
+                                const SizedBox(height: 2),
                               ],
                             ),
                           ),
