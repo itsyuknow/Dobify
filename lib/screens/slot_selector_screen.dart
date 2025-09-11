@@ -46,6 +46,10 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
   double standardDeliveryFee = 0.0;
   bool isLoadingBillingSettings = true;
   bool _isBillingSummaryExpanded = false;
+  double deliveryGstPercent = 0.0;      // % GST on delivery fee
+  double freeStandardThreshold = 300.0;
+  // free standard delivery threshold (after discount)
+
 
   // Animation controllers
   late AnimationController _billingAnimationController;
@@ -210,17 +214,21 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     try {
       final response = await supabase.from('billing_settings').select().single();
       setState(() {
-        minimumCartFee = response['minimum_cart_fee']?.toDouble() ?? 100.0;
-        platformFee = response['platform_fee']?.toDouble() ?? 0.0;
-        serviceTaxPercent = response['service_tax_percent']?.toDouble() ?? 0.0;
-        expressDeliveryFee = response['express_delivery_fee']?.toDouble() ?? 0.0;
-        standardDeliveryFee = response['standard_delivery_fee']?.toDouble() ?? 0.0;
+        minimumCartFee        = (response['minimum_cart_fee'] ?? 100).toDouble();
+        platformFee           = (response['platform_fee'] ?? 0).toDouble();
+        serviceTaxPercent     = (response['service_tax_percent'] ?? 0).toDouble();
+        expressDeliveryFee    = (response['express_delivery_fee'] ?? 0).toDouble();
+        standardDeliveryFee   = (response['standard_delivery_fee'] ?? 0).toDouble();
+        deliveryGstPercent    = (response['delivery_gst_percent'] ?? 0).toDouble();   // NEW
+        freeStandardThreshold = (response['free_standard_threshold'] ?? 300).toDouble(); // NEW
         isLoadingBillingSettings = false;
       });
     } catch (e) {
       setState(() => isLoadingBillingSettings = false);
     }
   }
+
+
 
   Future<void> _loadSlots() async {
     try {
@@ -287,36 +295,49 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
   }
 
   // Calculate billing breakdown
+  // Calculate billing breakdown (merged service taxes + free standard on discounted subtotal)
   Map<String, double> _calculateBilling() {
-    double subtotal = widget.cartItems.fold(0.0, (sum, item) {
+    // 1) Original subtotal from items
+    final double itemSubtotal = widget.cartItems.fold(0.0, (sum, item) {
       return sum + (item['total_price']?.toDouble() ?? 0.0);
     });
 
-    // Minimum cart fee logic
-    double minCartFeeApplied = subtotal < minimumCartFee ? (minimumCartFee - subtotal) : 0.0;
+    // 2) Apply coupon/discount only on items subtotal
+    final double discountApplied   = widget.discount.clamp(0.0, itemSubtotal);
+    final double discountedSubtotal = itemSubtotal - discountApplied;
 
-    // Adjusted subtotal after minimum cart fee
-    double adjustedSubtotal = subtotal + minCartFeeApplied;
+    // 3) Minimum cart fee (compare against ORIGINAL subtotal)
+    final double minCartFeeApplied =
+    itemSubtotal < minimumCartFee ? (minimumCartFee - itemSubtotal) : 0.0;
 
-    // Service tax calculation (on subtotal only)
-    double serviceTax = (subtotal * serviceTaxPercent) / 100;
+    // 4) Delivery fee (Standard can be free if discounted subtotal ≥ threshold)
+    final bool isStandard = !isExpressDelivery;
+    final bool qualifiesFreeStandard = isStandard && (discountedSubtotal >= freeStandardThreshold);
+    final double deliveryFee = isStandard
+        ? (qualifiesFreeStandard ? 0.0 : standardDeliveryFee)
+        : expressDeliveryFee; // Express is never free
 
-    // Delivery fee based on selection
-    double deliveryFee = isExpressDelivery ? expressDeliveryFee : standardDeliveryFee;
+    // 5) Service taxes = (discountedSubtotal × serviceTax%) + (deliveryFee × deliveryGST%)
+    final double serviceTaxItems    = (discountedSubtotal * serviceTaxPercent) / 100.0;
+    final double serviceTaxDelivery = deliveryFee > 0 ? (deliveryFee * deliveryGstPercent) / 100.0 : 0.0;
+    final double serviceTax         = serviceTaxItems + serviceTaxDelivery;
 
-    // Total amount
-    double totalAmount = adjustedSubtotal + platformFee + serviceTax + deliveryFee - widget.discount;
+    // 6) Total = (Subtotal − Discount) + Min Cart + Platform + Delivery + Service Taxes
+    double totalAmount = discountedSubtotal + minCartFeeApplied + platformFee + deliveryFee + serviceTax;
+    if (totalAmount < 0) totalAmount = 0;
 
     return {
-      'subtotal': subtotal,
-      'minimumCartFee': minCartFeeApplied,
-      'platformFee': platformFee,
-      'serviceTax': serviceTax,
-      'deliveryFee': deliveryFee,
-      'discount': widget.discount,
-      'totalAmount': totalAmount,
+      'subtotal'       : itemSubtotal,
+      'discount'       : discountApplied,
+      'minimumCartFee' : minCartFeeApplied,
+      'platformFee'    : platformFee,
+      'deliveryFee'    : deliveryFee,
+      'serviceTax'     : serviceTax,
+      'totalAmount'    : totalAmount,
     };
   }
+
+
 
   double _calculateTotalAmount() {
     final billing = _calculateBilling();
@@ -1174,6 +1195,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
   }
 
   // Billing Summary Widget
+  // Billing Summary Widget (uses merged service taxes + free standard logic)
   Widget _buildBillingSummary(double cardMargin, double cardPadding, bool isSmallScreen) {
     if (isLoadingBillingSettings) {
       return Container(
@@ -1184,6 +1206,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     }
 
     final billing = _calculateBilling();
+    final bool isStandard = !isExpressDelivery;
 
     return Container(
       margin: EdgeInsets.all(cardMargin),
@@ -1280,21 +1303,30 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
               padding: EdgeInsets.all(cardPadding),
               child: Column(
                 children: [
+                  // Order: Subtotal → Discount → Min Fee → Platform → Delivery → Service Taxes → Total
                   _buildBillingRow('Subtotal', billing['subtotal']!, isSmallScreen: isSmallScreen),
-                  if (billing['minimumCartFee']! > 0)
-                    _buildBillingRow('Minimum Cart Fee', billing['minimumCartFee']!, isSmallScreen: isSmallScreen),
-                  _buildBillingRow('Platform Fee', billing['platformFee']!, isSmallScreen: isSmallScreen),
-                  _buildBillingRow('Service Tax', billing['serviceTax']!, isSmallScreen: isSmallScreen),
-                  _buildBillingRow(
-                      'Delivery Fee (${isExpressDelivery ? 'Express' : 'Standard'})',
-                      billing['deliveryFee']!,
-                      isSmallScreen: isSmallScreen
-                  ),
+
                   if (billing['discount']! > 0)
                     _buildBillingRow('Discount', -billing['discount']!, color: Colors.green, isSmallScreen: isSmallScreen),
+
+                  if (billing['minimumCartFee']! > 0)
+                    _buildBillingRow('Minimum Cart Fee', billing['minimumCartFee']!, isSmallScreen: isSmallScreen),
+
+                  _buildBillingRow('Platform Fee', billing['platformFee']!, isSmallScreen: isSmallScreen),
+
+                  _buildBillingRow(
+                    'Delivery Fee (${isStandard ? 'Standard' : 'Express'})',
+                    billing['deliveryFee']!,
+                    isSmallScreen: isSmallScreen,
+                  ),
+
+                  // Merged service taxes
+                  _buildBillingRow('Service Taxes', billing['serviceTax']!, isSmallScreen: isSmallScreen),
+
                   if (widget.appliedCouponCode != null)
                     _buildBillingRow('Coupon Applied', 0.0,
                         customValue: widget.appliedCouponCode!, color: Colors.green, isSmallScreen: isSmallScreen),
+
                   const Divider(height: 20),
                   _buildBillingRow('Total Amount', billing['totalAmount']!,
                       isTotal: true, color: kPrimaryColor, isSmallScreen: isSmallScreen),
@@ -1307,6 +1339,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
       ),
     );
   }
+
 
   Widget _buildBillingRow(String label, double amount, {bool isTotal = false, Color? color, String? customValue, required bool isSmallScreen}) {
     return Padding(

@@ -40,6 +40,11 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
   double standardDeliveryFee = 0.0;
   double expressDeliveryFee = 0.0;
   String selectedDeliveryType = 'Standard';
+  double freeStandardThreshold = 300.0; // NEW
+  Map<String, Map<String, String>> _billingNotes = {}; // NEW {key: {title, content}}
+  double deliveryGstPercent = 0.0; // % GST on delivery fee, from Supabase
+
+
 
   // Animation controllers
   late AnimationController _bannerController;
@@ -65,10 +70,11 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
   void initState() {
     super.initState();
     _cartItems = List<Map<String, dynamic>>.from(widget.cartItems);
-    _loadBillingSettings();
+    _loadBillingSettings();   // this sets deliveryGstPercent inside setState()
     _loadBannerCoupon();
     _initializeAnimations();
   }
+
 
   void _initializeAnimations() {
     _bannerController = AnimationController(
@@ -185,21 +191,48 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
 
   Future<void> _loadBillingSettings() async {
     try {
-      final response = await supabase
-          .from('billing_settings')
+      // 1) settings
+      final settings = await supabase.from('billing_settings').select().single();
+
+      // 2) notes (add delivery_gst so the info icon popup works for GST) ✅
+      final List<dynamic> notesResp = await supabase
+          .from('billing_notes')
           .select()
-          .single();
+          .or(
+          'key.eq.minimum_cart_fee,'
+              'key.eq.platform_fee,'
+              'key.eq.service_tax,'
+              'key.eq.delivery_standard,'
+              'key.eq.delivery_standard_free,'
+              'key.eq.delivery_express,'
+              'key.eq.delivery_gst' // ✅ added
+      );
+
+      // 3) map to {key: {title, content}}
+      final Map<String, Map<String, String>> notesMap = {
+        for (final row in notesResp)
+          (row['key'] as String): {
+            'title': row['title']?.toString() ?? '',
+            'content': row['content']?.toString() ?? '',
+          }
+      };
 
       setState(() {
-        minimumCartFee = response['minimum_cart_fee']?.toDouble() ?? 100.0;
-        platformFee = response['platform_fee']?.toDouble() ?? 0.0;
-        serviceTaxPercent = response['service_tax_percent']?.toDouble() ?? 0.0;
-        standardDeliveryFee = response['standard_delivery_fee']?.toDouble() ?? 0.0;
-        expressDeliveryFee = response['express_delivery_fee']?.toDouble() ?? 0.0;
+        minimumCartFee = (settings['minimum_cart_fee'] ?? 100).toDouble();
+        platformFee = (settings['platform_fee'] ?? 0).toDouble();
+        serviceTaxPercent = (settings['service_tax_percent'] ?? 0).toDouble();
+        standardDeliveryFee = (settings['standard_delivery_fee'] ?? 0).toDouble();
+        expressDeliveryFee = (settings['express_delivery_fee'] ?? 0).toDouble();
+        freeStandardThreshold = (settings['free_standard_threshold'] ?? 300).toDouble();
+
+        // Pull the GST % from Supabase (this was missing!) ✅
+        deliveryGstPercent = (settings['delivery_gst_percent'] ?? 0).toDouble(); // ✅ added
+
+        _billingNotes = notesMap;
         _billingLoading = false;
       });
     } catch (e) {
-      print("Error loading billing settings: $e");
+      debugPrint("Error loading billing settings/notes: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -208,11 +241,80 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
           ),
         );
       }
-      setState(() {
-        _billingLoading = false;
-      });
+      setState(() => _billingLoading = false);
     }
   }
+
+
+
+
+  void _showInfoDialog(String title, String content) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Colors.white, Colors.blue.shade50],
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: kPrimaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(Icons.info_outline, color: kPrimaryColor, size: 18),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  content,
+                  style: const TextStyle(fontSize: 13.5, color: Colors.black87, height: 1.35),
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('OK'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+
+
 
   void _showSuccessPopup(String couponCode, double discountAmount) {
     Future.delayed(const Duration(milliseconds: 100), () {
@@ -404,26 +506,54 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
   }
 
   Map<String, double> _calculateBilling() {
-    double subtotal = _cartItems.fold(0.0, (sum, item) {
+    // 1) Original subtotal (before discount)
+    final double itemSubtotal = _cartItems.fold(0.0, (sum, item) {
       return sum + (item['total_price']?.toDouble() ?? 0.0);
     });
 
-    double minCartFeeApplied = subtotal < minimumCartFee ? (minimumCartFee - subtotal) : 0.0;
-    double adjustedSubtotal = subtotal + minCartFeeApplied;
-    double serviceTax = (subtotal * serviceTaxPercent) / 100;
-    double deliveryFee = selectedDeliveryType == 'Express' ? expressDeliveryFee : standardDeliveryFee;
-    double totalAmount = adjustedSubtotal + platformFee + serviceTax + deliveryFee - discount;
+    // 2) Discount applied
+    final double discountApplied = discount.clamp(0.0, itemSubtotal);
+
+    // 3) New subtotal after discount
+    final double discountedSubtotal = itemSubtotal - discountApplied;
+
+    // 4) Minimum cart fee (based on original subtotal)
+    final double minCartFeeApplied =
+    itemSubtotal < minimumCartFee ? (minimumCartFee - itemSubtotal) : 0.0;
+
+    // 5) Delivery fee
+    final bool isStandard = selectedDeliveryType == 'Standard';
+    final bool qualifiesFreeStandard = isStandard && (discountedSubtotal >= freeStandardThreshold);
+    final double deliveryFee = isStandard
+        ? (qualifiesFreeStandard ? 0.0 : standardDeliveryFee)
+        : expressDeliveryFee;
+
+    // 6) Service Taxes (on discounted subtotal + delivery GST)
+    final double serviceTaxItems =
+        (discountedSubtotal * (serviceTaxPercent)) / 100.0;
+    final double serviceTaxDelivery =
+    deliveryFee > 0 ? (deliveryFee * (deliveryGstPercent)) / 100.0 : 0.0;
+    final double serviceTax = serviceTaxItems + serviceTaxDelivery;
+
+    // 7) Total
+    double totalAmount =
+        discountedSubtotal + minCartFeeApplied + platformFee + deliveryFee + serviceTax;
+    if (totalAmount < 0) totalAmount = 0;
 
     return {
-      'subtotal': subtotal,
+      'subtotal': itemSubtotal,          // original subtotal (before discount)
+      'discount': discountApplied,       // discount applied
       'minimumCartFee': minCartFeeApplied,
       'platformFee': platformFee,
-      'serviceTax': serviceTax,
       'deliveryFee': deliveryFee,
-      'discount': discount,
+      'serviceTax': serviceTax,
       'totalAmount': totalAmount,
     };
   }
+
+
+
+
 
   Future<void> _updateQuantityInSupabase(Map<String, dynamic> item, int delta) async {
     final userId = supabase.auth.currentUser?.id;
@@ -1120,6 +1250,12 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
       );
     }
 
+    final bool isStandard = selectedDeliveryType == 'Standard';
+    final double sub = billing['subtotal'] ?? 0;
+    final double disc = billing['discount'] ?? 0;
+    final bool qualifiesFreeStandard =
+        isStandard && ((sub - disc) >= freeStandardThreshold);
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       padding: const EdgeInsets.all(16),
@@ -1127,10 +1263,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            kPrimaryColor.withOpacity(0.05),
-            Colors.white,
-          ],
+          colors: [kPrimaryColor.withOpacity(0.05), Colors.white],
         ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: kPrimaryColor.withOpacity(0.1)),
@@ -1151,11 +1284,15 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [kPrimaryColor.withOpacity(0.1), kPrimaryColor.withOpacity(0.05)],
+                    colors: [
+                      kPrimaryColor.withOpacity(0.1),
+                      kPrimaryColor.withOpacity(0.05)
+                    ],
                   ),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(Icons.receipt_long_rounded, color: kPrimaryColor, size: 18),
+                child: Icon(Icons.receipt_long_rounded,
+                    color: kPrimaryColor, size: 18),
               ),
               const SizedBox(width: 10),
               const Text(
@@ -1169,48 +1306,122 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
             ],
           ),
           const SizedBox(height: 12),
-          _buildBillingRow('Subtotal', billing['subtotal']!),
-          if (billing['minimumCartFee']! > 0)
-            _buildBillingRow('Minimum Cart Fee', billing['minimumCartFee']!),
-          _buildBillingRow('Platform Fee', billing['platformFee']!),
-          _buildBillingRow('Service Tax', billing['serviceTax']!),
-          _buildBillingRow('Delivery Fee ($selectedDeliveryType)', billing['deliveryFee']!),
-          if (billing['discount']! > 0)
-            _buildBillingRow('Discount', -billing['discount']!, color: Colors.green),
+
+          // (Subtotal − Discount) + Min Cart + Platform + Delivery + Service Taxes
+          _buildBillingRow('Subtotal', sub),
+
+          if (disc > 0)
+            _buildBillingRow('Discount', -disc, color: Colors.green),
+
+          if ((billing['minimumCartFee'] ?? 0) > 0)
+            _buildBillingRow(
+              'Minimum Cart Fee',
+              billing['minimumCartFee'] ?? 0,
+              infoKey: 'minimum_cart_fee',
+            ),
+
+          _buildBillingRow(
+            'Platform Fee',
+            billing['platformFee'] ?? 0,
+            infoKey: 'platform_fee',
+          ),
+
+          _buildBillingRow(
+            'Delivery Fee ($selectedDeliveryType)',
+            billing['deliveryFee'] ?? 0,
+            infoKey: isStandard
+                ? (qualifiesFreeStandard
+                ? 'delivery_standard_free'
+                : 'delivery_standard')
+                : 'delivery_express',
+            overrideTitle:
+            (isStandard && qualifiesFreeStandard) ? 'Standard Delivery — Free' : null,
+          ),
+
+          // Service Taxes already include (discountedSubtotal × serviceTax%)
+          // plus (deliveryFee × deliveryGst%)
+          _buildBillingRow(
+            'Service Taxes',
+            billing['serviceTax'] ?? 0,
+            infoKey: 'service_tax',
+          ),
+
           const Divider(height: 20, thickness: 1),
-          _buildBillingRow('Total Amount', billing['totalAmount']!,
-              isTotal: true, color: kPrimaryColor),
+
+          _buildBillingRow(
+            'Total Amount',
+            billing['totalAmount'] ?? 0,
+            isTotal: true,
+            color: kPrimaryColor,
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildBillingRow(String label, double amount, {bool isTotal = false, Color? color}) {
+
+
+
+
+  Widget _buildBillingRow(
+      String label,
+      double amount, {
+        bool isTotal = false,
+        Color? color,
+        String? infoKey,
+        String? overrideTitle,
+        String? customValue,
+      }) {
+    final bool clickable = infoKey != null && (_billingNotes[infoKey] != null);
+
+    final TextStyle labelStyle = TextStyle(
+      fontSize: isTotal ? 14 : 12,
+      fontWeight: isTotal ? FontWeight.bold : FontWeight.w500,
+      color: color ?? Colors.black87,
+      // 🔴 Removed underline completely
+    );
+
+    final TextStyle valueStyle = TextStyle(
+      fontSize: isTotal ? 14 : 12,
+      fontWeight: isTotal ? FontWeight.bold : FontWeight.w600,
+      color: color ?? Colors.black87,
+    );
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: isTotal ? 14 : 12,
-              fontWeight: isTotal ? FontWeight.bold : FontWeight.w500,
-              color: color ?? Colors.black87,
+          InkWell(
+            onTap: clickable
+                ? () {
+              final note = _billingNotes[infoKey]!;
+              _showInfoDialog(
+                overrideTitle ?? (note['title'] ?? label),
+                note['content'] ?? '',
+              );
+            }
+                : null,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(label, style: labelStyle),
+                if (clickable) ...[
+                  const SizedBox(width: 4),
+                  Icon(Icons.info_outline, size: 14, color: color ?? Colors.black54),
+                ],
+              ],
             ),
           ),
-          Text(
-            '₹${amount.toStringAsFixed(2)}',
-            style: TextStyle(
-              fontSize: isTotal ? 14 : 12,
-              fontWeight: isTotal ? FontWeight.bold : FontWeight.w600,
-              color: color ?? Colors.black87,
-            ),
-          ),
+          customValue != null
+              ? Text(customValue, style: valueStyle)
+              : Text('₹${amount.toStringAsFixed(2)}', style: valueStyle),
         ],
       ),
     );
   }
+
+
 
   Widget _buildBottomBar(BuildContext context, double totalAmount) {
     final canProceed = _cartItems.isNotEmpty && !_cartLoading;
