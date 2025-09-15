@@ -317,12 +317,12 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
 
 
   void _showSuccessPopup(String couponCode, double discountAmount) {
-    Future.delayed(const Duration(milliseconds: 100), () {
+    Future.delayed(const Duration(milliseconds: 50), () {
       showGeneralDialog(
         context: context,
         barrierDismissible: true,
         barrierLabel: '',
-        transitionDuration: const Duration(milliseconds: 300),
+        transitionDuration: const Duration(milliseconds: 100),
         pageBuilder: (_, __, ___) => const SizedBox.shrink(),
         transitionBuilder: (_, animation, __, ___) {
           return ScaleTransition(
@@ -432,7 +432,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
       );
 
       // ⏱️ Auto-close after 2 seconds
-      Future.delayed(const Duration(seconds: 2), () {
+      Future.delayed(const Duration(milliseconds: 1200), () {
         if (Navigator.of(context, rootNavigator: true).canPop()) {
           Navigator.of(context, rootNavigator: true).pop();
         }
@@ -1098,45 +1098,67 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
   }
 
   Widget _buildCompactOrderItem(Map<String, dynamic> item) {
+    final categoryText = (item['category'] ?? '').toString().trim();
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.grey.shade50, Colors.white],
-        ),
+        gradient: LinearGradient(colors: [Colors.grey.shade50, Colors.white]),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.grey.shade200),
       ),
       child: Row(
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Image.network(
-              item['product_image']?.toString() ?? '',
-              width: 50,
-              height: 50,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade200,
-                  borderRadius: BorderRadius.circular(8),
+          // LEFT: Product Image + Category (same style as CartScreen)
+          Column(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(
+                  item['product_image']?.toString() ?? '',
+                  width: 50,
+                  height: 50,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(Icons.image_not_supported,
+                        color: Colors.grey.shade400, size: 20),
+                  ),
                 ),
-                child: Icon(Icons.image_not_supported, color: Colors.grey.shade400, size: 20),
               ),
-            ),
+              const SizedBox(height: 4),
+              if (categoryText.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    categoryText,
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ),
+            ],
           ),
+
           const SizedBox(width: 12),
+
+          // MIDDLE: Product details
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // FIXED: Product name with proper text handling
                 ConstrainedBox(
                   constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(context).size.width * 0.5, // Limit width to 50% of screen
+                    maxWidth: MediaQuery.of(context).size.width * 0.5,
                   ),
                   child: Text(
                     item['product_name']?.toString() ?? '',
@@ -1145,90 +1167,127 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                       fontSize: 14,
                       color: Colors.black87,
                     ),
-                    maxLines: 2, // Allow text to wrap to second line
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 const SizedBox(height: 4),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: kPrimaryColor.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    "${item['service_type']}",
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: kPrimaryColor,
-                      fontWeight: FontWeight.w500,
+                if ((item['service_type'] ?? '').toString().trim().isNotEmpty)
+                  Container(
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: kPrimaryColor.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      "${item['service_type']}",
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: kPrimaryColor,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
-                ),
               ],
             ),
           ),
+
           const SizedBox(width: 12),
-          Row(
+
+          // RIGHT: Quantity counter (same widget as CartScreen)
+          Column(
             children: [
-              GestureDetector(
-                onTap: _cartLoading ? null : () => _updateQuantityInSupabase(item, -1),
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade200,
-                    shape: BoxShape.circle,
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
                   ),
-                  child: _cartLoading
-                      ? const SizedBox(
-                      width: 12,
-                      height: 12,
-                      child: CircularProgressIndicator(strokeWidth: 1.5))
-                      : const Icon(Icons.remove, color: Colors.black, size: 14),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: kPrimaryColor.withOpacity(0.3),
+                      blurRadius: 6,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildQuantityButton(
+                      icon: Icons.remove,
+                      onTap: () => _updateQuantityInSupabase(item, -1),
+                      isLoading: _cartLoading,
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      child: _cartLoading
+                          ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                          : Text(
+                        '${item['product_quantity'] ?? 0}',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    _buildQuantityButton(
+                      icon: Icons.add,
+                      onTap: () => _updateQuantityInSupabase(item, 1),
+                      isLoading: _cartLoading,
+                    ),
+                  ],
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text(
-                  '${item['product_quantity']?.toString() ?? '0'}',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Colors.black,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              GestureDetector(
-                onTap: _cartLoading ? null : () => _updateQuantityInSupabase(item, 1),
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade200,
-                    shape: BoxShape.circle,
-                  ),
-                  child: _cartLoading
-                      ? const SizedBox(
-                      width: 12,
-                      height: 12,
-                      child: CircularProgressIndicator(strokeWidth: 1.5))
-                      : const Icon(Icons.add, color: Colors.black, size: 14),
+              const SizedBox(height: 12),
+              Text(
+                "₹${item['total_price']?.toString() ?? '0'}",
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: Colors.black87,
                 ),
               ),
             ],
-          ),
-          const SizedBox(width: 12),
-          Text(
-            "₹${item['total_price']?.toString() ?? '0'}",
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
-              color: Colors.black87,
-            ),
           ),
         ],
       ),
     );
   }
+
+  Widget _buildQuantityButton({
+    required IconData icon,
+    required VoidCallback onTap,
+    required bool isLoading,
+  }) {
+    return GestureDetector(
+      onTap: isLoading ? null : onTap,
+      child: Container(
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Icon(
+          icon,
+          color: Colors.white,
+          size: 16,
+        ),
+      ),
+    );
+  }
+
+
 
   Widget _buildBillingSummary(Map<String, double> billing) {
     if (_billingLoading) {
@@ -1311,7 +1370,14 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
           _buildBillingRow('Subtotal', sub),
 
           if (disc > 0)
-            _buildBillingRow('Discount', -disc, color: Colors.green),
+            _buildBillingRow(
+              _appliedCouponCode != null
+                  ? 'Discount (${_appliedCouponCode!})'
+                  : 'Discount',
+              -disc,
+              color: Colors.green,
+            ),
+
 
           if ((billing['minimumCartFee'] ?? 0) > 0)
             _buildBillingRow(

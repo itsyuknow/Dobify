@@ -1194,7 +1194,6 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     );
   }
 
-  // Billing Summary Widget
   // Billing Summary Widget (uses merged service taxes + free standard logic)
   Widget _buildBillingSummary(double cardMargin, double cardPadding, bool isSmallScreen) {
     if (isLoadingBillingSettings) {
@@ -1207,6 +1206,12 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
 
     final billing = _calculateBilling();
     final bool isStandard = !isExpressDelivery;
+
+    // 👉 Build the Discount row label. If a coupon is applied, show code like: Discount (SAVE10)
+    final bool hasDiscount = (billing['discount'] ?? 0) > 0;
+    final String discountLabel = hasDiscount && (widget.appliedCouponCode?.isNotEmpty ?? false)
+        ? 'Discount (${widget.appliedCouponCode})'
+        : 'Discount';
 
     return Container(
       margin: EdgeInsets.all(cardMargin),
@@ -1306,8 +1311,13 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                   // Order: Subtotal → Discount → Min Fee → Platform → Delivery → Service Taxes → Total
                   _buildBillingRow('Subtotal', billing['subtotal']!, isSmallScreen: isSmallScreen),
 
-                  if (billing['discount']! > 0)
-                    _buildBillingRow('Discount', -billing['discount']!, color: Colors.green, isSmallScreen: isSmallScreen),
+                  if (hasDiscount)
+                    _buildBillingRow(
+                      discountLabel, // 👈 shows: Discount (CODE)
+                      -billing['discount']!,
+                      color: Colors.green,
+                      isSmallScreen: isSmallScreen,
+                    ),
 
                   if (billing['minimumCartFee']! > 0)
                     _buildBillingRow('Minimum Cart Fee', billing['minimumCartFee']!, isSmallScreen: isSmallScreen),
@@ -1323,13 +1333,14 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                   // Merged service taxes
                   _buildBillingRow('Service Taxes', billing['serviceTax']!, isSmallScreen: isSmallScreen),
 
-                  if (widget.appliedCouponCode != null)
-                    _buildBillingRow('Coupon Applied', 0.0,
-                        customValue: widget.appliedCouponCode!, color: Colors.green, isSmallScreen: isSmallScreen),
-
                   const Divider(height: 20),
-                  _buildBillingRow('Total Amount', billing['totalAmount']!,
-                      isTotal: true, color: kPrimaryColor, isSmallScreen: isSmallScreen),
+                  _buildBillingRow(
+                    'Total Amount',
+                    billing['totalAmount']!,
+                    isTotal: true,
+                    color: kPrimaryColor,
+                    isSmallScreen: isSmallScreen,
+                  ),
                 ],
               ),
             )
@@ -1339,6 +1350,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
       ),
     );
   }
+
 
 
   Widget _buildBillingRow(String label, double amount, {bool isTotal = false, Color? color, String? customValue, required bool isSmallScreen}) {
@@ -2110,6 +2122,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                 style: TextStyle(
                   fontSize: isSmallScreen ? 14 : 16,
                   fontWeight: FontWeight.w600,
+                  color: kPrimaryColor, // 👈 make title blue
                 ),
               ),
             ],
@@ -2120,6 +2133,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
       ),
     );
   }
+
 
   Widget _buildDeliverySlotsSection(double cardMargin, double cardPadding, bool isSmallScreen) {
     List<Map<String, dynamic>> allSlots = _getAllDeliverySlots();
@@ -2138,7 +2152,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
             children: [
               IconButton(
                 onPressed: _goBackToPickup,
-                icon: Icon(Icons.arrow_back, size: isSmallScreen ? 18 : 20),
+                icon: Icon(Icons.arrow_back, size: isSmallScreen ? 18 : 20, color: kPrimaryColor), // 👈 blue arrow
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
               ),
@@ -2151,6 +2165,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                   style: TextStyle(
                     fontSize: isSmallScreen ? 14 : 16,
                     fontWeight: FontWeight.w600,
+                    color: kPrimaryColor, // 👈 make title blue
                   ),
                 ),
               ),
@@ -2162,6 +2177,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
       ),
     );
   }
+
 
   Widget _buildTimeSlots(List<Map<String, dynamic>> slots, bool isPickup, bool isSmallScreen) {
     if (slots.isEmpty) {

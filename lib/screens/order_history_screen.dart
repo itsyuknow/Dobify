@@ -1982,8 +1982,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
 // (Your existing _RescheduleDialog, _CancellationReasonDialog, _OrderDetailsSheet, etc. remain unchanged below)
 
 
-// End of OrderHistoryScreenState class
-// NEW CLASS: Reschedule Dialog Widget
 class _RescheduleDialog extends StatefulWidget {
   final Map<String, dynamic> order;
   final Function(Map<String, dynamic>, Map<String, dynamic>, DateTime, DateTime) onReschedule;
@@ -2021,12 +2019,25 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
   // Express delivery (get from order)
   bool isExpressDelivery = false;
 
+  // Timer tracking
+  Timer? _countdownTimer;
+  int _remainingCancelTime = 0;
+  int _remainingPickupTime = 0;
+  int _remainingDeliveryTime = 0;
+
   @override
   void initState() {
     super.initState();
     _initializeDates();
     _getDeliveryTypeFromOrder();
+    _setupTimers();
     _loadSlots();
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    super.dispose();
   }
 
   void _initializeDates() {
@@ -2038,9 +2049,330 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
   }
 
   void _getDeliveryTypeFromOrder() {
-    // Get delivery type from order
-    final deliveryType = widget.order['delivery_type']?.toString().toLowerCase() ?? 'standard';
-    isExpressDelivery = deliveryType == 'express';
+    // Get delivery type from order or detect express
+    final rawOrderExpress = widget.order['is_express'];
+    if (rawOrderExpress is bool && rawOrderExpress == true) {
+      isExpressDelivery = true;
+      return;
+    }
+    if (rawOrderExpress is String && rawOrderExpress.toLowerCase() == 'true') {
+      isExpressDelivery = true;
+      return;
+    }
+
+    final deliveryType = widget.order['delivery_type']?.toString().toLowerCase();
+    if (deliveryType == 'express') {
+      isExpressDelivery = true;
+      return;
+    }
+
+    final speed = widget.order['delivery_speed']?.toString().toLowerCase();
+    if (speed == 'express') {
+      isExpressDelivery = true;
+      return;
+    }
+
+    // Check order items
+    final items = widget.order['order_items'] as List<dynamic>? ?? const [];
+    for (final item in items) {
+      final st = item['service_type']?.toString().toLowerCase();
+      if (st == 'express') {
+        isExpressDelivery = true;
+        return;
+      }
+      final itemExpress = item['is_express'];
+      if (itemExpress is bool && itemExpress == true) {
+        isExpressDelivery = true;
+        return;
+      }
+      if (itemExpress is String && itemExpress.toLowerCase() == 'true') {
+        isExpressDelivery = true;
+        return;
+      }
+    }
+
+    isExpressDelivery = false;
+  }
+
+  // Setup timers like in main screen
+  void _setupTimers() {
+    _setupCancelTimer();
+    _setupPickupTimer();
+    _setupDeliveryTimer();
+
+    // Start countdown timer
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      setState(() {
+        if (_remainingCancelTime > 0) _remainingCancelTime--;
+        if (_remainingPickupTime > 0) _remainingPickupTime--;
+        if (_remainingDeliveryTime > 0) _remainingDeliveryTime--;
+      });
+    });
+  }
+
+  void _setupCancelTimer() {
+    final orderDate = widget.order['pickup_date'];
+    final pickupSlot = widget.order['pickup_slot'];
+
+    if (orderDate == null || pickupSlot == null) return;
+
+    try {
+      final pickupDate = DateTime.parse(orderDate);
+      final startTimeStr = pickupSlot['start_time'].toString();
+      final timeParts = startTimeStr.split(':');
+      final hour = int.parse(timeParts[0]);
+      final minute = int.parse(timeParts[1]);
+
+      // Express: at start, Standard: 1 hour before start
+      final pickupDeadline = DateTime(
+        pickupDate.year,
+        pickupDate.month,
+        pickupDate.day,
+        hour,
+        minute,
+      ).subtract(isExpressDelivery ? Duration.zero : const Duration(hours: 1));
+
+      final now = DateTime.now();
+      if (now.isBefore(pickupDeadline)) {
+        _remainingCancelTime = pickupDeadline.difference(now).inSeconds;
+      }
+    } catch (e) {
+      debugPrint('Error setting up cancel timer: $e');
+    }
+  }
+
+  void _setupPickupTimer() {
+    final pickupDate = widget.order['pickup_date'];
+    final pickupSlot = widget.order['pickup_slot'];
+    final status = widget.order['order_status']?.toString().toLowerCase() ?? '';
+
+    if (status != 'confirmed' && status != 'pickup_scheduled') return;
+    if (pickupDate == null || pickupSlot == null) return;
+
+    try {
+      final pickupDateTime = DateTime.parse(pickupDate);
+      final endTimeStr = pickupSlot['end_time'].toString();
+      final timeParts = endTimeStr.split(':');
+      final hour = int.parse(timeParts[0]);
+      final minute = int.parse(timeParts[1]);
+
+      final pickupEndTime = DateTime(
+        pickupDateTime.year,
+        pickupDateTime.month,
+        pickupDateTime.day,
+        hour,
+        minute,
+      );
+
+      final now = DateTime.now();
+      if (now.isBefore(pickupEndTime)) {
+        _remainingPickupTime = pickupEndTime.difference(now).inSeconds;
+      }
+    } catch (e) {
+      debugPrint('Error setting up pickup timer: $e');
+    }
+  }
+
+  void _setupDeliveryTimer() {
+    final deliveryDate = widget.order['delivery_date'];
+    final deliverySlot = widget.order['delivery_slot'];
+    final status = widget.order['order_status']?.toString().toLowerCase() ?? '';
+
+    if (status != 'picked_up' && status != 'shipped' && status != 'reached') return;
+    if (deliveryDate == null || deliverySlot == null) return;
+
+    try {
+      final deliveryDateTime = DateTime.parse(deliveryDate);
+      final endTimeStr = deliverySlot['end_time'].toString();
+      final timeParts = endTimeStr.split(':');
+      final hour = int.parse(timeParts[0]);
+      final minute = int.parse(timeParts[1]);
+
+      final deliveryEndTime = DateTime(
+        deliveryDateTime.year,
+        deliveryDateTime.month,
+        deliveryDateTime.day,
+        hour,
+        minute,
+      );
+
+      final now = DateTime.now();
+      if (now.isBefore(deliveryEndTime)) {
+        _remainingDeliveryTime = deliveryEndTime.difference(now).inSeconds;
+      }
+    } catch (e) {
+      debugPrint('Error setting up delivery timer: $e');
+    }
+  }
+
+  // Format time like main screen
+  String _formatRemainingTime(int seconds) {
+    if (seconds <= 0) return '00:00';
+    final hours = seconds ~/ 3600;
+    final minutes = (seconds % 3600) ~/ 60;
+    final remainingSeconds = seconds % 60;
+
+    if (hours > 0) {
+      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
+    } else {
+      return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
+    }
+  }
+
+  // Build notification widget
+  Widget _buildNotificationBanner() {
+    final status = widget.order['order_status']?.toString().toLowerCase() ?? '';
+
+    String message = '';
+    Color bgColor = Colors.blue.shade50;
+    Color borderColor = Colors.blue.shade200;
+    Color iconColor = Colors.blue.shade600;
+    Color textColor = Colors.blue.shade700;
+    IconData icon = Icons.schedule;
+
+    if ((status == 'confirmed' || status == 'pickup_scheduled' || status == 'processing') && _remainingPickupTime > 0) {
+      message = 'Pickup in ${_formatRemainingTime(_remainingPickupTime)} - prepare your items';
+    }
+    else if ((status == 'picked_up' || status == 'shipped' || status == 'reached') && _remainingDeliveryTime > 0) {
+      message = 'Delivery in ${_formatRemainingTime(_remainingDeliveryTime)} - be ready to receive';
+      bgColor = Colors.green.shade50;
+      borderColor = Colors.green.shade200;
+      iconColor = Colors.green.shade600;
+      textColor = Colors.green.shade700;
+      icon = Icons.local_shipping;
+    }
+    else if (_remainingCancelTime > 0) {
+      message = 'Reschedule deadline: ${_formatRemainingTime(_remainingCancelTime)} remaining';
+      bgColor = Colors.orange.shade50;
+      borderColor = Colors.orange.shade200;
+      iconColor = Colors.orange.shade600;
+      textColor = Colors.orange.shade700;
+      icon = Icons.timer;
+    }
+
+    if (message.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: bgColor,
+        border: Border.all(color: borderColor),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: iconColor, size: 16),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: textColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Build compact policy banner
+  Widget _buildPolicyBanner() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.blue.shade50,
+            Colors.indigo.shade50,
+          ],
+        ),
+        border: Border.all(
+          color: Colors.blue.shade200,
+          width: 1,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.blue.shade100.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: isExpressDelivery ? Colors.orange.shade100 : Colors.blue.shade100,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(
+              isExpressDelivery ? Icons.flash_on : Icons.schedule,
+              color: isExpressDelivery ? Colors.orange.shade700 : Colors.blue.shade700,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${isExpressDelivery ? 'Express' : 'Standard'} Reschedule Policy',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: isExpressDelivery ? Colors.orange.shade800 : Colors.blue.shade800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                RichText(
+                  text: TextSpan(
+                    style: const TextStyle(
+                      fontSize: 12,
+                      height: 1.3,
+                      color: Colors.black87,
+                    ),
+                    children: [
+                      const TextSpan(text: 'You can reschedule up to '),
+                      TextSpan(
+                        text: isExpressDelivery
+                            ? 'the exact start time'
+                            : '1 hour before',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: isExpressDelivery ? Colors.orange.shade700 : Colors.blue.shade700,
+                        ),
+                      ),
+                      const TextSpan(text: ' of your pickup slot'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<String> getDownloadsPath() async {
@@ -2134,6 +2466,7 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
     }
     return null;
   }
+
   // Get ALL pickup slots (including unavailable ones)
   List<Map<String, dynamic>> _getAllPickupSlots() {
     int selectedDayOfWeek = selectedPickupDate.weekday;
@@ -2259,6 +2592,7 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
       return TimeOfDay(hour: 0, minute: 0);
     }
   }
+
   bool _isDeliverySlotAvailable(Map<String, dynamic> slot) {
     if (selectedPickupSlot == null) return false;
 
@@ -2501,6 +2835,12 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Notification banner
+                    _buildNotificationBanner(),
+
+                    // Policy banner
+                    _buildPolicyBanner(),
+
                     if (currentStep == 0) ...[
                       _buildDateSelector(true),
                       const SizedBox(height: 16),
@@ -2830,6 +3170,7 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
     return months[month - 1];
   }
 }
+
 
 class _OrderDetailsSheet extends StatelessWidget {
   final Map<String, dynamic> order;
@@ -3871,6 +4212,8 @@ class _OrderDetailsSheet extends StatelessWidget {
 }
 
 
+
+
 class _CancellationReasonDialog extends StatefulWidget {
   final Map<String, dynamic> order;
   final VoidCallback onCancel;
@@ -3891,6 +4234,10 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
   final supabase = Supabase.instance.client;
   final TextEditingController _customReasonController = TextEditingController();
 
+  // Local ScaffoldMessenger so SnackBars appear above the dialog
+  final GlobalKey<ScaffoldMessengerState> _scaffoldMessengerKey =
+  GlobalKey<ScaffoldMessengerState>();
+
   List<Map<String, dynamic>> cancellationReasons = [];
   bool isLoadingReasons = true;
   int? selectedReasonId;
@@ -3899,10 +4246,11 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
   bool isSubmitting = false;
   bool isDropdownOpen = false;
 
+  static const int _otherLocalId = -1; // synthetic id for "Other"
+
   late AnimationController _animationController;
   late Animation<double> _slideAnimation;
   late Animation<double> _fadeAnimation;
-
 
   String _getOrderType() {
     final orderType = widget.order['delivery_type'] ?? 'standard';
@@ -3977,15 +4325,13 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                     ),
                     children: [
                       TextSpan(
-                        text: policyTitle + ' ',
+                        text: '$policyTitle ',
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
                           color: Colors.blue.shade700,
                         ),
                       ),
-                      TextSpan(
-                        text: policyMessage,
-                      ),
+                      TextSpan(text: policyMessage),
                     ],
                   ),
                 ),
@@ -3996,6 +4342,7 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
       ),
     );
   }
+
   @override
   void initState() {
     super.initState();
@@ -4007,7 +4354,6 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
     _slideAnimation = Tween<double>(begin: 1.0, end: 0.0).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
     );
-
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeIn),
     );
@@ -4034,6 +4380,7 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
       if (mounted) {
         setState(() {
           cancellationReasons = List<Map<String, dynamic>>.from(response);
+          _ensureOtherReasonIncluded();
           isLoadingReasons = false;
         });
       }
@@ -4048,15 +4395,28 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
     }
   }
 
+  // Make sure "Other" exists even if DB doesn't return it
+  void _ensureOtherReasonIncluded() {
+    final hasOther = cancellationReasons.any((r) {
+      final t = (r['reason_text'] ?? '').toString().toLowerCase();
+      return t.contains('other');
+    });
+    if (!hasOther) {
+      cancellationReasons = [
+        ...cancellationReasons,
+        {'id': _otherLocalId, 'reason_text': 'Other'},
+      ];
+    }
+  }
+
   void _onReasonSelected(int reasonId, String reasonText) {
+    final isOther = reasonId == _otherLocalId || reasonText.toLowerCase().contains('other');
     setState(() {
       selectedReasonId = reasonId;
       selectedReasonText = reasonText;
       isDropdownOpen = false;
-      showCustomInput = reasonText.toLowerCase().contains('other');
-      if (!showCustomInput) {
-        _customReasonController.clear();
-      }
+      showCustomInput = isOther;
+      if (!showCustomInput) _customReasonController.clear();
     });
   }
 
@@ -4066,8 +4426,11 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
       return;
     }
 
+    final pickedIsOther =
+        selectedReasonId == _otherLocalId || (selectedReasonText ?? '').toLowerCase().contains('other');
+
     String finalReason;
-    if (showCustomInput) {
+    if (pickedIsOther) {
       if (_customReasonController.text.trim().isEmpty) {
         _showSnackBar('Please specify your reason', Colors.red);
         return;
@@ -4089,13 +4452,44 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
 
   void _showSnackBar(String message, Color color) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    _scaffoldMessengerKey.currentState?.clearSnackBars();
+    _scaffoldMessengerKey.currentState?.showSnackBar(
       SnackBar(
         content: Text(message, style: const TextStyle(fontWeight: FontWeight.w600)),
         backgroundColor: color,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
+  Widget _buildSelectReasonBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFF6B6B).withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFFFF6B6B).withOpacity(0.25),
+          width: 1,
+        ),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.info_outline_rounded, color: Color(0xFFFF6B6B), size: 18),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Please select a reason for cancelling your order',
+              style: TextStyle(
+                color: Color(0xFFE53935),
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -4111,630 +4505,627 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
       builder: (context, child) {
         return FadeTransition(
           opacity: _fadeAnimation,
-          child: Material(
-            color: Colors.black.withOpacity(0.6),
-            child: SafeArea(
-              child: Transform.translate(
-                offset: Offset(0, _slideAnimation.value * screenSize.height * 0.3),
-                child: Center(
-                  child: Container(
-                    margin: EdgeInsets.only(
-                      left: 20,
-                      right: 20,
-                      bottom: keyboardHeight > 0 ? keyboardHeight + 20 : safeAreaBottom + 20,
-                    ),
-                    constraints: BoxConstraints(
-                      maxHeight: screenSize.height * 0.85,
-                      maxWidth: 420,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(28),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.25),
-                          blurRadius: 40,
-                          offset: const Offset(0, 20),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Premium Header
-                        Container(
-                          padding: const EdgeInsets.fromLTRB(28, 24, 28, 20),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                const Color(0xFFFF6B6B),
-                                Colors.red.shade600,
-                                const Color(0xFFFF6B9D),
-                              ],
-                            ),
-                            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          child: ScaffoldMessenger(
+            key: _scaffoldMessengerKey,
+            child: Scaffold(
+              backgroundColor: Colors.black.withOpacity(0.6),
+              body: SafeArea(
+                child: Transform.translate(
+                  offset: Offset(0, _slideAnimation.value * screenSize.height * 0.3),
+                  child: Center(
+                    child: Container(
+                      margin: EdgeInsets.only(
+                        left: 20,
+                        right: 20,
+                        bottom: keyboardHeight > 0 ? keyboardHeight + 20 : safeAreaBottom + 20,
+                      ),
+                      constraints: BoxConstraints(
+                        maxHeight: screenSize.height * 0.85,
+                        maxWidth: 420,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(28),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.25),
+                            blurRadius: 40,
+                            offset: const Offset(0, 20),
                           ),
-                          child: Column(
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withOpacity(0.25),
-                                      borderRadius: BorderRadius.circular(18),
-                                      border: Border.all(
-                                        color: Colors.white.withOpacity(0.4),
-                                        width: 1.5,
-                                      ),
-                                    ),
-                                    child: const Icon(
-                                      Icons.warning_rounded,
-                                      color: Colors.white,
-                                      size: 24,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          'Cancel Order',
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 22,
-                                            fontWeight: FontWeight.w800,
-                                            letterSpacing: -0.3,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          'Order #${widget.order['id'].toString().substring(0, 8)}',
-                                          style: const TextStyle(
-                                            color: Colors.white70,
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Container(
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withOpacity(0.2),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: IconButton(
-                                      onPressed: widget.onCancel,
-                                      icon: const Icon(Icons.close_rounded, color: Colors.white, size: 22),
-                                    ),
-                                  ),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Header
+                          Container(
+                            padding: const EdgeInsets.fromLTRB(28, 24, 28, 20),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  const Color(0xFFFF6B6B),
+                                  Colors.red.shade600,
+                                  const Color(0xFFFF6B9D),
                                 ],
                               ),
-                              const SizedBox(height: 16),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.15),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: Colors.white.withOpacity(0.2),
-                                    width: 1,
+                              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.25),
+                                    borderRadius: BorderRadius.circular(18),
+                                    border: Border.all(
+                                      color: Colors.white.withOpacity(0.4),
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                  child: const Icon(
+                                    Icons.warning_rounded,
+                                    color: Colors.white,
+                                    size: 24,
                                   ),
                                 ),
-                                child: const Row(
-                                  children: [
-                                    Icon(Icons.info_outline_rounded, color: Colors.white, size: 18),
-                                    SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        'Please select a reason for cancelling your order',
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Cancel Order',
                                         style: TextStyle(
                                           color: Colors.white,
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: -0.3,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'Order #${widget.order['id'].toString().substring(0, 8)}',
+                                        style: const TextStyle(
+                                          color: Colors.white70,
                                           fontSize: 14,
                                           fontWeight: FontWeight.w500,
                                         ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        // Content Section
-                        Flexible(
-                          child: isLoadingReasons
-                              ? Container(
-                            padding: const EdgeInsets.all(60),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
                                 Container(
-                                  padding: const EdgeInsets.all(20),
                                   decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        const Color(0xFFFF6B6B).withOpacity(0.1),
-                                        Colors.red.shade600.withOpacity(0.1),
-                                      ],
-                                    ),
-                                    borderRadius: BorderRadius.circular(20),
+                                    color: Colors.white.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
-                                  child: const CircularProgressIndicator(
-                                    color: Color(0xFFFF6B6B),
-                                    strokeWidth: 3,
-                                  ),
-                                ),
-                                const SizedBox(height: 20),
-                                Text(
-                                  'Loading reasons...',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.grey.shade600,
+                                  child: IconButton(
+                                    onPressed: widget.onCancel,
+                                    icon: const Icon(Icons.close_rounded, color: Colors.white, size: 22),
                                   ),
                                 ),
                               ],
                             ),
-                          )
-                              : SingleChildScrollView(
-                            padding: const EdgeInsets.all(28),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // Premium Dropdown
-                                Container(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        Colors.grey.shade50,
-                                        Colors.white,
+                          ),
+
+                          // CONTENT
+                          Flexible(
+                            child: isLoadingReasons
+                                ? Container(
+                              padding: const EdgeInsets.all(60),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(20),
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          const Color(0xFFFF6B6B).withOpacity(0.1),
+                                          Colors.red.shade600.withOpacity(0.1),
+                                        ],
+                                      ),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: const CircularProgressIndicator(
+                                      color: Color(0xFFFF6B6B),
+                                      strokeWidth: 3,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  Text(
+                                    'Loading reasons...',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                                : SingleChildScrollView(
+                              padding: const EdgeInsets.all(28),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // 1) Policy
+                                  _buildCancellationPolicyNote(),
+                                  const SizedBox(height: 16),
+
+                                  // 2) Banner
+                                  _buildSelectReasonBanner(),
+                                  const SizedBox(height: 16),
+
+                                  // 3) Dropdown
+                                  Container(
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          Colors.grey.shade50,
+                                          Colors.white,
+                                        ],
+                                      ),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(
+                                        color: selectedReasonId != null
+                                            ? const Color(0xFFFF6B6B).withOpacity(0.3)
+                                            : Colors.grey.shade200,
+                                        width: selectedReasonId != null ? 2 : 1.5,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: selectedReasonId != null
+                                              ? const Color(0xFFFF6B6B).withOpacity(0.1)
+                                              : Colors.grey.withOpacity(0.08),
+                                          blurRadius: 20,
+                                          offset: const Offset(0, 8),
+                                        ),
                                       ],
                                     ),
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(
-                                      color: selectedReasonId != null
-                                          ? const Color(0xFFFF6B6B).withOpacity(0.3)
-                                          : Colors.grey.shade200,
-                                      width: selectedReasonId != null ? 2 : 1.5,
+                                    child: Column(
+                                      children: [
+                                        // Dropdown header
+                                        Material(
+                                          color: Colors.transparent,
+                                          child: InkWell(
+                                            onTap: () {
+                                              setState(() {
+                                                isDropdownOpen = !isDropdownOpen;
+                                              });
+                                            },
+                                            borderRadius: BorderRadius.circular(20),
+                                            child: Container(
+                                              padding: const EdgeInsets.all(20),
+                                              child: Row(
+                                                children: [
+                                                  Container(
+                                                    padding: const EdgeInsets.all(12),
+                                                    decoration: BoxDecoration(
+                                                      gradient: LinearGradient(
+                                                        colors: selectedReasonId != null
+                                                            ? [const Color(0xFFFF6B6B), Colors.red.shade600]
+                                                            : [Colors.grey.shade300, Colors.grey.shade400],
+                                                      ),
+                                                      borderRadius: BorderRadius.circular(14),
+                                                    ),
+                                                    child: const Icon(
+                                                      Icons.format_list_bulleted_rounded,
+                                                      color: Colors.white,
+                                                      size: 20,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 16),
+                                                  Expanded(
+                                                    child: Column(
+                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                      children: [
+                                                        Text(
+                                                          'Cancellation Reason',
+                                                          style: TextStyle(
+                                                            fontSize: 12,
+                                                            fontWeight: FontWeight.w600,
+                                                            color: Colors.grey.shade600,
+                                                            letterSpacing: 0.8,
+                                                          ),
+                                                        ),
+                                                        const SizedBox(height: 4),
+                                                        Text(
+                                                          selectedReasonText ?? 'Choose a reason',
+                                                          style: TextStyle(
+                                                            fontSize: 16,
+                                                            fontWeight: FontWeight.w600,
+                                                            color: selectedReasonId != null
+                                                                ? Colors.black87
+                                                                : Colors.grey.shade500,
+                                                          ),
+                                                          maxLines: 2,
+                                                          overflow: TextOverflow.ellipsis,
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 12),
+                                                  AnimatedRotation(
+                                                    turns: isDropdownOpen ? 0.5 : 0.0,
+                                                    duration: const Duration(milliseconds: 300),
+                                                    child: Container(
+                                                      padding: const EdgeInsets.all(8),
+                                                      decoration: BoxDecoration(
+                                                        color: const Color(0xFFFF6B6B).withOpacity(0.1),
+                                                        borderRadius: BorderRadius.circular(10),
+                                                      ),
+                                                      child: const Icon(
+                                                        Icons.keyboard_arrow_down_rounded,
+                                                        color: Color(0xFFFF6B6B),
+                                                        size: 20,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+
+                                        // Options with fixed scrolling
+                                        AnimatedContainer(
+                                          duration: const Duration(milliseconds: 350),
+                                          curve: Curves.easeInOutCubic,
+                                          height: isDropdownOpen
+                                              ? (cancellationReasons.length > 5
+                                              ? 280.0  // 5 * 56 = fixed height for scrolling
+                                              : cancellationReasons.length * 56.0)
+                                              : 0,
+                                          clipBehavior: Clip.hardEdge,
+                                          decoration: const BoxDecoration(
+                                            borderRadius:
+                                            BorderRadius.vertical(bottom: Radius.circular(20)),
+                                          ),
+                                          child: isDropdownOpen
+                                              ? Container(
+                                            decoration: BoxDecoration(
+                                              border: Border(
+                                                top: BorderSide(
+                                                  color: Colors.grey.shade100,
+                                                  width: 1,
+                                                ),
+                                              ),
+                                            ),
+                                            child: ListView.builder(
+                                              padding: EdgeInsets.zero,
+                                              shrinkWrap: true,
+                                              physics: cancellationReasons.length > 5
+                                                  ? const AlwaysScrollableScrollPhysics()
+                                                  : const NeverScrollableScrollPhysics(),
+                                              itemCount: cancellationReasons.length,
+                                              itemBuilder: (context, index) {
+                                                final reason = cancellationReasons[index];
+                                                final isSelected = selectedReasonId == reason['id'];
+                                                final isLast = index == cancellationReasons.length - 1;
+
+                                                return Material(
+                                                  color: Colors.transparent,
+                                                  child: InkWell(
+                                                    onTap: () => _onReasonSelected(
+                                                        reason['id'],
+                                                        reason['reason_text']),
+                                                    borderRadius: isLast
+                                                        ? const BorderRadius.vertical(
+                                                      bottom: Radius.circular(20),
+                                                    )
+                                                        : null,
+                                                    child: Container(
+                                                      height: 56,
+                                                      padding: const EdgeInsets.symmetric(
+                                                          horizontal: 20),
+                                                      decoration: BoxDecoration(
+                                                        color: isSelected
+                                                            ? const Color(0xFFFF6B6B)
+                                                            .withOpacity(0.08)
+                                                            : Colors.transparent,
+                                                        border: !isLast
+                                                            ? Border(
+                                                          bottom: BorderSide(
+                                                            color: Colors
+                                                                .grey.shade100,
+                                                            width: 0.5,
+                                                          ),
+                                                        )
+                                                            : null,
+                                                        borderRadius: isLast
+                                                            ? const BorderRadius.vertical(
+                                                            bottom: Radius.circular(20))
+                                                            : null,
+                                                      ),
+                                                      child: Row(
+                                                        children: [
+                                                          AnimatedContainer(
+                                                            duration: const Duration(
+                                                                milliseconds: 200),
+                                                            width: 20,
+                                                            height: 20,
+                                                            decoration: BoxDecoration(
+                                                              gradient: isSelected
+                                                                  ? LinearGradient(colors: [
+                                                                const Color(0xFFFF6B6B),
+                                                                Colors.red.shade600
+                                                              ])
+                                                                  : null,
+                                                              color: isSelected
+                                                                  ? null
+                                                                  : Colors.transparent,
+                                                              border: Border.all(
+                                                                color: isSelected
+                                                                    ? const Color(0xFFFF6B6B)
+                                                                    : Colors
+                                                                    .grey.shade400,
+                                                                width: 2,
+                                                              ),
+                                                              shape: BoxShape.circle,
+                                                            ),
+                                                            child: isSelected
+                                                                ? const Icon(
+                                                              Icons.check_rounded,
+                                                              color: Colors.white,
+                                                              size: 12,
+                                                            )
+                                                                : null,
+                                                          ),
+                                                          const SizedBox(width: 16),
+                                                          Expanded(
+                                                            child: Text(
+                                                              reason['reason_text'],
+                                                              style: TextStyle(
+                                                                fontSize: 15,
+                                                                fontWeight: isSelected
+                                                                    ? FontWeight.w600
+                                                                    : FontWeight.w500,
+                                                                color: isSelected
+                                                                    ? const Color(0xFFFF6B6B)
+                                                                    : Colors.black87,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                          if (isSelected)
+                                                            Container(
+                                                              padding: const EdgeInsets
+                                                                  .symmetric(
+                                                                  horizontal: 10,
+                                                                  vertical: 4),
+                                                              decoration: BoxDecoration(
+                                                                gradient: LinearGradient(
+                                                                  colors: [
+                                                                    const Color(0xFFFF6B6B),
+                                                                    Colors.red.shade600
+                                                                  ],
+                                                                ),
+                                                                borderRadius:
+                                                                BorderRadius.circular(12),
+                                                              ),
+                                                              child: const Text(
+                                                                'SELECTED',
+                                                                style: TextStyle(
+                                                                  color: Colors.white,
+                                                                  fontSize: 10,
+                                                                  fontWeight:
+                                                                  FontWeight.w700,
+                                                                  letterSpacing: 0.5,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                          )
+                                              : const SizedBox.shrink(),
+                                        ),
+                                      ],
                                     ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: selectedReasonId != null
-                                            ? const Color(0xFFFF6B6B).withOpacity(0.1)
-                                            : Colors.grey.withOpacity(0.08),
-                                        blurRadius: 20,
-                                        offset: const Offset(0, 8),
-                                      ),
-                                    ],
                                   ),
-                                  child: Column(
-                                    children: [
-                                      // Dropdown Header
-                                      Material(
-                                        color: Colors.transparent,
-                                        child: InkWell(
-                                          onTap: () {
-                                            setState(() {
-                                              isDropdownOpen = !isDropdownOpen;
-                                            });
-                                          },
-                                          borderRadius: BorderRadius.circular(20),
-                                          child: Container(
+
+                                  // Custom reason input
+                                  if (showCustomInput) ...[
+                                    const SizedBox(height: 24),
+                                    Container(
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            const Color(0xFFFF6B6B).withOpacity(0.05),
+                                            Colors.red.shade600.withOpacity(0.03),
+                                          ],
+                                        ),
+                                        borderRadius: BorderRadius.circular(20),
+                                        border: Border.all(
+                                          color: const Color(0xFFFF6B6B).withOpacity(0.2),
+                                          width: 1.5,
+                                        ),
+                                      ),
+                                      child: Column(
+                                        children: [
+                                          Container(
                                             padding: const EdgeInsets.all(20),
                                             child: Row(
                                               children: [
                                                 Container(
-                                                  padding: const EdgeInsets.all(12),
+                                                  padding: const EdgeInsets.all(10),
                                                   decoration: BoxDecoration(
                                                     gradient: LinearGradient(
-                                                      colors: selectedReasonId != null
-                                                          ? [const Color(0xFFFF6B6B), Colors.red.shade600]
-                                                          : [Colors.grey.shade300, Colors.grey.shade400],
+                                                      colors: [
+                                                        const Color(0xFFFF6B6B),
+                                                        Colors.red.shade600
+                                                      ],
                                                     ),
-                                                    borderRadius: BorderRadius.circular(14),
+                                                    borderRadius: BorderRadius.circular(12),
                                                   ),
-                                                  child: const Icon(
-                                                    Icons.format_list_bulleted_rounded,
-                                                    color: Colors.white,
-                                                    size: 20,
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 16),
-                                                Expanded(
-                                                  child: Column(
-                                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                                    children: [
-                                                      Text(
-                                                        'Cancellation Reason',
-                                                        style: TextStyle(
-                                                          fontSize: 12,
-                                                          fontWeight: FontWeight.w600,
-                                                          color: Colors.grey.shade600,
-                                                          letterSpacing: 0.8,
-                                                        ),
-                                                      ),
-                                                      const SizedBox(height: 4),
-                                                      Text(
-                                                        selectedReasonText ?? 'Choose a reason',
-                                                        style: TextStyle(
-                                                          fontSize: 16,
-                                                          fontWeight: FontWeight.w600,
-                                                          color: selectedReasonId != null
-                                                              ? Colors.black87
-                                                              : Colors.grey.shade500,
-                                                        ),
-                                                        maxLines: 2,
-                                                        overflow: TextOverflow.ellipsis,
-                                                      ),
-                                                    ],
-                                                  ),
+                                                  child: const Icon(Icons.edit_rounded,
+                                                      color: Colors.white, size: 18),
                                                 ),
                                                 const SizedBox(width: 12),
-                                                AnimatedRotation(
-                                                  turns: isDropdownOpen ? 0.5 : 0.0,
-                                                  duration: const Duration(milliseconds: 300),
-                                                  child: Container(
-                                                    padding: const EdgeInsets.all(8),
-                                                    decoration: BoxDecoration(
-                                                      color: const Color(0xFFFF6B6B).withOpacity(0.1),
-                                                      borderRadius: BorderRadius.circular(10),
-                                                    ),
-                                                    child: const Icon(
-                                                      Icons.keyboard_arrow_down_rounded,
+                                                const Expanded(
+                                                  child: Text(
+                                                    'Please specify your reason',
+                                                    style: TextStyle(
+                                                      fontSize: 16,
+                                                      fontWeight: FontWeight.w700,
                                                       color: Color(0xFFFF6B6B),
-                                                      size: 20,
                                                     ),
                                                   ),
                                                 ),
                                               ],
                                             ),
                                           ),
-                                        ),
-                                      ),
-
-                                      // Dropdown Options with Animation (capped & scrollable)
-                                      AnimatedContainer(
-                                        duration: const Duration(milliseconds: 350),
-                                        curve: Curves.easeInOutCubic,
-                                        // Cap height to avoid RenderFlex overflow; list inside will scroll if needed
-                                        height: isDropdownOpen
-                                            ? min(6, cancellationReasons.length) * 56.0
-                                            : 0,
-                                        clipBehavior: Clip.hardEdge,
-                                        decoration: const BoxDecoration(
-                                          borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
-                                        ),
-                                        child: isDropdownOpen
-                                            ? Container(
-                                          decoration: BoxDecoration(
-                                            border: Border(
-                                              top: BorderSide(
-                                                color: Colors.grey.shade100,
-                                                width: 1,
+                                          Container(
+                                            margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white,
+                                              borderRadius: BorderRadius.circular(16),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: Colors.grey.withOpacity(0.1),
+                                                  blurRadius: 15,
+                                                  offset: const Offset(0, 5),
+                                                ),
+                                              ],
+                                            ),
+                                            child: TextField(
+                                              controller: _customReasonController,
+                                              maxLines: 4,
+                                              maxLength: 200,
+                                              decoration: InputDecoration(
+                                                hintText: 'Enter your specific reason here...',
+                                                hintStyle: TextStyle(
+                                                  color: Colors.grey.shade500,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                                filled: true,
+                                                fillColor: Colors.white,
+                                                border: OutlineInputBorder(
+                                                  borderRadius: BorderRadius.circular(16),
+                                                  borderSide: BorderSide.none,
+                                                ),
+                                                focusedBorder: OutlineInputBorder(
+                                                  borderRadius: BorderRadius.circular(16),
+                                                  borderSide:
+                                                  const BorderSide(color: Color(0xFFFF6B6B), width: 2),
+                                                ),
+                                                contentPadding: const EdgeInsets.all(16),
+                                                counterStyle: TextStyle(
+                                                  color: Colors.grey.shade500,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                              style: const TextStyle(
+                                                fontSize: 15,
+                                                fontWeight: FontWeight.w500,
                                               ),
                                             ),
                                           ),
-                                          child: ListView.builder(
-                                            padding: EdgeInsets.zero,
-                                            itemCount: cancellationReasons.length,
-                                            itemBuilder: (context, index) {
-                                              final reason = cancellationReasons[index];
-                                              final isSelected = selectedReasonId == reason['id'];
-                                              final isLast = index == cancellationReasons.length - 1;
-
-                                              return Material(
-                                                color: Colors.transparent,
-                                                child: InkWell(
-                                                  onTap: () => _onReasonSelected(
-                                                      reason['id'], reason['reason_text']),
-                                                  borderRadius: isLast
-                                                      ? const BorderRadius.vertical(
-                                                      bottom: Radius.circular(20))
-                                                      : null,
-                                                  child: Container(
-                                                    height: 56,
-                                                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                                                    decoration: BoxDecoration(
-                                                      color: isSelected
-                                                          ? const Color(0xFFFF6B6B).withOpacity(0.08)
-                                                          : Colors.transparent,
-                                                      border: !isLast
-                                                          ? Border(
-                                                        bottom: BorderSide(
-                                                          color: Colors.grey.shade100,
-                                                          width: 0.5,
-                                                        ),
-                                                      )
-                                                          : null,
-                                                      borderRadius: isLast
-                                                          ? const BorderRadius.vertical(
-                                                          bottom: Radius.circular(20))
-                                                          : null,
-                                                    ),
-                                                    child: Row(
-                                                      children: [
-                                                        AnimatedContainer(
-                                                          duration:
-                                                          const Duration(milliseconds: 200),
-                                                          width: 20,
-                                                          height: 20,
-                                                          decoration: BoxDecoration(
-                                                            gradient: isSelected
-                                                                ? LinearGradient(colors: [
-                                                              const Color(0xFFFF6B6B),
-                                                              Colors.red.shade600
-                                                            ])
-                                                                : null,
-                                                            color: isSelected
-                                                                ? null
-                                                                : Colors.transparent,
-                                                            border: Border.all(
-                                                              color: isSelected
-                                                                  ? const Color(0xFFFF6B6B)
-                                                                  : Colors.grey.shade400,
-                                                              width: 2,
-                                                            ),
-                                                            shape: BoxShape.circle,
-                                                          ),
-                                                          child: isSelected
-                                                              ? const Icon(Icons.check_rounded,
-                                                              color: Colors.white, size: 12)
-                                                              : null,
-                                                        ),
-                                                        const SizedBox(width: 16),
-                                                        Expanded(
-                                                          child: Text(
-                                                            reason['reason_text'],
-                                                            style: TextStyle(
-                                                              fontSize: 15,
-                                                              fontWeight: isSelected
-                                                                  ? FontWeight.w600
-                                                                  : FontWeight.w500,
-                                                              color: isSelected
-                                                                  ? const Color(0xFFFF6B6B)
-                                                                  : Colors.black87,
-                                                            ),
-                                                          ),
-                                                        ),
-                                                        if (isSelected)
-                                                          Container(
-                                                            padding: const EdgeInsets.symmetric(
-                                                                horizontal: 10, vertical: 4),
-                                                            decoration: BoxDecoration(
-                                                              gradient: LinearGradient(colors: [
-                                                                const Color(0xFFFF6B6B),
-                                                                Colors.red.shade600
-                                                              ]),
-                                                              borderRadius:
-                                                              BorderRadius.circular(12),
-                                                            ),
-                                                            child: const Text(
-                                                              'SELECTED',
-                                                              style: TextStyle(
-                                                                color: Colors.white,
-                                                                fontSize: 10,
-                                                                fontWeight: FontWeight.w700,
-                                                                letterSpacing: 0.5,
-                                                              ),
-                                                            ),
-                                                          ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                        )
-                                            : const SizedBox.shrink(),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-
-                                // Custom Input Section
-                                if (showCustomInput) ...[
-                                  const SizedBox(height: 24),
-                                  Container(
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: [
-                                          const Color(0xFFFF6B6B).withOpacity(0.05),
-                                          Colors.red.shade600.withOpacity(0.03),
                                         ],
                                       ),
-                                      borderRadius: BorderRadius.circular(20),
-                                      border: Border.all(
-                                          color: const Color(0xFFFF6B6B).withOpacity(0.2), width: 1.5),
                                     ),
-                                    child: Column(
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.all(20),
-                                          child: Row(
-                                            children: [
-                                              Container(
-                                                padding: const EdgeInsets.all(10),
-                                                decoration: BoxDecoration(
-                                                  gradient: LinearGradient(
-                                                    colors: [const Color(0xFFFF6B6B), Colors.red.shade600],
-                                                  ),
-                                                  borderRadius: BorderRadius.circular(12),
-                                                ),
-                                                child: const Icon(Icons.edit_rounded,
-                                                    color: Colors.white, size: 18),
-                                              ),
-                                              const SizedBox(width: 12),
-                                              const Expanded(
-                                                child: Text(
-                                                  'Please specify your reason',
-                                                  style: TextStyle(
-                                                    fontSize: 16,
-                                                    fontWeight: FontWeight.w700,
-                                                    color: Color(0xFFFF6B6B),
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+
+                          // Bottom actions
+                          Container(
+                            padding: const EdgeInsets.all(28),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade50,
+                              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(28)),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: SizedBox(
+                                    height: 56,
+                                    child: TextButton(
+                                      onPressed: isSubmitting ? null : widget.onCancel,
+                                      style: TextButton.styleFrom(
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(16),
+                                          side: BorderSide(color: Colors.grey.shade300, width: 2),
                                         ),
-                                        Container(
-                                          margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                                          decoration: BoxDecoration(
-                                            color: Colors.white,
-                                            borderRadius: BorderRadius.circular(16),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: Colors.grey.withOpacity(0.1),
-                                                blurRadius: 15,
-                                                offset: const Offset(0, 5),
-                                              ),
-                                            ],
-                                          ),
-                                          child: TextField(
-                                            controller: _customReasonController,
-                                            maxLines: 4,
-                                            maxLength: 200,
-                                            decoration: InputDecoration(
-                                              hintText: 'Enter your specific reason here...',
-                                              hintStyle: TextStyle(
-                                                  color: Colors.grey.shade500,
-                                                  fontWeight: FontWeight.w500),
-                                              filled: true,
-                                              fillColor: Colors.white,
-                                              border: OutlineInputBorder(
-                                                borderRadius: BorderRadius.circular(16),
-                                                borderSide: BorderSide.none,
-                                              ),
-                                              focusedBorder: OutlineInputBorder(
-                                                borderRadius: BorderRadius.circular(16),
-                                                borderSide: const BorderSide(
-                                                    color: Color(0xFFFF6B6B), width: 2),
-                                              ),
-                                              contentPadding: const EdgeInsets.all(16),
-                                              counterStyle: TextStyle(
-                                                color: Colors.grey.shade500,
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                            style: const TextStyle(
-                                              fontSize: 15,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
+                                        backgroundColor: Colors.white,
+                                      ),
+                                      child: Text(
+                                        'Keep Order',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.grey.shade700,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Container(
+                                    height: 56,
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [const Color(0xFFFF6B6B), Colors.red.shade600],
+                                      ),
+                                      borderRadius: BorderRadius.circular(16),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: const Color(0xFFFF6B6B).withOpacity(0.4),
+                                          blurRadius: 20,
+                                          offset: const Offset(0, 8),
                                         ),
                                       ],
                                     ),
+                                    child: ElevatedButton(
+                                      onPressed: isSubmitting ? null : _handleSubmit,
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.transparent,
+                                        foregroundColor: Colors.white,
+                                        shadowColor: Colors.transparent,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(16),
+                                        ),
+                                      ),
+                                      child: isSubmitting
+                                          ? const SizedBox(
+                                        height: 24,
+                                        width: 24,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2.5,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                          : const Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Icon(Icons.cancel_rounded, size: 20),
+                                          SizedBox(width: 8),
+                                          Text(
+                                            'Cancel',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                   ),
-                                ],
-
-// ADD THE POLICY NOTE HERE (OUTSIDE the if condition):
-                                const SizedBox(height: 12),
-                                _buildCancellationPolicyNote(),
-
-                                const SizedBox(height: 2),
-
-                                const SizedBox(height: 2),
+                                ),
                               ],
                             ),
                           ),
-                        ),
-
-                        // Bottom Actions
-                        Container(
-                          padding: const EdgeInsets.all(28),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade50,
-                            borderRadius: const BorderRadius.vertical(bottom: Radius.circular(28)),
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: SizedBox(
-                                  height: 56,
-                                  child: TextButton(
-                                    onPressed: isSubmitting ? null : widget.onCancel,
-                                    style: TextButton.styleFrom(
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(16),
-                                        side: BorderSide(color: Colors.grey.shade300, width: 2),
-                                      ),
-                                      backgroundColor: Colors.white,
-                                    ),
-                                    child: Text(
-                                      'Keep Order',
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.grey.shade700,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Container(
-                                  height: 56,
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [const Color(0xFFFF6B6B), Colors.red.shade600],
-                                    ),
-                                    borderRadius: BorderRadius.circular(16),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: const Color(0xFFFF6B6B).withOpacity(0.4),
-                                        blurRadius: 20,
-                                        offset: const Offset(0, 8),
-                                      ),
-                                    ],
-                                  ),
-                                  child: ElevatedButton(
-                                    onPressed: isSubmitting ? null : _handleSubmit,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.transparent,
-                                      foregroundColor: Colors.white,
-                                      shadowColor: Colors.transparent,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(16),
-                                      ),
-                                    ),
-                                    child: isSubmitting
-                                        ? const SizedBox(
-                                      height: 24,
-                                      width: 24,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2.5,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                        : const Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Icon(Icons.cancel_rounded, size: 20),
-                                        SizedBox(width: 8),
-                                        Text(
-                                          'Cancel',
-                                          style: TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -4746,7 +5137,6 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
     );
   }
 }
-
 
 class _CancellationSuccessDialog extends StatefulWidget {
   @override
@@ -4768,7 +5158,6 @@ class _CancellationSuccessDialogState extends State<_CancellationSuccessDialog>
       duration: const Duration(milliseconds: 600),
       vsync: this,
     );
-
     _checkController = AnimationController(
       duration: const Duration(milliseconds: 800),
       vsync: this,
@@ -4789,7 +5178,6 @@ class _CancellationSuccessDialogState extends State<_CancellationSuccessDialog>
     await _scaleController.forward();
     await _checkController.forward();
 
-    // Auto close after 2 seconds
     await Future.delayed(const Duration(seconds: 2));
     if (mounted) Navigator.pop(context);
   }
@@ -4872,3 +5260,4 @@ class _CancellationSuccessDialogState extends State<_CancellationSuccessDialog>
     );
   }
 }
+

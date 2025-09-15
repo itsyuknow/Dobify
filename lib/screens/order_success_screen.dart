@@ -1217,25 +1217,39 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
           SizedBox(height: cardPadding * 0.6),
 
           if (billingDetails != null) ...[
+            // values from DB
             _buildBillRow('Subtotal', '₹${billingDetails!['subtotal']?.toStringAsFixed(2) ?? '0.00'}'),
             if ((billingDetails!['minimum_cart_fee']?.toDouble() ?? 0.0) > 0)
               _buildBillRow('Minimum Cart Fee', '₹${billingDetails!['minimum_cart_fee']?.toStringAsFixed(2) ?? '0.00'}'),
             _buildBillRow('Platform Fee', '₹${billingDetails!['platform_fee']?.toStringAsFixed(2) ?? '0.00'}'),
             _buildBillRow('Service Tax', '₹${billingDetails!['service_tax']?.toStringAsFixed(2) ?? '0.00'}'),
             _buildBillRow(
-                'Delivery Fee (${billingDetails!['delivery_type'] == 'express' ? 'Express' : 'Standard'})',
-                '₹${billingDetails!['delivery_fee']?.toStringAsFixed(2) ?? '0.00'}'
+              'Delivery Fee (${billingDetails!['delivery_type'] == 'express' ? 'Express' : 'Standard'})',
+              '₹${billingDetails!['delivery_fee']?.toStringAsFixed(2) ?? '0.00'}',
             ),
+
+            // ✅ Discount row with coupon code inline
             if ((billingDetails!['discount_amount']?.toDouble() ?? 0.0) > 0)
-              _buildBillRow('Discount', '-₹${billingDetails!['discount_amount']?.toStringAsFixed(2) ?? '0.00'}', color: Colors.green),
-            if (billingDetails!['applied_coupon_code'] != null)
-              _buildBillRow('Coupon Applied', billingDetails!['applied_coupon_code'], color: Colors.green),
+              _buildBillRow(
+                (billingDetails!['applied_coupon_code'] != null &&
+                    (billingDetails!['applied_coupon_code'] as String).isNotEmpty)
+                    ? 'Discount (${billingDetails!['applied_coupon_code']})'
+                    : 'Discount',
+                '-₹${billingDetails!['discount_amount']?.toStringAsFixed(2) ?? '0.00'}',
+                color: Colors.green,
+              ),
           ] else ...[
+            // fallback from widget values
             _buildBillRow('Subtotal', '₹${(widget.totalAmount + widget.discount).toStringAsFixed(2)}'),
+            // ✅ Discount row with coupon code inline
             if (widget.discount > 0)
-              _buildBillRow('Discount', '-₹${widget.discount.toStringAsFixed(2)}', color: Colors.green),
-            if (widget.appliedCouponCode != null)
-              _buildBillRow('Coupon Applied', widget.appliedCouponCode!, color: Colors.green),
+              _buildBillRow(
+                (widget.appliedCouponCode != null && widget.appliedCouponCode!.isNotEmpty)
+                    ? 'Discount (${widget.appliedCouponCode})'
+                    : 'Discount',
+                '-₹${widget.discount.toStringAsFixed(2)}',
+                color: Colors.green,
+              ),
           ],
 
           Divider(height: cardPadding * 0.8),
@@ -1252,6 +1266,7 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
       ),
     );
   }
+
 
   Widget _buildBillRow(String label, String value, {Color? color, bool isTotal = false}) {
     return Padding(

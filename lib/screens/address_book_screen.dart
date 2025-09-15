@@ -1661,12 +1661,22 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                     hint: 'Enter 10-digit phone number',
                     icon: Icons.phone_outlined,
                     keyboardType: TextInputType.phone,
+                    maxLength: 10,
                     validator: (value) {
                       if (value?.trim().isEmpty ?? true) {
                         return 'Phone number is required';
                       }
                       if (value!.length != 10) {
                         return 'Enter valid 10-digit phone number';
+                      }
+                      // Check if phone number starts with 6-9
+                      String firstDigit = value[0];
+                      if (!['6', '7', '8', '9'].contains(firstDigit)) {
+                        return 'Phone number must start with 6, 7, 8, or 9';
+                      }
+                      // Check if all characters are digits
+                      if (!RegExp(r'^[0-9]+$').hasMatch(value)) {
+                        return 'Phone number must contain only digits';
                       }
                       return null;
                     },
@@ -1712,6 +1722,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                           hint: '000000',
                           icon: Icons.pin_drop_outlined,
                           keyboardType: TextInputType.number,
+                          maxLength: 6,
                           validator: (value) {
                             if (value?.trim().isEmpty ?? true) {
                               return 'Pincode is required';
@@ -1719,11 +1730,16 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                             if (value!.length != 6) {
                               return 'Enter valid 6-digit pincode';
                             }
+                            // Check if all characters are digits
+                            if (!RegExp(r'^[0-9]+$').hasMatch(value)) {
+                              return 'Pincode must contain only digits';
+                            }
                             return null;
                           },
                           onChanged: (value) {
                             if (value.length == 6) {
                               _checkServiceAvailability(value);
+                              _fetchLocationFromPincode(value);
                             } else {
                               setState(() {
                                 isServiceAvailable = true;
@@ -1850,7 +1866,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
             ),
           ),
 
-          // 🔻 FOOTER FIX (same as MapView confirm button)
+          // Footer
           Container(
             decoration: BoxDecoration(
               border: Border(top: BorderSide(color: Colors.grey.shade200)),
@@ -1904,21 +1920,46 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
     );
   }
 
+// ALSO ADD THIS NEW METHOD TO YOUR CLASS:
+  Future<void> _fetchLocationFromPincode(String pincode) async {
+    if (pincode.length != 6) return;
 
+    try {
+      // Using geocoding package to get location from pincode
+      List<Location> locations = await locationFromAddress(pincode + ', India');
 
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
+      if (locations.isNotEmpty) {
+        Location location = locations.first;
+
+        // Get address details from coordinates
+        List<Placemark> placemarks = await placemarkFromCoordinates(
+          location.latitude,
+          location.longitude,
+        );
+
+        if (placemarks.isNotEmpty) {
+          Placemark place = placemarks[0];
+
+          setState(() {
+            // Auto-fill city and state
+            _cityController.text = place.locality ?? place.subAdministrativeArea ?? '';
+            _stateController.text = place.administrativeArea ?? '';
+
+            // Update coordinates if not already set from map
+            if (latitude == null || longitude == null) {
+              latitude = location.latitude;
+              longitude = location.longitude;
+            }
+          });
+        }
+      }
+    } catch (e) {
+      print('Error fetching location from pincode: $e');
+      // Don't show error to user as this is auto-fetch
+    }
   }
 
+// AND UPDATE YOUR _buildTextField METHOD:
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
@@ -1927,16 +1968,34 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
     TextInputType? keyboardType,
     String? Function(String?)? validator,
     void Function(String)? onChanged,
+    int? maxLength,
   }) {
     return TextFormField(
       controller: controller,
       keyboardType: keyboardType,
       validator: validator,
       onChanged: onChanged,
+      maxLength: maxLength,
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
-        prefixIcon: Icon(icon),
+        prefixIcon: icon == Icons.phone_outlined
+            ? Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(width: 12),
+            Text(
+              '+91 ',
+              style: TextStyle(
+                color: Colors.grey.shade600,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            Icon(icon, color: Colors.grey.shade600),
+          ],
+        )
+            : Icon(icon),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: Colors.grey.shade300),
@@ -1953,9 +2012,27 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
           borderRadius: BorderRadius.circular(8),
           borderSide: const BorderSide(color: Colors.red),
         ),
+        counterText: maxLength != null ? '' : null,
       ),
     );
   }
+
+
+
+  Widget _buildSectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+
 
   Widget _buildAddressTypeSelector() {
     final types = ['Home', 'Office', 'Other'];
