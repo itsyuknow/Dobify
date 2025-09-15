@@ -4273,7 +4273,7 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
     }
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
@@ -4281,7 +4281,7 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
             Colors.indigo.shade50,
           ],
         ),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: Colors.blue.shade200,
           width: 1,
@@ -4291,18 +4291,18 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
               color: Colors.blue.shade100,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
               Icons.access_time_rounded,
               color: Colors.blue.shade600,
-              size: 18,
+              size: 16,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -4310,18 +4310,18 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                 Text(
                   'Cancellation Policy',
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 13,
                     fontWeight: FontWeight.w700,
                     color: Colors.blue.shade800,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 RichText(
                   text: TextSpan(
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 12,
                       color: Colors.grey.shade700,
-                      height: 1.4,
+                      height: 1.3,
                     ),
                     children: [
                       TextSpan(
@@ -4466,10 +4466,10 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
 
   Widget _buildSelectReasonBanner() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: const Color(0xFFFF6B6B).withOpacity(0.08),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: const Color(0xFFFF6B6B).withOpacity(0.25),
           width: 1,
@@ -4477,14 +4477,14 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
       ),
       child: const Row(
         children: [
-          Icon(Icons.info_outline_rounded, color: Color(0xFFFF6B6B), size: 18),
-          SizedBox(width: 10),
+          Icon(Icons.info_outline_rounded, color: Color(0xFFFF6B6B), size: 16),
+          SizedBox(width: 8),
           Expanded(
             child: Text(
               'Please select a reason for cancelling your order',
               style: TextStyle(
                 color: Color(0xFFE53935),
-                fontSize: 14,
+                fontSize: 13,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -4520,7 +4520,7 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                         bottom: keyboardHeight > 0 ? keyboardHeight + 20 : safeAreaBottom + 20,
                       ),
                       constraints: BoxConstraints(
-                        maxHeight: screenSize.height * 0.85,
+                        maxHeight: screenSize.height * 0.90,
                         maxWidth: 420,
                       ),
                       decoration: BoxDecoration(
@@ -4647,17 +4647,17 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                               ),
                             )
                                 : SingleChildScrollView(
-                              padding: const EdgeInsets.all(28),
+                              padding: const EdgeInsets.all(24),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   // 1) Policy
                                   _buildCancellationPolicyNote(),
-                                  const SizedBox(height: 16),
+                                  const SizedBox(height: 12),
 
                                   // 2) Banner
                                   _buildSelectReasonBanner(),
-                                  const SizedBox(height: 16),
+                                  const SizedBox(height: 12),
 
                                   // 3) Dropdown
                                   Container(
@@ -4668,7 +4668,7 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                           Colors.white,
                                         ],
                                       ),
-                                      borderRadius: BorderRadius.circular(20),
+                                      borderRadius: BorderRadius.circular(16),
                                       border: Border.all(
                                         color: selectedReasonId != null
                                             ? const Color(0xFFFF6B6B).withOpacity(0.3)
@@ -4696,28 +4696,28 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                                 isDropdownOpen = !isDropdownOpen;
                                               });
                                             },
-                                            borderRadius: BorderRadius.circular(20),
+                                            borderRadius: BorderRadius.circular(16),
                                             child: Container(
-                                              padding: const EdgeInsets.all(20),
+                                              padding: const EdgeInsets.all(16),
                                               child: Row(
                                                 children: [
                                                   Container(
-                                                    padding: const EdgeInsets.all(12),
+                                                    padding: const EdgeInsets.all(10),
                                                     decoration: BoxDecoration(
                                                       gradient: LinearGradient(
                                                         colors: selectedReasonId != null
                                                             ? [const Color(0xFFFF6B6B), Colors.red.shade600]
                                                             : [Colors.grey.shade300, Colors.grey.shade400],
                                                       ),
-                                                      borderRadius: BorderRadius.circular(14),
+                                                      borderRadius: BorderRadius.circular(12),
                                                     ),
                                                     child: const Icon(
                                                       Icons.format_list_bulleted_rounded,
                                                       color: Colors.white,
-                                                      size: 20,
+                                                      size: 18,
                                                     ),
                                                   ),
-                                                  const SizedBox(width: 16),
+                                                  const SizedBox(width: 14),
                                                   Expanded(
                                                     child: Column(
                                                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -4725,17 +4725,17 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                                         Text(
                                                           'Cancellation Reason',
                                                           style: TextStyle(
-                                                            fontSize: 12,
+                                                            fontSize: 11,
                                                             fontWeight: FontWeight.w600,
                                                             color: Colors.grey.shade600,
                                                             letterSpacing: 0.8,
                                                           ),
                                                         ),
-                                                        const SizedBox(height: 4),
+                                                        const SizedBox(height: 3),
                                                         Text(
                                                           selectedReasonText ?? 'Choose a reason',
                                                           style: TextStyle(
-                                                            fontSize: 16,
+                                                            fontSize: 15,
                                                             fontWeight: FontWeight.w600,
                                                             color: selectedReasonId != null
                                                                 ? Colors.black87
@@ -4747,20 +4747,20 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                                       ],
                                                     ),
                                                   ),
-                                                  const SizedBox(width: 12),
+                                                  const SizedBox(width: 10),
                                                   AnimatedRotation(
                                                     turns: isDropdownOpen ? 0.5 : 0.0,
                                                     duration: const Duration(milliseconds: 300),
                                                     child: Container(
-                                                      padding: const EdgeInsets.all(8),
+                                                      padding: const EdgeInsets.all(6),
                                                       decoration: BoxDecoration(
                                                         color: const Color(0xFFFF6B6B).withOpacity(0.1),
-                                                        borderRadius: BorderRadius.circular(10),
+                                                        borderRadius: BorderRadius.circular(8),
                                                       ),
                                                       child: const Icon(
                                                         Icons.keyboard_arrow_down_rounded,
                                                         color: Color(0xFFFF6B6B),
-                                                        size: 20,
+                                                        size: 18,
                                                       ),
                                                     ),
                                                   ),
@@ -4775,14 +4775,14 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                           duration: const Duration(milliseconds: 350),
                                           curve: Curves.easeInOutCubic,
                                           height: isDropdownOpen
-                                              ? (cancellationReasons.length > 5
-                                              ? 280.0  // 5 * 56 = fixed height for scrolling
-                                              : cancellationReasons.length * 56.0)
+                                              ? (cancellationReasons.length > 4
+                                              ? 200.0  // 4 * 50 = fixed height for scrolling
+                                              : cancellationReasons.length * 50.0)
                                               : 0,
                                           clipBehavior: Clip.hardEdge,
                                           decoration: const BoxDecoration(
                                             borderRadius:
-                                            BorderRadius.vertical(bottom: Radius.circular(20)),
+                                            BorderRadius.vertical(bottom: Radius.circular(16)),
                                           ),
                                           child: isDropdownOpen
                                               ? Container(
@@ -4797,7 +4797,7 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                             child: ListView.builder(
                                               padding: EdgeInsets.zero,
                                               shrinkWrap: true,
-                                              physics: cancellationReasons.length > 5
+                                              physics: cancellationReasons.length > 4
                                                   ? const AlwaysScrollableScrollPhysics()
                                                   : const NeverScrollableScrollPhysics(),
                                               itemCount: cancellationReasons.length,
@@ -4814,13 +4814,13 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                                         reason['reason_text']),
                                                     borderRadius: isLast
                                                         ? const BorderRadius.vertical(
-                                                      bottom: Radius.circular(20),
+                                                      bottom: Radius.circular(16),
                                                     )
                                                         : null,
                                                     child: Container(
-                                                      height: 56,
+                                                      height: 50,
                                                       padding: const EdgeInsets.symmetric(
-                                                          horizontal: 20),
+                                                          horizontal: 16),
                                                       decoration: BoxDecoration(
                                                         color: isSelected
                                                             ? const Color(0xFFFF6B6B)
@@ -4837,7 +4837,7 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                                             : null,
                                                         borderRadius: isLast
                                                             ? const BorderRadius.vertical(
-                                                            bottom: Radius.circular(20))
+                                                            bottom: Radius.circular(16))
                                                             : null,
                                                       ),
                                                       child: Row(
@@ -4845,8 +4845,8 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                                           AnimatedContainer(
                                                             duration: const Duration(
                                                                 milliseconds: 200),
-                                                            width: 20,
-                                                            height: 20,
+                                                            width: 18,
+                                                            height: 18,
                                                             decoration: BoxDecoration(
                                                               gradient: isSelected
                                                                   ? LinearGradient(colors: [
@@ -4870,16 +4870,16 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                                                 ? const Icon(
                                                               Icons.check_rounded,
                                                               color: Colors.white,
-                                                              size: 12,
+                                                              size: 10,
                                                             )
                                                                 : null,
                                                           ),
-                                                          const SizedBox(width: 16),
+                                                          const SizedBox(width: 14),
                                                           Expanded(
                                                             child: Text(
                                                               reason['reason_text'],
                                                               style: TextStyle(
-                                                                fontSize: 15,
+                                                                fontSize: 14,
                                                                 fontWeight: isSelected
                                                                     ? FontWeight.w600
                                                                     : FontWeight.w500,
@@ -4893,8 +4893,8 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                                             Container(
                                                               padding: const EdgeInsets
                                                                   .symmetric(
-                                                                  horizontal: 10,
-                                                                  vertical: 4),
+                                                                  horizontal: 8,
+                                                                  vertical: 3),
                                                               decoration: BoxDecoration(
                                                                 gradient: LinearGradient(
                                                                   colors: [
@@ -4903,13 +4903,13 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                                                   ],
                                                                 ),
                                                                 borderRadius:
-                                                                BorderRadius.circular(12),
+                                                                BorderRadius.circular(10),
                                                               ),
                                                               child: const Text(
                                                                 'SELECTED',
                                                                 style: TextStyle(
                                                                   color: Colors.white,
-                                                                  fontSize: 10,
+                                                                  fontSize: 9,
                                                                   fontWeight:
                                                                   FontWeight.w700,
                                                                   letterSpacing: 0.5,
@@ -4932,7 +4932,7 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
 
                                   // Custom reason input
                                   if (showCustomInput) ...[
-                                    const SizedBox(height: 24),
+                                    const SizedBox(height: 20),
                                     Container(
                                       decoration: BoxDecoration(
                                         gradient: LinearGradient(
@@ -4941,7 +4941,7 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                             Colors.red.shade600.withOpacity(0.03),
                                           ],
                                         ),
-                                        borderRadius: BorderRadius.circular(20),
+                                        borderRadius: BorderRadius.circular(16),
                                         border: Border.all(
                                           color: const Color(0xFFFF6B6B).withOpacity(0.2),
                                           width: 1.5,
@@ -4950,11 +4950,11 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                       child: Column(
                                         children: [
                                           Container(
-                                            padding: const EdgeInsets.all(20),
+                                            padding: const EdgeInsets.all(16),
                                             child: Row(
                                               children: [
                                                 Container(
-                                                  padding: const EdgeInsets.all(10),
+                                                  padding: const EdgeInsets.all(8),
                                                   decoration: BoxDecoration(
                                                     gradient: LinearGradient(
                                                       colors: [
@@ -4962,17 +4962,17 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                                         Colors.red.shade600
                                                       ],
                                                     ),
-                                                    borderRadius: BorderRadius.circular(12),
+                                                    borderRadius: BorderRadius.circular(10),
                                                   ),
                                                   child: const Icon(Icons.edit_rounded,
-                                                      color: Colors.white, size: 18),
+                                                      color: Colors.white, size: 16),
                                                 ),
-                                                const SizedBox(width: 12),
+                                                const SizedBox(width: 10),
                                                 const Expanded(
                                                   child: Text(
                                                     'Please specify your reason',
                                                     style: TextStyle(
-                                                      fontSize: 16,
+                                                      fontSize: 15,
                                                       fontWeight: FontWeight.w700,
                                                       color: Color(0xFFFF6B6B),
                                                     ),
@@ -4982,10 +4982,10 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                             ),
                                           ),
                                           Container(
-                                            margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                                            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                                             decoration: BoxDecoration(
                                               color: Colors.white,
-                                              borderRadius: BorderRadius.circular(16),
+                                              borderRadius: BorderRadius.circular(12),
                                               boxShadow: [
                                                 BoxShadow(
                                                   color: Colors.grey.withOpacity(0.1),
@@ -5007,22 +5007,22 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                                 filled: true,
                                                 fillColor: Colors.white,
                                                 border: OutlineInputBorder(
-                                                  borderRadius: BorderRadius.circular(16),
+                                                  borderRadius: BorderRadius.circular(12),
                                                   borderSide: BorderSide.none,
                                                 ),
                                                 focusedBorder: OutlineInputBorder(
-                                                  borderRadius: BorderRadius.circular(16),
+                                                  borderRadius: BorderRadius.circular(12),
                                                   borderSide:
                                                   const BorderSide(color: Color(0xFFFF6B6B), width: 2),
                                                 ),
-                                                contentPadding: const EdgeInsets.all(16),
+                                                contentPadding: const EdgeInsets.all(14),
                                                 counterStyle: TextStyle(
                                                   color: Colors.grey.shade500,
-                                                  fontSize: 12,
+                                                  fontSize: 11,
                                                 ),
                                               ),
                                               style: const TextStyle(
-                                                fontSize: 15,
+                                                fontSize: 14,
                                                 fontWeight: FontWeight.w500,
                                               ),
                                             ),
@@ -5038,7 +5038,7 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
 
                           // Bottom actions
                           Container(
-                            padding: const EdgeInsets.all(28),
+                            padding: const EdgeInsets.all(24),
                             decoration: BoxDecoration(
                               color: Colors.grey.shade50,
                               borderRadius: const BorderRadius.vertical(bottom: Radius.circular(28)),
@@ -5047,12 +5047,12 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                               children: [
                                 Expanded(
                                   child: SizedBox(
-                                    height: 56,
+                                    height: 52,
                                     child: TextButton(
                                       onPressed: isSubmitting ? null : widget.onCancel,
                                       style: TextButton.styleFrom(
                                         shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(16),
+                                          borderRadius: BorderRadius.circular(14),
                                           side: BorderSide(color: Colors.grey.shade300, width: 2),
                                         ),
                                         backgroundColor: Colors.white,
@@ -5060,7 +5060,7 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                       child: Text(
                                         'Keep Order',
                                         style: TextStyle(
-                                          fontSize: 16,
+                                          fontSize: 15,
                                           fontWeight: FontWeight.w700,
                                           color: Colors.grey.shade700,
                                         ),
@@ -5068,15 +5068,15 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 16),
+                                const SizedBox(width: 14),
                                 Expanded(
                                   child: Container(
-                                    height: 56,
+                                    height: 52,
                                     decoration: BoxDecoration(
                                       gradient: LinearGradient(
                                         colors: [const Color(0xFFFF6B6B), Colors.red.shade600],
                                       ),
-                                      borderRadius: BorderRadius.circular(16),
+                                      borderRadius: BorderRadius.circular(14),
                                       boxShadow: [
                                         BoxShadow(
                                           color: const Color(0xFFFF6B6B).withOpacity(0.4),
@@ -5092,13 +5092,13 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                         foregroundColor: Colors.white,
                                         shadowColor: Colors.transparent,
                                         shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(16),
+                                          borderRadius: BorderRadius.circular(14),
                                         ),
                                       ),
                                       child: isSubmitting
                                           ? const SizedBox(
-                                        height: 24,
-                                        width: 24,
+                                        height: 22,
+                                        width: 22,
                                         child: CircularProgressIndicator(
                                           strokeWidth: 2.5,
                                           color: Colors.white,
@@ -5107,12 +5107,12 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog>
                                           : const Row(
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
-                                          Icon(Icons.cancel_rounded, size: 20),
-                                          SizedBox(width: 8),
+                                          Icon(Icons.cancel_rounded, size: 18),
+                                          SizedBox(width: 6),
                                           Text(
                                             'Cancel',
                                             style: TextStyle(
-                                              fontSize: 16,
+                                              fontSize: 15,
                                               fontWeight: FontWeight.w700,
                                             ),
                                           ),
@@ -5260,4 +5260,3 @@ class _CancellationSuccessDialogState extends State<_CancellationSuccessDialog>
     );
   }
 }
-
