@@ -22,10 +22,21 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
   List<Map<String, dynamic>> _cartItems = [];
   bool _cartLoading = false;
   bool _billingLoading = true;
+  bool _isSuccessDialogVisible = false;
+  Timer? _successAutoCloseTimer;
 
   // Coupon related variables
   String? _appliedCouponCode;
   double discount = 0.0;
+
+  // ADD: per-item loading so other rows don't refresh
+  final Set<String> _updatingItems = <String>{};
+
+  String _itemKey(Map<String, dynamic> item) =>
+      '${item['product_name']}|${item['service_type']}|${item['product_price']}|${item['service_price']}';
+
+  bool _isUpdating(Map<String, dynamic> item) => _updatingItems.contains(_itemKey(item));
+
 
   // Banner coupon data
   List<Map<String, dynamic>> _bannerCoupons = [];
@@ -317,10 +328,17 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
 
 
   void _showSuccessPopup(String couponCode, double discountAmount) {
+    // mark visible and clear any previous timer
+    _isSuccessDialogVisible = true;
+    _successAutoCloseTimer?.cancel();
+
     Future.delayed(const Duration(milliseconds: 50), () {
+      // keep a local BuildContext for the dialog navigator
+      final navigator = Navigator.of(context, rootNavigator: true);
+
       showGeneralDialog(
         context: context,
-        barrierDismissible: true,
+        barrierDismissible: true,          // tap outside = dismiss dialog only
         barrierLabel: '',
         transitionDuration: const Duration(milliseconds: 100),
         pageBuilder: (_, __, ___) => const SizedBox.shrink(),
@@ -330,115 +348,136 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
             child: Opacity(
               opacity: animation.value,
               child: Center(
-                child: Container(
-                  width: 240,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 24,
-                        offset: const Offset(0, 12),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // ✅ Success icon
-                      Container(
-                        width: 50,
-                        height: 50,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: LinearGradient(
-                            colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.85)],
+                // Tapping the popup itself also closes ONLY the dialog (stops animation)
+                child: GestureDetector(
+                  onTap: () {
+                    if (_isSuccessDialogVisible) {
+                      _isSuccessDialogVisible = false;
+                      // close only the dialog route
+                      if (navigator.canPop()) {
+                        final popped = navigator.pop();
+                        // no-op on result
+                      }
+                    }
+                  },
+                  child: Container(
+                    width: 240,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 24,
+                          offset: const Offset(0, 12),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // ✅ Success icon
+                        Container(
+                          width: 50,
+                          height: 50,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: LinearGradient(
+                              colors: [kPrimaryColor, kPrimaryColor.withOpacity(0.85)],
+                            ),
                           ),
+                          child: const Icon(Icons.check_rounded, color: Colors.white, size: 28),
                         ),
-                        child: const Icon(Icons.check_rounded, color: Colors.white, size: 28),
-                      ),
-                      const SizedBox(height: 12),
+                        const SizedBox(height: 12),
 
-                      // ✅ Title (consistent font)
-                      Text(
-                        "Coupon Applied!",
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.black87,
-                          fontFamily: 'YourAppFont', // <-- Use your app-wide font here
-                          decoration: TextDecoration.none,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-
-                      // ✅ Coupon code
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: kPrimaryColor.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          couponCode,
+                        // ✅ Title
+                        Text(
+                          "Coupon Applied!",
                           style: TextStyle(
-                            color: kPrimaryColor,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
-                            letterSpacing: 1.2,
-                            fontFamily: 'YourAppFont', // <-- consistent font
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.black87,
+                            fontFamily: 'YourAppFont',
                             decoration: TextDecoration.none,
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
+                        const SizedBox(height: 6),
 
-                      // ✅ Savings message
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.savings_outlined, color: Colors.green.shade700, size: 18),
-                          const SizedBox(width: 6),
-                          Text(
-                            "You saved ",
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.green.shade700,
-                              fontFamily: 'YourAppFont', // <-- consistent font
-                              decoration: TextDecoration.none,
-                            ),
+                        // ✅ Coupon code
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: kPrimaryColor.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          Text(
-                            "₹${discountAmount.toStringAsFixed(2)}",
+                          child: Text(
+                            couponCode,
                             style: TextStyle(
+                              color: kPrimaryColor,
+                              fontWeight: FontWeight.w600,
                               fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green.shade800,
-                              fontFamily: 'YourAppFont', // <-- consistent font
+                              letterSpacing: 1.2,
+                              fontFamily: 'YourAppFont',
                               decoration: TextDecoration.none,
                             ),
                           ),
-                        ],
-                      ),
-                    ],
+                        ),
+                        const SizedBox(height: 12),
+
+                        // ✅ Savings message
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.savings_outlined, color: Colors.green.shade700, size: 18),
+                            const SizedBox(width: 6),
+                            Text(
+                              "You saved ",
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.green.shade700,
+                                fontFamily: 'YourAppFont',
+                                decoration: TextDecoration.none,
+                              ),
+                            ),
+                            Text(
+                              "₹${discountAmount.toStringAsFixed(2)}",
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green.shade800,
+                                fontFamily: 'YourAppFont',
+                                decoration: TextDecoration.none,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
           );
         },
-      );
+      ).then((_) {
+        // Dialog is gone (by tap or auto-close). Mark invisible and cancel timer.
+        _isSuccessDialogVisible = false;
+        _successAutoCloseTimer?.cancel();
+      });
 
-      // ⏱️ Auto-close after 2 seconds
-      Future.delayed(const Duration(milliseconds: 1200), () {
-        if (Navigator.of(context, rootNavigator: true).canPop()) {
-          Navigator.of(context, rootNavigator: true).pop();
+      // Auto-close after 1.2s — ONLY if dialog still visible.
+      _successAutoCloseTimer = Timer(const Duration(milliseconds: 1200), () {
+        if (_isSuccessDialogVisible) {
+          _isSuccessDialogVisible = false;
+          if (navigator.canPop()) {
+            navigator.pop(); // pop only the dialog that is on top
+          }
         }
       });
     });
   }
+
 
 
 
@@ -559,16 +598,27 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     final userId = supabase.auth.currentUser?.id;
     if (userId == null) return;
 
-    setState(() => _cartLoading = true);
+    // Build a stable key for this line item (prod+service+prices)
+    String _buildKey(Map<String, dynamic> it) =>
+        '${it['product_name']}|${it['service_type']}|${it['product_price']}|${it['service_price']}';
+
+    final String key = _buildKey(item);
+
+    // If this row is already updating, ignore extra taps
+    if (_updatingItems.contains(key)) return;
+
+    setState(() {
+      _updatingItems.add(key);
+    });
 
     try {
-      int currentQuantity = item['product_quantity']?.toInt() ?? 0;
-      int newQty = currentQuantity + delta;
+      final int currentQuantity = (item['product_quantity'] ?? 0).toInt();
+      final int newQty = currentQuantity + delta;
+
+      final double productPrice = (item['product_price'] ?? 0).toDouble();
+      final double servicePrice = (item['service_price'] ?? 0).toDouble();
 
       if (newQty > 0) {
-        double productPrice = item['product_price']?.toDouble() ?? 0.0;
-        double servicePrice = item['service_price']?.toDouble() ?? 0.0;
-
         await supabase
             .from('cart')
             .update({
@@ -581,9 +631,16 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
             .eq('product_price', productPrice)
             .eq('service_price', servicePrice);
 
+        // Optimistically update JUST this row in memory
         setState(() {
           _cartItems = _cartItems.map((cartItem) {
-            if (cartItem == item) {
+            final isSame =
+                (cartItem['product_name'] == item['product_name']) &&
+                    (cartItem['service_type'] == item['service_type']) &&
+                    ((cartItem['product_price'] ?? 0).toDouble() == productPrice) &&
+                    ((cartItem['service_price'] ?? 0).toDouble() == servicePrice);
+            if (isSame) {
+              cartItem = Map<String, dynamic>.from(cartItem);
               cartItem['product_quantity'] = newQty;
               cartItem['total_price'] = newQty * (productPrice + servicePrice);
             }
@@ -591,30 +648,48 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
           }).toList();
         });
       } else {
+        // Delete the row when quantity drops to 0
         await supabase
             .from('cart')
             .delete()
             .eq('id', userId)
             .eq('product_name', item['product_name'])
             .eq('service_type', item['service_type'])
-            .eq('product_price', item['product_price'])
-            .eq('service_price', item['service_price']);
+            .eq('product_price', productPrice)
+            .eq('service_price', servicePrice);
 
         setState(() {
-          _cartItems.removeWhere((cartItem) => cartItem == item);
+          _cartItems.removeWhere((cartItem) {
+            final isSame =
+                (cartItem['product_name'] == item['product_name']) &&
+                    (cartItem['service_type'] == item['service_type']) &&
+                    ((cartItem['product_price'] ?? 0).toDouble() == productPrice) &&
+                    ((cartItem['service_price'] ?? 0).toDouble() == servicePrice);
+            return isSame;
+          });
         });
       }
     } catch (e) {
-      print("Error updating quantity: $e");
+      debugPrint("Error updating quantity: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error updating cart: ${e.toString()}')),
+          SnackBar(
+            content: Text('Error updating cart: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
-      setState(() => _cartLoading = false);
+      if (mounted) {
+        setState(() {
+          _updatingItems.remove(key);
+        });
+      } else {
+        _updatingItems.remove(key);
+      }
     }
   }
+
 
   @override
   void dispose() {
@@ -625,9 +700,15 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     _floatingController.dispose();
     _slideController.dispose();
     _bannerTimer?.cancel();
+
+    // ADD: cancel success auto-close timer and mark dialog not visible
+    _successAutoCloseTimer?.cancel();
+    _isSuccessDialogVisible = false;
+
     _hideSuccessPopup();
     super.dispose();
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -1099,6 +1180,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
 
   Widget _buildCompactOrderItem(Map<String, dynamic> item) {
     final categoryText = (item['category'] ?? '').toString().trim();
+    final bool rowLoading = _isUpdating(item);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -1110,7 +1192,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
       ),
       child: Row(
         children: [
-          // LEFT: Product Image + Category (same style as CartScreen)
+          // LEFT: Product Image + Category
           Column(
             children: [
               ClipRRect(
@@ -1174,8 +1256,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                 const SizedBox(height: 4),
                 if ((item['service_type'] ?? '').toString().trim().isNotEmpty)
                   Container(
-                    padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: kPrimaryColor.withOpacity(0.08),
                       borderRadius: BorderRadius.circular(6),
@@ -1195,7 +1276,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
 
           const SizedBox(width: 12),
 
-          // RIGHT: Quantity counter (same widget as CartScreen)
+          // RIGHT: Quantity counter (per-item loading)
           Column(
             children: [
               Container(
@@ -1218,12 +1299,11 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                     _buildQuantityButton(
                       icon: Icons.remove,
                       onTap: () => _updateQuantityInSupabase(item, -1),
-                      isLoading: _cartLoading,
+                      isLoading: rowLoading, // 🔁 per-item
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
-                      child: _cartLoading
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      child: rowLoading
                           ? const SizedBox(
                         width: 16,
                         height: 16,
@@ -1244,7 +1324,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                     _buildQuantityButton(
                       icon: Icons.add,
                       onTap: () => _updateQuantityInSupabase(item, 1),
-                      isLoading: _cartLoading,
+                      isLoading: rowLoading, // 🔁 per-item
                     ),
                   ],
                 ),
@@ -1264,6 +1344,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
       ),
     );
   }
+
 
   Widget _buildQuantityButton({
     required IconData icon,

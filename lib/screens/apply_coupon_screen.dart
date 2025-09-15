@@ -267,115 +267,122 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
           position: _slideAnimation,
           child: SafeArea(
             bottom: true, // ✅ prevents bottom cut-off
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                16,
-                16,
-                16,
-                24 + MediaQuery.of(context).padding.bottom, // ✅ extra bottom padding
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Coupon Code Input
-                  Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border:
-                      Border.all(color: kPrimaryColor.withOpacity(0.2)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _couponController,
-                            decoration: InputDecoration(
-                              hintText: 'Enter coupon code',
-                              hintStyle: TextStyle(
-                                  color: Colors.grey.shade500, fontSize: 14),
-                              border: InputBorder.none,
-                              contentPadding:
-                              const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 12),
-                              prefixIcon: Icon(Icons.local_offer_outlined,
-                                  color: kPrimaryColor, size: 20),
-                            ),
-                            textCapitalization:
-                            TextCapitalization.characters,
-                            style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600),
+            // ✅ Disable glow but keep bounce everywhere (Android & iOS)
+            child: NotificationListener<OverscrollIndicatorNotification>(
+              onNotification: (overscroll) {
+                overscroll.disallowIndicator();
+                return true;
+              },
+              child: SingleChildScrollView(
+                // ✅ BOUNCING + always scrollable so you can pull-to-bounce even with little content
+                physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
+                ),
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  16,
+                  16,
+                  24 + MediaQuery.of(context).padding.bottom, // ✅ extra bottom padding
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Coupon Code Input
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: kPrimaryColor.withOpacity(0.2)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
                           ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.all(4),
-                          child: ElevatedButton(
-                            onPressed: _isApplying
-                                ? null
-                                : () => _applyCoupon(_couponController.text),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: kPrimaryColor,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _couponController,
+                              decoration: InputDecoration(
+                                hintText: 'Enter coupon code',
+                                hintStyle: TextStyle(
+                                    color: Colors.grey.shade500, fontSize: 14),
+                                border: InputBorder.none,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 12),
+                                prefixIcon: Icon(Icons.local_offer_outlined,
+                                    color: kPrimaryColor, size: 20),
                               ),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 10),
-                              elevation: 2,
-                            ),
-                            child: _isApplying
-                                ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor:
-                                AlwaysStoppedAnimation<Color>(
-                                    Colors.white),
-                              ),
-                            )
-                                : const Text(
-                              'Apply',
-                              style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold),
+                              textCapitalization: TextCapitalization.characters,
+                              style: const TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.w600),
                             ),
                           ),
-                        ),
-                      ],
+                          Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: ElevatedButton(
+                              onPressed: _isApplying
+                                  ? null
+                                  : () => _applyCoupon(_couponController.text),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: kPrimaryColor,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 10),
+                                elevation: 2,
+                              ),
+                              child: _isApplying
+                                  ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor:
+                                  AlwaysStoppedAnimation<Color>(
+                                      Colors.white),
+                                ),
+                              )
+                                  : const Text(
+                                'Apply',
+                                style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
 
-                  const SizedBox(height: 20),
-
-                  if (_topCoupons.isNotEmpty) ...[
-                    _buildSectionHeader(
-                        '⭐ Featured Coupons', Icons.star_rounded),
-                    const SizedBox(height: 12),
-                    ...(_topCoupons
-                        .map((coupon) => _buildCompactCouponCard(coupon, true))),
                     const SizedBox(height: 20),
-                  ],
 
-                  if (_coupons.where((c) => c['is_featured'] != true).isNotEmpty)
-                    ...[
-                      _buildSectionHeader(
-                          '🎟️ More Coupons', Icons.local_offer_rounded),
+                    if (_topCoupons.isNotEmpty) ...[
+                      _buildSectionHeader('⭐ Featured Coupons', Icons.star_rounded),
                       const SizedBox(height: 12),
-                      ...(_coupons
-                          .where((c) => c['is_featured'] != true)
-                          .map((coupon) => _buildCompactCouponCard(coupon, false))),
+                      ...(_topCoupons
+                          .map((coupon) => _buildCompactCouponCard(coupon, true))),
+                      const SizedBox(height: 20),
                     ],
-                ],
+
+                    if (_coupons.where((c) => c['is_featured'] != true).isNotEmpty)
+                      ...[
+                        _buildSectionHeader(
+                            '🎟️ More Coupons', Icons.local_offer_rounded),
+                        const SizedBox(height: 12),
+                        ...(_coupons
+                            .where((c) => c['is_featured'] != true)
+                            .map((coupon) =>
+                            _buildCompactCouponCard(coupon, false))),
+                      ],
+                  ],
+                ),
               ),
             ),
           ),

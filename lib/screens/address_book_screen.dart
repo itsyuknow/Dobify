@@ -7,6 +7,8 @@ import 'package:flutter_typeahead/flutter_typeahead.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'colors.dart'; // Replace with your actual theme import
+import 'package:flutter/services.dart';
+
 
 class AddressBookScreen extends StatefulWidget {
   final Function(Map<String, dynamic>) onAddressSelected;
@@ -1642,6 +1644,8 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                     ),
 
                   _buildSectionTitle('Contact Information'),
+
+                  // FULL NAME — alphabets + spaces only
                   _buildTextField(
                     controller: _recipientNameController,
                     label: 'Full Name',
@@ -1651,10 +1655,31 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                       if (value?.trim().isEmpty ?? true) {
                         return 'Name is required';
                       }
+                      final v = value!.trim();
+
+                      // Allow only letters (Unicode) and spaces
+                      final nameOk = RegExp(r'^[\p{L} ]+$', unicode: true).hasMatch(v);
+                      if (!nameOk) {
+                        return 'Only alphabets and spaces are allowed';
+                      }
+
+                      // Optional: basic length sanity
+                      if (v.replaceAll(' ', '').length < 2) {
+                        return 'Enter a valid name';
+                      }
                       return null;
                     },
+                    inputFormatters: [
+                      // Block non-letter characters while typing
+                      FilteringTextInputFormatter.allow(
+                        RegExp(r'[\p{L} ]', unicode: true),
+                      ),
+                      LengthLimitingTextInputFormatter(50),
+                    ],
                   ),
+
                   const SizedBox(height: 16),
+
                   _buildTextField(
                     controller: _phoneController,
                     label: 'Phone Number',
@@ -1681,6 +1706,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                       return null;
                     },
                   ),
+
                   const SizedBox(height: 24),
 
                   _buildSectionTitle('Address Details'),
@@ -1920,6 +1946,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
     );
   }
 
+
 // ALSO ADD THIS NEW METHOD TO YOUR CLASS:
   Future<void> _fetchLocationFromPincode(String pincode) async {
     if (pincode.length != 6) return;
@@ -1969,6 +1996,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
     String? Function(String?)? validator,
     void Function(String)? onChanged,
     int? maxLength,
+    List<TextInputFormatter>? inputFormatters, // <--- NEW
   }) {
     return TextFormField(
       controller: controller,
@@ -1976,6 +2004,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
       validator: validator,
       onChanged: onChanged,
       maxLength: maxLength,
+      inputFormatters: inputFormatters, // <--- NEW
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
@@ -2016,6 +2045,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
       ),
     );
   }
+
 
 
 
