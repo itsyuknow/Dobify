@@ -1,694 +1,631 @@
-import 'dart:io';
+
+
+import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart'; // for Color
+import 'package:flutter/services.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:app_settings/app_settings.dart';
+
+import 'email_service.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
   NotificationService._internal();
 
-  final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
-  final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _localNotifications =
+  FlutterLocalNotificationsPlugin();
+  final supabase = Supabase.instance.client;
 
   bool _isInitialized = false;
   String? _fcmToken;
-  bool _hasPermission = false;
 
-  // ✅ Main initialization method
+  bool get isInitialized => _isInitialized;
+
   Future<void> initialize() async {
-    if (_isInitialized) {
-      print('🔔 Notification service already initialized');
-      return;
-    }
-
     try {
-      print('🔔 Initializing notification service...');
-
-      // Step 1: Request permissions
-      await _requestPermissions();
-
-      // Step 2: Initialize local notifications
-      await _initializeLocalNotifications();
-
-      // Step 3: Get FCM token
-      await _getFCMToken();
-
-      // Step 4: Setup message handlers
-      _setupMessageHandlers();
-
-      // Step 5: Create notification channels
-      await _createNotificationChannels();
-
-      _isInitialized = true;
-      print('✅ Notification service initialized successfully');
-
-    } catch (e) {
-      print('❌ Error initializing notification service: $e');
-      rethrow;
-    }
-  }
-
-  // ✅ Request notification permissions
-  Future<void> _requestPermissions() async {
-    try {
-      print('🔔 Requesting notification permissions...');
-
-      NotificationSettings settings = await _firebaseMessaging.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-        carPlay: false,
-        criticalAlert: false,
-        provisional: false,
-        announcement: false,
-      );
-
-      _hasPermission = settings.authorizationStatus == AuthorizationStatus.authorized ||
-          settings.authorizationStatus == AuthorizationStatus.provisional;
-
-      print('🔔 Permission status: ${settings.authorizationStatus}');
-      print('🔔 Permissions granted: $_hasPermission');
-
-      if (_hasPermission) {
-        print('✅ Notification permissions granted');
-      } else {
-        print('⚠️ Notification permissions denied');
+      if (kIsWeb) {
+        print('📱 Web platform — skipping local notifications setup');
+        return;
       }
-    } catch (e) {
-      print('❌ Error requesting permissions: $e');
-    }
-  }
 
-  // ✅ Initialize local notifications
-  Future<void> _initializeLocalNotifications() async {
-    try {
-      print('🔔 Initializing local notifications...');
-
-      const AndroidInitializationSettings androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-
-      const DarwinInitializationSettings iosSettings = DarwinInitializationSettings(
+      // Initialize local notifications
+      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const iosSettings = DarwinInitializationSettings(
         requestAlertPermission: true,
         requestBadgePermission: true,
         requestSoundPermission: true,
       );
 
-      const InitializationSettings settings = InitializationSettings(
+      const initSettings = InitializationSettings(
         android: androidSettings,
         iOS: iosSettings,
       );
 
-      bool? initialized = await _localNotifications.initialize(
-        settings,
+      await _localNotifications.initialize(
+        initSettings,
         onDidReceiveNotificationResponse: _onNotificationTapped,
       );
 
-      print('🔔 Local notifications initialized: $initialized');
+      // Create Android channel
+      await _createNotificationChannel();
+
+      // Ask for permissions
+      await _requestPermissions();
+
+      // Token
+      await _getFCMToken();
+
+      // Handlers
+      _setupMessageHandlers();
+
+      _isInitialized = true;
+      print('✅ Notification service initialized successfully');
     } catch (e) {
-      print('❌ Error initializing local notifications: $e');
+      print('❌ Error initializing notifications: $e');
+      _isInitialized = false;
     }
   }
 
-  // ✅ Get FCM token
+  Future<void> _createNotificationChannel() async {
+    if (kIsWeb) return;
+
+    const androidChannel = AndroidNotificationChannel(
+      'ironxpress_orders',
+      'Order Updates',
+      description: 'Notifications for order status updates',
+      importance: Importance.high,
+      sound: RawResourceAndroidNotificationSound('notification'),
+    );
+
+    await _localNotifications
+        .resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(androidChannel);
+  }
+
+  Future<void> _requestPermissions() async {
+    if (kIsWeb) return;
+
+    final settings = await FirebaseMessaging.instance.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+      provisional: false,
+    );
+
+    if (settings.authorizationStatus == AuthorizationStatus.denied) {
+      print('⚠️ User denied notification permissions');
+    } else {
+      print('✅ Notification permissions granted (${settings.authorizationStatus})');
+    }
+  }
+
   Future<void> _getFCMToken() async {
     try {
-      print('🔔 Getting FCM token...');
-
-      _fcmToken = await _firebaseMessaging.getToken();
-
-      if (_fcmToken != null) {
-        print('✅ FCM Token received: ${_fcmToken!.substring(0, 50)}...');
-
-        // Save token to database
-        await _saveFCMTokenToDatabase();
-
-        // Listen for token refresh
-        _firebaseMessaging.onTokenRefresh.listen((newToken) {
-          print('🔔 FCM Token refreshed');
-          _fcmToken = newToken;
-          _saveFCMTokenToDatabase();
-        });
-      } else {
-        print('❌ Failed to get FCM token');
-      }
+      if (kIsWeb) return;
+      _fcmToken = await FirebaseMessaging.instance.getToken();
+      print('📱 FCM Token: $_fcmToken');
+      await _storeFCMToken();
     } catch (e) {
       print('❌ Error getting FCM token: $e');
     }
   }
 
-  // ✅ Save FCM token to Supabase - IMPROVED with better error handling
-  Future<void> _saveFCMTokenToDatabase() async {
+  Future<void> _storeFCMToken() async {
     if (_fcmToken == null) return;
-
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) {
-      print('⚠️ No authenticated user, skipping FCM token save');
-      return;
-    }
-
     try {
-      // First, deactivate old tokens for this user on this device
-      await Supabase.instance.client
-          .from('user_fcm_tokens')
-          .update({'is_active': false})
-          .eq('user_id', user.id)
-          .eq('device_type', Platform.isIOS ? 'ios' : Platform.isAndroid ? 'android' : 'unknown');
-
-      // Then insert/update the new token
-      await Supabase.instance.client.from('user_fcm_tokens').upsert(
-        {
+      final user = supabase.auth.currentUser;
+      if (user != null) {
+        await supabase.from('user_devices').upsert({
           'user_id': user.id,
-          'fcm_token': _fcmToken,
-          'device_type': Platform.isIOS ? 'ios' : Platform.isAndroid ? 'android' : 'unknown',
+          'device_token': _fcmToken,
+          'platform': 'android',
           'is_active': true,
-          'created_at': DateTime.now().toIso8601String(),
           'updated_at': DateTime.now().toIso8601String(),
-        },
-        onConflict: 'user_id,fcm_token',
-      );
-
-      print('✅ FCM token saved to database');
-    } catch (e) {
-      print('❌ Error saving FCM token: $e');
-      // Don't rethrow - this shouldn't break the app
-    }
-  }
-
-  // 🆕 NEW: Send notification via your Edge Function
-  Future<bool> sendNotificationViaEdgeFunction({
-    String? userId,
-    String? fcmToken,
-    required String title,
-    required String body,
-    Map<String, dynamic>? data,
-    String? imageUrl,
-  }) async {
-    try {
-      print('📤 Sending notification via Edge Function...');
-
-      final payload = {
-        if (userId != null) 'user_id': userId,
-        if (fcmToken != null) 'fcm_token': fcmToken,
-        'title': title,
-        'body': body,
-        if (data != null) 'data': data,
-        if (imageUrl != null) 'image': imageUrl,
-      };
-
-      final response = await Supabase.instance.client.functions.invoke(
-        'send-push-notification',
-        body: payload,
-      );
-
-      if (response.data != null && response.data['success'] == true) {
-        print('✅ Notification sent successfully via Edge Function');
-        print('📊 Response: ${response.data}');
-        return true;
-      } else {
-        print('❌ Edge Function returned error: ${response.data}');
-        return false;
+        });
       }
     } catch (e) {
-      print('❌ Error sending notification via Edge Function: $e');
-      return false;
+      print('❌ Error storing FCM token: $e');
     }
   }
 
-  // 🆕 NEW: Send test notification via Edge Function
-  Future<void> sendTestNotificationViaEdgeFunction() async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) {
-      print('⚠️ No authenticated user for test notification');
-      return;
-    }
+  void _setupMessageHandlers() {
+    FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+    FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageTap);
+  }
 
-    await sendNotificationViaEdgeFunction(
-      userId: user.id,
-      title: 'Test from IronXpress! 🧽',
-      body: 'Your Edge Function is working perfectly! This is a test notification.',
-      data: {
-        'type': 'test',
-        'timestamp': DateTime.now().toIso8601String(),
-        'action': 'open_app',
-      },
+  Future<void> _handleForegroundMessage(RemoteMessage message) async {
+    print('📱 Foreground message: ${message.messageId}');
+    await _showLocalNotification(message);
+    await _storeNotificationInDatabase(message);
+  }
+
+  Future<void> _handleMessageTap(RemoteMessage message) async {
+    print('📱 Message tapped: ${message.messageId}');
+    final data = message.data;
+    if (data['type'] == 'order_update' && data['order_id'] != null) {
+      print('🧭 Navigate to order: ${data['order_id']}');
+    }
+  }
+
+  Future<void> _showLocalNotification(RemoteMessage message) async {
+    if (kIsWeb) return;
+
+    const androidDetails = AndroidNotificationDetails(
+      'ironxpress_orders',
+      'Order Updates',
+      importance: Importance.high,
+      priority: Priority.high,
+      color: Color(0xFF6366F1),
+      icon: '@mipmap/ic_launcher',
+      showWhen: true,
+    );
+
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+
+    const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+
+    await _localNotifications.show(
+      message.hashCode,
+      message.notification?.title ?? 'IronXpress',
+      message.notification?.body ?? '',
+      details,
+      payload: message.data.toString(),
     );
   }
 
-  // ✅ Setup Firebase message handlers
-  void _setupMessageHandlers() {
-    print('🔔 Setting up Firebase message handlers...');
-
-    // Handle foreground messages
-    FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
-
-    // Handle notification taps when app is in background
-    FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap);
-
-    // Handle notification tap when app is terminated
-    _firebaseMessaging.getInitialMessage().then(_handleNotificationTap);
-
-    print('✅ Message handlers setup complete');
-  }
-
-  // ✅ Handle foreground messages - IMPROVED with better error handling
-  Future<void> _handleForegroundMessage(RemoteMessage message) async {
-    print('📱 Foreground message received: ${message.messageId}');
-    print('📱 Title: ${message.notification?.title}');
-    print('📱 Body: ${message.notification?.body}');
-    print('📱 Data: ${message.data}');
-
-    try {
-      // Store in database (don't let this fail the notification display)
-      await _storeNotificationInDatabase(message).catchError((e) {
-        print('⚠️ Failed to store notification in database: $e');
-      });
-
-      // Show local notification
-      await _showLocalNotification(message);
-    } catch (e) {
-      print('❌ Error handling foreground message: $e');
-    }
-  }
-
-  // ✅ Handle notification tap
-  Future<void> _handleNotificationTap(RemoteMessage? message) async {
-    if (message == null) return;
-
-    print('📱 Notification tapped: ${message.messageId}');
-
-    try {
-      // Mark as read in database
-      await _markNotificationAsRead(message.messageId);
-
-      // Handle navigation based on notification data
-      _handleNotificationNavigation(message.data);
-    } catch (e) {
-      print('❌ Error handling notification tap: $e');
-    }
-  }
-
-  // ✅ Show local notification for foreground messages - FIXED
-  Future<void> _showLocalNotification(RemoteMessage message) async {
-    try {
-      // Determine channel based on notification type
-      final notificationType = message.data['type'] ?? 'general';
-      final channelId = _getChannelIdForType(notificationType);
-
-      // Get appropriate channel name based on type
-      final channelName = _getChannelNameForType(notificationType);
-      final channelDescription = _getChannelDescriptionForType(notificationType);
-
-      final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-        channelId, // Use the dynamic channel ID here
-        channelName,
-        channelDescription: channelDescription,
-        importance: Importance.high,
-        priority: Priority.high,
-        icon: '@mipmap/ic_launcher',
-        showWhen: true,
-        enableVibration: true,
-        playSound: true,
-        styleInformation: BigTextStyleInformation(''), // Better for long text
-      );
-
-      const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-        categoryIdentifier: 'ironxpress_notification',
-      );
-
-      final NotificationDetails details = NotificationDetails(
-        android: androidDetails,
-        iOS: iosDetails,
-      );
-
-      await _localNotifications.show(
-        message.hashCode,
-        message.notification?.title ?? 'IronXpress',
-        message.notification?.body ?? 'You have a new notification',
-        details,
-        payload: message.messageId,
-      );
-
-      print('✅ Local notification shown');
-    } catch (e) {
-      print('❌ Error showing local notification: $e');
-    }
-  }
-
-  // 🆕 NEW: Get channel ID based on notification type
-  String _getChannelIdForType(String type) {
-    switch (type) {
-      case 'order_update':
-        return 'ironxpress_orders';
-      case 'promotion':
-        return 'ironxpress_promotions';
-      case 'system':
-        return 'ironxpress_system';
-      default:
-        return 'ironxpress_notifications';
-    }
-  }
-
-  // 🆕 NEW: Get channel name based on notification type
-  String _getChannelNameForType(String type) {
-    switch (type) {
-      case 'order_update':
-        return 'Order Updates';
-      case 'promotion':
-        return 'Promotions & Offers';
-      case 'system':
-        return 'System Notifications';
-      default:
-        return 'IronXpress Notifications';
-    }
-  }
-
-  // 🆕 NEW: Get channel description based on notification type
-  String _getChannelDescriptionForType(String type) {
-    switch (type) {
-      case 'order_update':
-        return 'Notifications about order status changes';
-      case 'promotion':
-        return 'Special offers, discounts and promotions';
-      case 'system':
-        return 'Important system notifications and updates';
-      default:
-        return 'General notifications for IronXpress';
-    }
-  }
-
-  // ✅ Store notification in Supabase database - IMPROVED
   Future<void> _storeNotificationInDatabase(RemoteMessage message) async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return;
-
     try {
-      await Supabase.instance.client.from('notifications').insert({
-        'user_id': user.id,
-        'title': message.notification?.title ?? 'IronXpress',
-        'body': message.notification?.body ?? '',
-        'data': message.data.isNotEmpty ? message.data : null,
-        'type': message.data['type'] ?? 'general',
-        'is_read': false,
-        'created_at': DateTime.now().toIso8601String(),
-      });
-      print('✅ Notification stored in database');
+      final user = supabase.auth.currentUser;
+      if (user != null) {
+        await supabase.from('notifications').insert({
+          'user_id': user.id,
+          'message_id': message.messageId,
+          'title': message.notification?.title ?? 'IronXpress',
+          'body': message.notification?.body ?? '',
+          'data': message.data,
+          'type': message.data['type'] ?? 'general',
+          'is_read': false,
+          'created_at': DateTime.now().toIso8601String(),
+        });
+      }
     } catch (e) {
       print('❌ Error storing notification: $e');
-      // Don't rethrow - this shouldn't break notification display
     }
   }
 
-  // ✅ Mark notification as read - IMPROVED
-  Future<void> _markNotificationAsRead(String? messageId) async {
-    if (messageId == null) return;
+  void _onNotificationTapped(NotificationResponse response) {
+    print('📱 Local notification tapped: ${response.payload}');
+  }
 
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return;
-
+  // ===========================================================================
+  // ✅ NEW: Are notifications enabled on this device?
+  // Uses Android-specific API when available; falls back to FCM settings on iOS.
+  // ===========================================================================
+  Future<bool> areNotificationsEnabled() async {
+    if (kIsWeb) return false;
     try {
-      await Supabase.instance.client
-          .from('notifications')
-          .update({
-        'is_read': true,
-        'read_at': DateTime.now().toIso8601String(),
-      })
-          .eq('user_id', user.id)
-          .eq('is_read', false); // Only update unread notifications
-
-      print('✅ Notification marked as read');
-    } catch (e) {
-      print('❌ Error marking notification as read: $e');
-    }
-  }
-
-  // ✅ Handle notification navigation - ENHANCED
-  void _handleNotificationNavigation(Map<String, dynamic> data) {
-    final type = data['type'] ?? 'general';
-    final action = data['action'] ?? '';
-
-    print('🔄 Handling navigation for type: $type, action: $action');
-
-    switch (type) {
-      case 'order_update':
-        final orderId = data['order_id'];
-        if (orderId != null) {
-          print('🔄 Navigate to order: $orderId');
-          // TODO: Navigate to order details screen
-          // NavigationService.instance.navigateToOrder(orderId);
-        }
-        break;
-      case 'promotion':
-        final couponCode = data['coupon_code'];
-        print('🎁 Navigate to promotions${couponCode != null ? ' with code: $couponCode' : ''}');
-        // TODO: Navigate to promotions screen
-        // NavigationService.instance.navigateToPromotions(couponCode);
-        break;
-      case 'system':
-        print('⚙️ Navigate to system notifications');
-        // TODO: Navigate to notifications screen
-        // NavigationService.instance.navigateToNotifications();
-        break;
-      case 'test':
-        print('🧪 Test notification - no navigation needed');
-        break;
-      default:
-        print('📱 General notification handled');
-    // TODO: Navigate to default screen (maybe notifications list)
-    // NavigationService.instance.navigateToNotifications();
-    }
-  }
-
-  // ✅ Create notification channels for Android
-  Future<void> _createNotificationChannels() async {
-    if (Platform.isAndroid) {
-      print('🔔 Creating Android notification channels...');
-
-      const List<AndroidNotificationChannel> channels = [
-        AndroidNotificationChannel(
-          'ironxpress_notifications',
-          'IronXpress Notifications',
-          description: 'General notifications for IronXpress',
-          importance: Importance.high,
-          enableVibration: true,
-          playSound: true,
-        ),
-        AndroidNotificationChannel(
-          'ironxpress_orders',
-          'Order Updates',
-          description: 'Notifications about order status changes',
-          importance: Importance.high,
-          enableVibration: true,
-          playSound: true,
-        ),
-        AndroidNotificationChannel(
-          'ironxpress_promotions',
-          'Promotions & Offers',
-          description: 'Special offers, discounts and promotions',
-          importance: Importance.defaultImportance,
-          enableVibration: false,
-          playSound: true,
-        ),
-        AndroidNotificationChannel(
-          'ironxpress_system',
-          'System Notifications',
-          description: 'Important system notifications and updates',
-          importance: Importance.high,
-          enableVibration: true,
-          playSound: true,
-        ),
-      ];
-
+      // Android path (plugin exposes native check)
       final androidPlugin = _localNotifications
-          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+          .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
 
       if (androidPlugin != null) {
-        for (final channel in channels) {
-          await androidPlugin.createNotificationChannel(channel);
-        }
-        print('✅ Android notification channels created');
+        final enabled = await androidPlugin.areNotificationsEnabled();
+        // Some plugin versions return bool?, default to true if null
+        return enabled ?? true;
+      }
+
+      // iOS/macOS path — query FCM permission state
+      final settings = await FirebaseMessaging.instance.getNotificationSettings();
+      final status = settings.authorizationStatus;
+      final allowed = status == AuthorizationStatus.authorized ||
+          status == AuthorizationStatus.provisional;
+      return allowed;
+    } catch (e) {
+      print('⚠️ areNotificationsEnabled() failed: $e');
+      // Be permissive on error to avoid blocking UX
+      return true;
+    }
+  }
+
+
+  Future<void> openNotificationSettings() async {
+    if (kIsWeb) return;
+    try {
+      // Try the dedicated notifications settings screen where supported
+      await AppSettings.openAppSettings(type: AppSettingsType.notification);
+    } catch (e) {
+      print('⚠️ openNotificationSettings(notification) failed, trying generic app settings: $e');
+      try {
+        // Fallback: open the app's general settings page
+        await AppSettings.openAppSettings();
+      } catch (e2) {
+        print('⚠️ openAppSettings() failed, falling back to permission prompt: $e2');
+        // Ultimate fallback (mainly iOS): re-request permission prompt
+        await FirebaseMessaging.instance.requestPermission(
+          alert: true,
+          badge: true,
+          sound: true,
+          provisional: false,
+        );
       }
     }
   }
 
-  // ✅ Handle local notification tap
-  void _onNotificationTapped(NotificationResponse response) {
-    print('📱 Local notification tapped: ${response.payload}');
 
-    // Mark the notification as read if we have the payload (message ID)
-    if (response.payload != null) {
-      _markNotificationAsRead(response.payload);
+  // --- PUBLIC API: Combined send (DB + push + email) -------------------------
+
+  Future<void> sendOrderNotification({
+    required String userId,
+    required String orderId,
+    required String title,
+    required String body,
+    required String type,
+    required String status,
+    Map<String, dynamic>? orderData,
+    bool sendEmail = true,
+  }) async {
+    try {
+      print('📤 Sending comprehensive notification for order $orderId');
+
+      await _storeOrderNotification(
+        userId: userId,
+        orderId: orderId,
+        title: title,
+        body: body,
+        type: type,
+        orderData: orderData,
+      );
+
+      await _sendPushNotification(
+        userId: userId,
+        title: title,
+        body: body,
+        data: {
+          'type': type,
+          'order_id': orderId,
+          'status': status,
+          ...?orderData,
+        },
+      );
+
+      if (sendEmail) {
+        await _sendEmailNotification(
+          userId: userId,
+          orderId: orderId,
+          status: status,
+          type: type,
+          orderData: orderData,
+        );
+      }
+
+      print('✅ Comprehensive notification sent for order $orderId');
+    } catch (e) {
+      print('❌ Error sending comprehensive notification: $e');
     }
   }
 
-  // ✅ Subscribe to topics for targeted notifications
-  Future<void> subscribeToTopics(String userId) async {
-    if (!_hasPermission) {
-      print('⚠️ No notification permissions, skipping topic subscription');
-      return;
+  Future<void> _storeOrderNotification({
+    required String userId,
+    required String orderId,
+    required String title,
+    required String body,
+    required String type,
+    Map<String, dynamic>? orderData,
+  }) async {
+    try {
+      await supabase.from('notifications').insert({
+        'user_id': userId,
+        'title': title,
+        'body': body,
+        'data': {
+          'order_id': orderId,
+          'type': type,
+          ...?orderData,
+        },
+        'type': type,
+        'is_read': false,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+    } catch (e) {
+      print('❌ Error storing order notification: $e');
     }
+  }
+
+  Future<void> _sendPushNotification({
+    required String userId,
+    required String title,
+    required String body,
+    required Map<String, dynamic> data,
+  }) async {
+    try {
+      final devices = await supabase
+          .from('user_devices')
+          .select('device_token')
+          .eq('user_id', userId)
+          .eq('is_active', true);
+
+      if (devices.isEmpty) {
+        print('⚠️ No active devices found for user $userId');
+        return;
+      }
+
+      for (final device in devices) {
+        await supabase.functions.invoke('send-push', body: {
+          'token': device['device_token'],
+          'title': title,
+          'body': body,
+          'data': data,
+        });
+      }
+    } catch (e) {
+      print('❌ Error sending push notification: $e');
+    }
+  }
+
+  Future<void> _sendEmailNotification({
+    required String userId,
+    required String orderId,
+    required String status,
+    required String type,
+    Map<String, dynamic>? orderData,
+  }) async {
+    try {
+      final preferences = await _getUserEmailPreferences(userId);
+      if (!preferences['enabled']!) {
+        print('📧 Email notifications disabled for user $userId');
+        return;
+      }
+
+      final userResponse = await supabase
+          .from('profiles')
+          .select('full_name, email')
+          .eq('id', userId)
+          .maybeSingle();
+
+      if (userResponse == null) {
+        print('❌ User profile not found for $userId');
+        return;
+      }
+
+      final userName = userResponse['full_name'] ?? 'Valued Customer';
+      final userEmail = userResponse['email'];
+
+      if (userEmail == null || userEmail.isEmpty) {
+        print('❌ User email not found for $userId');
+        return;
+      }
+
+      String emailType = 'order_status_update';
+      if (type == 'order_placed' || type == 'order_confirmation') {
+        emailType = 'order_placed';
+      } else if (status == 'delivered' || status == 'completed') {
+        emailType = 'order_delivered';
+      }
+
+      if (!preferences[emailType]!) {
+        print('📧 Email type $emailType disabled for user $userId');
+        return;
+      }
+
+      final emailService = EmailService();
+      final success = await emailService.sendOrderEmail(
+        userEmail: userEmail,
+        userName: userName,
+        orderId: orderId,
+        status: status,
+        emailType: emailType,
+        orderData: orderData,
+      );
+
+      if (success) {
+        print('📧 Email sent successfully to $userEmail');
+      } else {
+        print('❌ Failed to send email to $userEmail');
+      }
+    } catch (e) {
+      print('❌ Error sending email notification: $e');
+    }
+  }
+
+  Future<Map<String, bool>> _getUserEmailPreferences(String userId) async {
+    try {
+      final response = await supabase
+          .from('user_notification_preferences')
+          .select()
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (response == null) {
+        return {
+          'enabled': true,
+          'order_placed': true,
+          'order_status_update': true,
+          'order_delivered': true,
+        };
+      }
+
+      return {
+        'enabled': response['email_notifications_enabled'] ?? true,
+        'order_placed': response['order_placed_email'] ?? true,
+        'order_status_update': response['order_status_email'] ?? true,
+        'order_delivered': response['order_delivered_email'] ?? true,
+      };
+    } catch (e) {
+      print('❌ Error getting email preferences: $e');
+      return {
+        'enabled': true,
+        'order_placed': true,
+        'order_status_update': true,
+        'order_delivered': true,
+      };
+    }
+  }
+
+  Future<void> subscribeToTopics(String userId) async {
+    if (!_isInitialized || kIsWeb) return;
 
     try {
-      await _firebaseMessaging.subscribeToTopic('user_$userId');
-      await _firebaseMessaging.subscribeToTopic('all_users');
-      await _firebaseMessaging.subscribeToTopic('ironxpress_updates');
-      print('✅ Subscribed to notification topics for user: $userId');
+      await FirebaseMessaging.instance.subscribeToTopic('user_$userId');
+      await FirebaseMessaging.instance.subscribeToTopic('all_users');
+      print('✅ Subscribed to topics for user $userId');
     } catch (e) {
       print('❌ Error subscribing to topics: $e');
     }
   }
 
-  // ✅ Unsubscribe from topics
   Future<void> unsubscribeFromTopics(String userId) async {
+    if (!_isInitialized || kIsWeb) return;
+
     try {
-      await _firebaseMessaging.unsubscribeFromTopic('user_$userId');
-      await _firebaseMessaging.unsubscribeFromTopic('all_users');
-      await _firebaseMessaging.unsubscribeFromTopic('ironxpress_updates');
-      print('✅ Unsubscribed from notification topics for user: $userId');
+      await FirebaseMessaging.instance.unsubscribeFromTopic('user_$userId');
+      await FirebaseMessaging.instance.unsubscribeFromTopic('all_users');
+      print('✅ Unsubscribed from topics for user $userId');
     } catch (e) {
       print('❌ Error unsubscribing from topics: $e');
     }
   }
 
-  // ✅ Send a test notification (local only)
-  Future<void> sendTestNotification() async {
-    try {
-      const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-        'ironxpress_notifications',
-        'IronXpress Notifications',
-        channelDescription: 'Test notification',
-        importance: Importance.high,
-        priority: Priority.high,
-        icon: '@mipmap/ic_launcher',
-      );
+  Future<void> sendOrderPlacedNotification({
+    required String userId,
+    required String orderId,
+    required Map<String, dynamic> orderData,
+  }) async {
+    await sendOrderNotification(
+      userId: userId,
+      orderId: orderId,
+      title: 'Order Placed Successfully! 🎉',
+      body: 'Your order #$orderId has been placed and will be processed soon.',
+      type: 'order_placed',
+      status: 'confirmed',
+      orderData: orderData,
+      sendEmail: true,
+    );
+  }
 
-      const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-      );
+  Future<void> sendOrderStatusUpdateNotification({
+    required String userId,
+    required String orderId,
+    required String oldStatus,
+    required String newStatus,
+    required Map<String, dynamic> orderData,
+  }) async {
+    final title = _getStatusUpdateTitle(newStatus);
+    final body = _getStatusUpdateBody(orderId, newStatus);
 
-      const NotificationDetails details = NotificationDetails(
-        android: androidDetails,
-        iOS: iosDetails,
-      );
+    await sendOrderNotification(
+      userId: userId,
+      orderId: orderId,
+      title: title,
+      body: body,
+      type: 'order_status_update',
+      status: newStatus,
+      orderData: orderData,
+      sendEmail: true,
+    );
+  }
 
-      await _localNotifications.show(
-        999,
-        'IronXpress Local Test',
-        'This is a local test notification! 🧪',
-        details,
-      );
-
-      print('✅ Local test notification sent');
-    } catch (e) {
-      print('❌ Error sending test notification: $e');
+  String _getStatusUpdateTitle(String status) {
+    switch (status) {
+      case 'accepted':
+        return 'Order Accepted ✅';
+      case 'assigned':
+        return 'Rider Assigned 🚚';
+      case 'working_in_progress':
+      case 'work_in_progress':
+        return 'Work in Progress 🧽';
+      case 'ready_to_dispatch':
+        return 'Ready for Delivery 📦';
+      case 'in_transit':
+        return 'Out for Delivery 🚛';
+      case 'delivered':
+        return 'Order Delivered ✅';
+      case 'completed':
+        return 'Order Completed 🎉';
+      case 'cancelled':
+        return 'Order Cancelled ❌';
+      default:
+        return 'Order Update 📦';
     }
   }
 
-  // ✅ Get notification history from database
-  Future<List<Map<String, dynamic>>> getNotificationHistory() async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return [];
-
-    try {
-      final response = await Supabase.instance.client
-          .from('notifications')
-          .select()
-          .eq('user_id', user.id)
-          .order('created_at', ascending: false)
-          .limit(50);
-
-      return List<Map<String, dynamic>>.from(response);
-    } catch (e) {
-      print('❌ Error getting notification history: $e');
-      return [];
+  String _getStatusUpdateBody(String orderId, String status) {
+    switch (status) {
+      case 'accepted':
+        return 'Great news! Your order #$orderId has been accepted and is being prepared.';
+      case 'assigned':
+        return 'A delivery partner has been assigned to your order #$orderId. They will contact you soon!';
+      case 'working_in_progress':
+      case 'work_in_progress':
+        return 'Our team is currently working on your order #$orderId with care and attention.';
+      case 'ready_to_dispatch':
+        return 'Your order #$orderId is ready and will be dispatched soon.';
+      case 'in_transit':
+        return 'Your order #$orderId is on the way to your address.';
+      case 'delivered':
+        return 'Your laundry has been delivered. Thank you for choosing IronXpress!';
+      case 'completed':
+        return 'Your order #$orderId has been completed successfully. Thank you!';
+      case 'cancelled':
+        return 'Your order #$orderId has been cancelled. Contact support if you have questions.';
+      default:
+        return 'Your order #$orderId status has been updated to: ${status.replaceAll('_', ' ')}';
     }
   }
 
-  // ✅ Get unread notification count
-  Future<int> getUnreadCount() async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return 0;
-
+  // ---------------------------------------------------------------------------
+  // ✅ Used by NotificationHandler to trigger a phone popup/push via Edge Func
+  // ---------------------------------------------------------------------------
+  Future<bool> sendNotificationViaEdgeFunction({
+    required String userId,
+    required String title,
+    required String body,
+    required Map<String, dynamic> data,
+  }) async {
     try {
-      final response = await Supabase.instance.client
-          .from('notifications')
-          .select('id')
-          .eq('user_id', user.id)
-          .eq('is_read', false);
+      // Fetch active device tokens for the user
+      final devices = await supabase
+          .from('user_devices')
+          .select('device_token')
+          .eq('user_id', userId)
+          .eq('is_active', true);
 
-      if (response is List) {
-        return response.length;
+      if (devices.isEmpty) {
+        print('⚠️ No active devices for user $userId');
+        return false;
       }
-      return 0;
+
+      int sent = 0;
+      for (final device in devices) {
+        final token = (device['device_token'] ?? '').toString().trim();
+        if (token.isEmpty) continue;
+
+        await supabase.functions.invoke(
+          'send-push', // rename if your Edge Function uses a different name
+          body: <String, dynamic>{
+            'token': token,
+            'title': title,
+            'body': body,
+            'data': data,
+          },
+        );
+        sent++;
+      }
+
+      print('✅ Edge function push enqueued to $sent device(s) for $userId');
+      return sent > 0;
     } catch (e) {
-      print('❌ Error getting unread count: $e');
-      return 0;
+      print('❌ Error in sendNotificationViaEdgeFunction: $e');
+      return false;
     }
   }
-
-  // ✅ Mark all notifications as read
-  Future<void> markAllAsRead() async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return;
-
-    try {
-      await Supabase.instance.client
-          .from('notifications')
-          .update({
-        'is_read': true,
-        'read_at': DateTime.now().toIso8601String(),
-      })
-          .eq('user_id', user.id)
-          .eq('is_read', false);
-      print('✅ All notifications marked as read');
-    } catch (e) {
-      print('❌ Error marking all as read: $e');
-    }
-  }
-
-  // ✅ Clear old notifications
-  Future<void> clearOldNotifications({int daysOld = 30}) async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return;
-
-    try {
-      final cutoffDate = DateTime.now().subtract(Duration(days: daysOld));
-
-      await Supabase.instance.client
-          .from('notifications')
-          .delete()
-          .eq('user_id', user.id)
-          .lt('created_at', cutoffDate.toIso8601String());
-
-      print('✅ Old notifications cleared');
-    } catch (e) {
-      print('❌ Error clearing old notifications: $e');
-    }
-  }
-
-  // ✅ Check if notifications are enabled
-  Future<bool> areNotificationsEnabled() async {
-    final settings = await _firebaseMessaging.getNotificationSettings();
-    return settings.authorizationStatus == AuthorizationStatus.authorized;
-  }
-
-  // ✅ Open notification settings
-  Future<void> openNotificationSettings() async {
-    try {
-      await _firebaseMessaging.requestPermission();
-    } catch (e) {
-      print('❌ Error opening notification settings: $e');
-    }
-  }
-
-  // ✅ Getters
-  String? get fcmToken => _fcmToken;
-  bool get isInitialized => _isInitialized;
-  bool get hasPermission => _hasPermission;
 }

@@ -68,6 +68,8 @@ dependencies:
 
   # ✅ Internationalization
   intl: ^0.20.2
+  app_settings: ^5.1.1
+
 
   # ✅ Animation support
   lottie: ^3.1.0

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
+import '../widgets/notification_service.dart';
 import 'colors.dart';
 import 'address_book_screen.dart';
 import 'order_success_screen.dart';
@@ -49,6 +50,9 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
   double deliveryGstPercent = 0.0;      // % GST on delivery fee
   double freeStandardThreshold = 300.0;
   // free standard delivery threshold (after discount)
+
+
+  Map<String, Map<String, String>> _billingNotes = {}; // {key: {title, content}}
 
 
   // Animation controllers
@@ -212,21 +216,49 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
 
   Future<void> _loadBillingSettings() async {
     try {
+      // 1) settings
       final response = await supabase.from('billing_settings').select().single();
+
+      // 2) notes (include delivery_gst so the info icon can explain GST on delivery)
+      final List<dynamic> notesResp = await supabase
+          .from('billing_notes')
+          .select()
+          .or(
+          'key.eq.minimum_cart_fee,'
+              'key.eq.platform_fee,'
+              'key.eq.service_tax,'
+              'key.eq.delivery_standard,'
+              'key.eq.delivery_standard_free,'
+              'key.eq.delivery_express,'
+              'key.eq.delivery_gst'
+      );
+
+      // 3) map to {key: {title, content}}
+      final Map<String, Map<String, String>> notesMap = {
+        for (final row in notesResp)
+          (row['key'] as String): {
+            'title': row['title']?.toString() ?? '',
+            'content': row['content']?.toString() ?? '',
+          }
+      };
+
       setState(() {
         minimumCartFee        = (response['minimum_cart_fee'] ?? 100).toDouble();
         platformFee           = (response['platform_fee'] ?? 0).toDouble();
         serviceTaxPercent     = (response['service_tax_percent'] ?? 0).toDouble();
         expressDeliveryFee    = (response['express_delivery_fee'] ?? 0).toDouble();
         standardDeliveryFee   = (response['standard_delivery_fee'] ?? 0).toDouble();
-        deliveryGstPercent    = (response['delivery_gst_percent'] ?? 0).toDouble();   // NEW
-        freeStandardThreshold = (response['free_standard_threshold'] ?? 300).toDouble(); // NEW
+        deliveryGstPercent    = (response['delivery_gst_percent'] ?? 0).toDouble();
+        freeStandardThreshold = (response['free_standard_threshold'] ?? 300).toDouble();
+
+        _billingNotes = notesMap;
         isLoadingBillingSettings = false;
       });
     } catch (e) {
       setState(() => isLoadingBillingSettings = false);
     }
   }
+
 
 
 
@@ -293,6 +325,73 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
       });
     }
   }
+
+  // SAME DIALOG AS ReviewCartScreen
+  void _showInfoDialog(String title, String content) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Colors.white, Colors.blue.shade50],
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: kPrimaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(Icons.info_outline, color: kPrimaryColor, size: 18),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  content,
+                  style: const TextStyle(fontSize: 13.5, color: Colors.black87, height: 1.35),
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('OK'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
 
   // Calculate billing breakdown
   // Calculate billing breakdown (merged service taxes + free standard on discounted subtotal)
@@ -964,6 +1063,18 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
         'updated_at': DateTime.now().toIso8601String(),
       });
 
+      await NotificationService().sendOrderPlacedNotification(
+        userId: user.id,
+        orderId: orderId,
+        orderData: {
+          'pickup_date': selectedPickupDate.toIso8601String().split('T')[0],
+          'delivery_date': selectedDeliveryDate.toIso8601String().split('T')[0],
+          'total_amount': totalAmount,
+          'payment_method': _selectedPaymentMethod,
+          'delivery_type': isExpressDelivery ? 'express' : 'standard',
+        },
+      );
+
       // Create order items
       for (final item in widget.cartItems) {
         await supabase.from('order_items').insert({
@@ -1207,11 +1318,16 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     final billing = _calculateBilling();
     final bool isStandard = !isExpressDelivery;
 
-    // 👉 Build the Discount row label. If a coupon is applied, show code like: Discount (SAVE10)
+    // discount label like: Discount (SAVE10)
     final bool hasDiscount = (billing['discount'] ?? 0) > 0;
     final String discountLabel = hasDiscount && (widget.appliedCouponCode?.isNotEmpty ?? false)
         ? 'Discount (${widget.appliedCouponCode})'
         : 'Discount';
+
+    // compute “free standard delivery” on the discounted subtotal
+    final double sub = billing['subtotal'] ?? 0;
+    final double disc = billing['discount'] ?? 0;
+    final bool qualifiesFreeStandard = isStandard && ((sub - disc) >= freeStandardThreshold);
 
     return Container(
       margin: EdgeInsets.all(cardMargin),
@@ -1308,35 +1424,67 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
               padding: EdgeInsets.all(cardPadding),
               child: Column(
                 children: [
-                  // Order: Subtotal → Discount → Min Fee → Platform → Delivery → Service Taxes → Total
-                  _buildBillingRow('Subtotal', billing['subtotal']!, isSmallScreen: isSmallScreen),
+                  // Subtotal (ⓘ not needed)
+                  _buildBillingRow(
+                    'Subtotal',
+                    billing['subtotal'] ?? 0,
+                    isSmallScreen: isSmallScreen,
+                  ),
 
+                  // Discount (green)
                   if (hasDiscount)
                     _buildBillingRow(
-                      discountLabel, // 👈 shows: Discount (CODE)
-                      -billing['discount']!,
+                      discountLabel,
+                      -(billing['discount'] ?? 0),
                       color: Colors.green,
                       isSmallScreen: isSmallScreen,
                     ),
 
-                  if (billing['minimumCartFee']! > 0)
-                    _buildBillingRow('Minimum Cart Fee', billing['minimumCartFee']!, isSmallScreen: isSmallScreen),
+                  // Minimum Cart Fee (ⓘ)
+                  if ((billing['minimumCartFee'] ?? 0) > 0)
+                    _buildBillingRow(
+                      'Minimum Cart Fee',
+                      billing['minimumCartFee'] ?? 0,
+                      infoKey: 'minimum_cart_fee',
+                      isSmallScreen: isSmallScreen,
+                    ),
 
-                  _buildBillingRow('Platform Fee', billing['platformFee']!, isSmallScreen: isSmallScreen),
-
+                  // Platform Fee (ⓘ)
                   _buildBillingRow(
-                    'Delivery Fee (${isStandard ? 'Standard' : 'Express'})',
-                    billing['deliveryFee']!,
+                    'Platform Fee',
+                    billing['platformFee'] ?? 0,
+                    infoKey: 'platform_fee',
                     isSmallScreen: isSmallScreen,
                   ),
 
-                  // Merged service taxes
-                  _buildBillingRow('Service Taxes', billing['serviceTax']!, isSmallScreen: isSmallScreen),
+                  // Delivery Fee (ⓘ) with Standard/Express + override title for Free Standard
+                  _buildBillingRow(
+                    'Delivery Fee (${isStandard ? 'Standard' : 'Express'})',
+                    billing['deliveryFee'] ?? 0,
+                    infoKey: isStandard
+                        ? (qualifiesFreeStandard
+                        ? 'delivery_standard_free'
+                        : 'delivery_standard')
+                        : 'delivery_express',
+                    overrideTitle:
+                    (isStandard && qualifiesFreeStandard) ? 'Standard Delivery — Free' : null,
+                    isSmallScreen: isSmallScreen,
+                  ),
+
+                  // Service Taxes (ⓘ) — merged: items tax + delivery GST
+                  _buildBillingRow(
+                    'Service Taxes',
+                    billing['serviceTax'] ?? 0,
+                    infoKey: 'service_tax', // your notes can explain item tax + delivery GST
+                    isSmallScreen: isSmallScreen,
+                  ),
 
                   const Divider(height: 20),
+
+                  // Total
                   _buildBillingRow(
                     'Total Amount',
-                    billing['totalAmount']!,
+                    billing['totalAmount'] ?? 0,
                     isTotal: true,
                     color: kPrimaryColor,
                     isSmallScreen: isSmallScreen,
@@ -1353,34 +1501,70 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
 
 
 
-  Widget _buildBillingRow(String label, double amount, {bool isTotal = false, Color? color, String? customValue, required bool isSmallScreen}) {
+
+  Widget _buildBillingRow(
+      String label,
+      double amount, {
+        bool isTotal = false,
+        Color? color,
+        String? customValue,
+
+        // NEW (match ReviewCartScreen)
+        String? infoKey,
+        String? overrideTitle,
+
+        // keep existing API need:
+        required bool isSmallScreen,
+      }) {
+    final bool clickable = infoKey != null && (_billingNotes[infoKey] != null);
+
+    final TextStyle labelStyle = TextStyle(
+      fontSize: isTotal ? (isSmallScreen ? 14 : 16) : (isSmallScreen ? 12 : 14),
+      fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+      color: color ?? Colors.black87,
+    );
+
+    final TextStyle valueStyle = TextStyle(
+      fontSize: isTotal ? (isSmallScreen ? 14 : 16) : (isSmallScreen ? 12 : 14),
+      fontWeight: isTotal ? FontWeight.bold : FontWeight.w600,
+      color: color ?? Colors.black87,
+    );
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Expanded(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: isTotal ? (isSmallScreen ? 14 : 16) : (isSmallScreen ? 12 : 14),
-                fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
-                color: color ?? Colors.black87,
-              ),
+          InkWell(
+            onTap: clickable
+                ? () {
+              final note = _billingNotes[infoKey]!;
+              _showInfoDialog(
+                overrideTitle ?? (note['title'] ?? label),
+                note['content'] ?? '',
+              );
+            }
+                : null,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(label, style: labelStyle),
+                if (clickable) ...[
+                  const SizedBox(width: 4),
+                  Icon(Icons.info_outline, size: 14, color: color ?? Colors.black54),
+                ],
+              ],
             ),
           ),
           Text(
             customValue ?? '₹${amount.toStringAsFixed(2)}',
-            style: TextStyle(
-              fontSize: isTotal ? (isSmallScreen ? 14 : 16) : (isSmallScreen ? 12 : 14),
-              fontWeight: isTotal ? FontWeight.bold : FontWeight.w600,
-              color: color ?? Colors.black87,
-            ),
+            style: valueStyle,
           ),
         ],
       ),
     );
   }
+
 
   // Payment method selection widget
   Widget _buildPaymentMethodSelection(double cardMargin, double cardPadding, bool isSmallScreen) {

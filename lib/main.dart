@@ -1,26 +1,25 @@
 // lib/main.dart
 // ✅ SIMPLIFIED MAIN.DART — PREMIUM SPLASH WITH TRANSPARENT LOGO (NO 10s ANIMATION)
-import 'dart:math';
 import 'dart:async';
+import 'dart:math';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:ironly/widgets/mobile_wrapper.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'screens/home_screen.dart';
+// Project imports
+import 'package:ironly/widgets/mobile_wrapper.dart';
 import 'screens/colors.dart';
-import 'screens/login_screen.dart';
 import 'screens/app_wrapper.dart';
 import 'widgets/notification_service.dart';
 
-// helper to read force-mobile flag on web only (conditional imports)
-import 'forced_mobile_helper.dart';
+// If you reference EmailService elsewhere, keep this import. Safe to leave even if unused.
+import 'widgets/email_service.dart';
 
-// 👇 GLOBAL CART COUNT NOTIFIER
+// A global notifier you can use anywhere (e.g., to update cart badge)
 final ValueNotifier<int> cartItemCountNotifier = ValueNotifier<int>(0);
 
 // ✅ BACKGROUND MESSAGE HANDLER (TOP-LEVEL FUNCTION)
@@ -29,6 +28,8 @@ Future<void> _handleBackgroundMessage(RemoteMessage message) async {
   print('📱 Background message received: ${message.messageId}');
   try {
     await Firebase.initializeApp();
+
+    // Ensure Supabase is ready in background isolate
     try {
       Supabase.instance.client;
     } catch (_) {
@@ -38,6 +39,7 @@ Future<void> _handleBackgroundMessage(RemoteMessage message) async {
         'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
       );
     }
+
     await Supabase.instance.client.from('notifications').insert({
       'message_id': message.messageId,
       'title': message.notification?.title ?? 'IronXpress',
@@ -47,6 +49,7 @@ Future<void> _handleBackgroundMessage(RemoteMessage message) async {
       'is_read': false,
       'created_at': DateTime.now().toIso8601String(),
     });
+
     print('✅ Background notification stored');
   } catch (e) {
     print('❌ Error in background handler: $e');
@@ -56,10 +59,9 @@ Future<void> _handleBackgroundMessage(RemoteMessage message) async {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
+  await SystemChrome.setPreferredOrientations(
+    [DeviceOrientation.portraitUp, DeviceOrientation.portraitDown],
+  );
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -74,7 +76,7 @@ Future<void> main() async {
 
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
-  print('🚀 Initializing ironXpress with notifications...');
+  print('🚀 Initializing IronXpress with notifications...');
 
   try {
     await EasyLocalization.ensureInitialized();
@@ -85,6 +87,15 @@ Future<void> main() async {
       await Firebase.initializeApp();
       print('✅ Firebase initialized successfully');
       firebaseInitialized = true;
+
+      // iOS foreground presentation options (has no effect on Android)
+      await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
+      // Background message handler
       FirebaseMessaging.onBackgroundMessage(_handleBackgroundMessage);
       print('✅ Background message handler set');
     } catch (firebaseError) {
@@ -131,7 +142,7 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    print('🏗️ MyApp build called - kIsWeb: $kIsWeb');
+    print('🏗️ MyApp build called — kIsWeb: $kIsWeb');
 
     return ValueListenableBuilder<int>(
       valueListenable: cartItemCountNotifier,
@@ -175,13 +186,13 @@ class MyApp extends StatelessWidget {
             ),
           ),
           home: const IronXpressPremiumEntry(),
+
           // 🔥 CRITICAL: Wrap ENTIRE app with MobileWrapper
           builder: (context, child) {
-            print('🔧 MaterialApp builder called - wrapping with MobileWrapper');
+            print('🔧 MaterialApp.builder called — wrapping with MobileWrapper');
+            if (child == null) return const SizedBox.shrink();
 
-            if (child == null) return Container();
-
-            // Apply basic MediaQuery fixes first
+            // Clamp text scaling & pass into MobileWrapper
             final mediaQuery = MediaQuery.of(context);
             final adjustedChild = MediaQuery(
               data: mediaQuery.copyWith(
@@ -189,8 +200,6 @@ class MyApp extends StatelessWidget {
               ),
               child: child,
             );
-
-            // Then wrap with MobileWrapper (which handles web vs mobile)
             return MobileWrapper(child: adjustedChild);
           },
         );
@@ -221,8 +230,11 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
   Future<void> _runSplashSequence() async {
     await Future.delayed(const Duration(seconds: 3));
     if (!mounted) return;
+
     setState(() => _showStatus = true);
+
     await _setupNotificationSystemAsync();
+
     await Future.delayed(const Duration(seconds: 2));
     _navigateToAppWrapper();
   }
@@ -255,8 +267,7 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
     Navigator.pushReplacement(
       context,
       PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) =>
-        const AppWrapper(), // Don't wrap again - already wrapped by MaterialApp builder
+        pageBuilder: (context, animation, secondaryAnimation) => const AppWrapper(),
         transitionDuration: const Duration(milliseconds: 800),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return FadeTransition(
@@ -265,10 +276,9 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
               position: Tween<Offset>(
                 begin: const Offset(1.0, 0.0),
                 end: Offset.zero,
-              ).animate(CurvedAnimation(
-                parent: animation,
-                curve: Curves.easeInOut,
-              )),
+              ).animate(
+                CurvedAnimation(parent: animation, curve: Curves.easeInOut),
+              ),
               child: child,
             ),
           );
@@ -322,12 +332,11 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
                   height: logoSize,
                   child: FittedBox(
                     fit: BoxFit.contain,
-                    child: Image.asset(
-                      'assets/images/ironxpress_logo.png',
-                    ),
+                    child: Image.asset('assets/images/ironxpress_logo.png'),
                   ),
                 ),
                 SizedBox(height: availableHeight * 0.06),
+
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 300),
                   child: _showStatus
@@ -337,10 +346,7 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
                       SizedBox(
                         width: isSmall ? 50 : 60,
                         height: isSmall ? 50 : 60,
-                        child: CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            Colors.blueAccent,
-                          ),
+                        child: const CircularProgressIndicator(
                           strokeWidth: 3,
                         ),
                       ),
