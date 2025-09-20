@@ -6,7 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
-
+import 'about_us_screen.dart';
 import 'colors.dart';
 import 'login_screen.dart';
 import 'support_screen.dart';
@@ -216,6 +216,14 @@ class _ProfileScreenState extends State<ProfileScreen>
       setState(fn);
     }
   }
+
+  void _navigateToAboutUs() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const AboutUsScreen()),
+    );
+  }
+
 
   Future<void> _loadProfileData() async {
     final user = supabase.auth.currentUser;
@@ -1473,6 +1481,15 @@ class _ProfileScreenState extends State<ProfileScreen>
         'gradient': [kPrimaryColor.withOpacity(0.4), kPrimaryColor.withOpacity(0.2)],
         'onTap': () => _openTermsConditions(),
       },
+
+      {
+        'icon': Icons.info_rounded,
+        'title': 'About Us',
+        'subtitle': 'Know our story & mission',
+        'gradient': [kPrimaryColor.withOpacity(0.35), kPrimaryColor.withOpacity(0.15)],
+        'onTap': () => _navigateToAboutUs(),
+      },
+
     ];
 
     return Container(
