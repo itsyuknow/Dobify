@@ -1,15 +1,13 @@
-
-
 import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/material.dart'; // for Color
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:app_settings/app_settings.dart';
 
-import 'email_service.dart';
+import 'email_service.dart'; // Keep email service unchanged
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -24,6 +22,7 @@ class NotificationService {
   String? _fcmToken;
 
   bool get isInitialized => _isInitialized;
+  String? get fcmToken => _fcmToken;
 
   Future<void> initialize() async {
     try {
@@ -56,11 +55,14 @@ class NotificationService {
       // Ask for permissions
       await _requestPermissions();
 
-      // Token
-      await _getFCMToken();
+      // Get and store FCM token
+      await _initializeFCMToken();
 
-      // Handlers
+      // Setup message handlers
       _setupMessageHandlers();
+
+      // Listen for token refresh
+      _listenForTokenRefresh();
 
       _isInitialized = true;
       print('✅ Notification service initialized successfully');
@@ -104,42 +106,72 @@ class NotificationService {
     }
   }
 
-  Future<void> _getFCMToken() async {
+  // 🔥 IMPROVED FCM TOKEN MANAGEMENT
+  Future<void> _initializeFCMToken() async {
     try {
       if (kIsWeb) return;
+
       _fcmToken = await FirebaseMessaging.instance.getToken();
-      print('📱 FCM Token: $_fcmToken');
-      await _storeFCMToken();
+      print('📱 FCM Token obtained: $_fcmToken');
+
+      if (_fcmToken != null) {
+        await _storeFCMToken();
+      }
     } catch (e) {
       print('❌ Error getting FCM token: $e');
     }
   }
 
   Future<void> _storeFCMToken() async {
-    if (_fcmToken == null) return;
+    if (_fcmToken == null) {
+      print('⚠️ No FCM token to store');
+      return;
+    }
+
     try {
       final user = supabase.auth.currentUser;
-      if (user != null) {
-        await supabase.from('user_devices').upsert({
-          'user_id': user.id,
-          'device_token': _fcmToken,
-          'platform': 'android',
-          'is_active': true,
-          'updated_at': DateTime.now().toIso8601String(),
-        });
+      if (user == null) {
+        print('⚠️ No authenticated user to store token for');
+        return;
       }
+
+      await supabase.from('user_devices').upsert({
+        'user_id': user.id,
+        'device_token': _fcmToken,
+        'platform': 'android', // You can detect platform if needed
+        'is_active': true,
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+
+      print('✅ FCM token stored successfully');
     } catch (e) {
       print('❌ Error storing FCM token: $e');
     }
   }
 
+  void _listenForTokenRefresh() {
+    if (kIsWeb) return;
+
+    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+      print('🔄 FCM token refreshed: $newToken');
+      _fcmToken = newToken;
+      await _storeFCMToken();
+    });
+  }
+
   void _setupMessageHandlers() {
+    if (kIsWeb) return;
+
     FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
     FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageTap);
   }
 
   Future<void> _handleForegroundMessage(RemoteMessage message) async {
-    print('📱 Foreground message: ${message.messageId}');
+    print('📱 Foreground message received: ${message.messageId}');
+    print('📱 Title: ${message.notification?.title}');
+    print('📱 Body: ${message.notification?.body}');
+    print('📱 Data: ${message.data}');
+
     await _showLocalNotification(message);
     await _storeNotificationInDatabase(message);
   }
@@ -147,8 +179,10 @@ class NotificationService {
   Future<void> _handleMessageTap(RemoteMessage message) async {
     print('📱 Message tapped: ${message.messageId}');
     final data = message.data;
+
     if (data['type'] == 'order_update' && data['order_id'] != null) {
       print('🧭 Navigate to order: ${data['order_id']}');
+      // Add navigation logic here if needed
     }
   }
 
@@ -171,7 +205,10 @@ class NotificationService {
       presentSound: true,
     );
 
-    const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+    const details = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails
+    );
 
     await _localNotifications.show(
       message.hashCode,
@@ -194,6 +231,8 @@ class NotificationService {
           'data': message.data,
           'type': message.data['type'] ?? 'general',
           'is_read': false,
+          'is_sent': true, // Mark as sent since it came from FCM
+          'sent_at': DateTime.now().toIso8601String(),
           'created_at': DateTime.now().toIso8601String(),
         });
       }
@@ -206,51 +245,40 @@ class NotificationService {
     print('📱 Local notification tapped: ${response.payload}');
   }
 
-  // ===========================================================================
-  // ✅ NEW: Are notifications enabled on this device?
-  // Uses Android-specific API when available; falls back to FCM settings on iOS.
-  // ===========================================================================
   Future<bool> areNotificationsEnabled() async {
     if (kIsWeb) return false;
+
     try {
-      // Android path (plugin exposes native check)
       final androidPlugin = _localNotifications
           .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
 
       if (androidPlugin != null) {
         final enabled = await androidPlugin.areNotificationsEnabled();
-        // Some plugin versions return bool?, default to true if null
         return enabled ?? true;
       }
 
-      // iOS/macOS path — query FCM permission state
       final settings = await FirebaseMessaging.instance.getNotificationSettings();
       final status = settings.authorizationStatus;
-      final allowed = status == AuthorizationStatus.authorized ||
+      return status == AuthorizationStatus.authorized ||
           status == AuthorizationStatus.provisional;
-      return allowed;
     } catch (e) {
       print('⚠️ areNotificationsEnabled() failed: $e');
-      // Be permissive on error to avoid blocking UX
       return true;
     }
   }
 
-
   Future<void> openNotificationSettings() async {
     if (kIsWeb) return;
+
     try {
-      // Try the dedicated notifications settings screen where supported
       await AppSettings.openAppSettings(type: AppSettingsType.notification);
     } catch (e) {
-      print('⚠️ openNotificationSettings(notification) failed, trying generic app settings: $e');
+      print('⚠️ openNotificationSettings failed, trying generic: $e');
       try {
-        // Fallback: open the app's general settings page
         await AppSettings.openAppSettings();
       } catch (e2) {
-        print('⚠️ openAppSettings() failed, falling back to permission prompt: $e2');
-        // Ultimate fallback (mainly iOS): re-request permission prompt
+        print('⚠️ openAppSettings failed, falling back to permission prompt: $e2');
         await FirebaseMessaging.instance.requestPermission(
           alert: true,
           badge: true,
@@ -261,9 +289,89 @@ class NotificationService {
     }
   }
 
+  // 🔥 IMPROVED PUSH NOTIFICATION SENDING
+  Future<bool> sendPushNotification({
+    required String userId,
+    required String title,
+    required String body,
+    required Map<String, dynamic> data,
+  }) async {
+    try {
+      print('📤 Sending push notification to user: $userId');
+      print('📤 Title: $title');
+      print('📤 Body: $body');
 
-  // --- PUBLIC API: Combined send (DB + push + email) -------------------------
+      // Get all active device tokens for the user
+      final devices = await supabase
+          .from('user_devices')
+          .select('device_token, platform')
+          .eq('user_id', userId)
+          .eq('is_active', true);
 
+      if (devices.isEmpty) {
+        print('⚠️ No active devices found for user $userId');
+        return false;
+      }
+
+      print('📱 Found ${devices.length} device(s) for user $userId');
+
+      bool anySuccess = false;
+
+      for (final device in devices) {
+        final token = device['device_token'];
+        if (token == null || token.toString().trim().isEmpty) {
+          print('⚠️ Empty token for device, skipping');
+          continue;
+        }
+
+        try {
+          final response = await supabase.functions.invoke(
+            'send-push-notification',
+            body: {
+              'token': token,
+              'notification': {
+                'title': title,
+                'body': body,
+              },
+              'data': data,
+              'android': {
+                'channel_id': 'ironxpress_orders',
+                'priority': 'high',
+              },
+              'apns': {
+                'payload': {
+                  'aps': {
+                    'alert': {
+                      'title': title,
+                      'body': body,
+                    },
+                    'badge': 1,
+                    'sound': 'default',
+                  },
+                },
+              },
+            },
+          );
+
+          if (response.data != null && response.data['success'] == true) {
+            print('✅ Push sent successfully to device with token: ${token.toString().substring(0, 20)}...');
+            anySuccess = true;
+          } else {
+            print('❌ Push failed for device: ${response.data}');
+          }
+        } catch (e) {
+          print('❌ Error sending to device token ${token.toString().substring(0, 20)}...: $e');
+        }
+      }
+
+      return anySuccess;
+    } catch (e) {
+      print('❌ Error in sendPushNotification: $e');
+      return false;
+    }
+  }
+
+  // 🔥 COMPREHENSIVE ORDER NOTIFICATION (Push + Email + DB)
   Future<void> sendOrderNotification({
     required String userId,
     required String orderId,
@@ -277,6 +385,7 @@ class NotificationService {
     try {
       print('📤 Sending comprehensive notification for order $orderId');
 
+      // 1. Store in database
       await _storeOrderNotification(
         userId: userId,
         orderId: orderId,
@@ -286,18 +395,35 @@ class NotificationService {
         orderData: orderData,
       );
 
-      await _sendPushNotification(
+      // 2. Send push notification
+      final pushData = {
+        'type': type,
+        'order_id': orderId,
+        'status': status,
+        ...?orderData,
+      };
+
+      final pushSent = await sendPushNotification(
         userId: userId,
         title: title,
         body: body,
-        data: {
-          'type': type,
-          'order_id': orderId,
-          'status': status,
-          ...?orderData,
-        },
+        data: pushData,
       );
 
+      if (pushSent) {
+        // Mark as sent in database
+        await supabase.from('notifications')
+            .update({
+          'is_sent': true,
+          'sent_at': DateTime.now().toIso8601String(),
+        })
+            .eq('user_id', userId)
+            .eq('type', type)
+            .order('created_at', ascending: false)
+            .limit(1);
+      }
+
+      // 3. Send email notification (keep your existing email logic)
       if (sendEmail) {
         await _sendEmailNotification(
           userId: userId,
@@ -334,44 +460,17 @@ class NotificationService {
         },
         'type': type,
         'is_read': false,
+        'is_sent': false, // Will be updated after push is sent
         'created_at': DateTime.now().toIso8601String(),
       });
+
+      print('✅ Notification stored in database');
     } catch (e) {
       print('❌ Error storing order notification: $e');
     }
   }
 
-  Future<void> _sendPushNotification({
-    required String userId,
-    required String title,
-    required String body,
-    required Map<String, dynamic> data,
-  }) async {
-    try {
-      final devices = await supabase
-          .from('user_devices')
-          .select('device_token')
-          .eq('user_id', userId)
-          .eq('is_active', true);
-
-      if (devices.isEmpty) {
-        print('⚠️ No active devices found for user $userId');
-        return;
-      }
-
-      for (final device in devices) {
-        await supabase.functions.invoke('send-push', body: {
-          'token': device['device_token'],
-          'title': title,
-          'body': body,
-          'data': data,
-        });
-      }
-    } catch (e) {
-      print('❌ Error sending push notification: $e');
-    }
-  }
-
+  // Keep your existing email notification method unchanged
   Future<void> _sendEmailNotification({
     required String userId,
     required String orderId,
@@ -471,6 +570,7 @@ class NotificationService {
     }
   }
 
+  // Topic subscription methods
   Future<void> subscribeToTopics(String userId) async {
     if (!_isInitialized || kIsWeb) return;
 
@@ -495,6 +595,7 @@ class NotificationService {
     }
   }
 
+  // Convenience methods for different order states
   Future<void> sendOrderPlacedNotification({
     required String userId,
     required String orderId,
@@ -582,50 +683,54 @@ class NotificationService {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // ✅ Used by NotificationHandler to trigger a phone popup/push via Edge Func
-  // ---------------------------------------------------------------------------
+  // 🔥 LEGACY COMPATIBILITY - Keep this for NotificationHandler
   Future<bool> sendNotificationViaEdgeFunction({
     required String userId,
     required String title,
     required String body,
     required Map<String, dynamic> data,
   }) async {
+    return await sendPushNotification(
+      userId: userId,
+      title: title,
+      body: body,
+      data: data,
+    );
+  }
+
+  // 🔥 REFRESH TOKEN METHOD - Call this when user logs in
+  Future<void> refreshFCMToken() async {
+    if (kIsWeb || !_isInitialized) return;
+
     try {
-      // Fetch active device tokens for the user
-      final devices = await supabase
-          .from('user_devices')
-          .select('device_token')
-          .eq('user_id', userId)
-          .eq('is_active', true);
-
-      if (devices.isEmpty) {
-        print('⚠️ No active devices for user $userId');
-        return false;
-      }
-
-      int sent = 0;
-      for (final device in devices) {
-        final token = (device['device_token'] ?? '').toString().trim();
-        if (token.isEmpty) continue;
-
-        await supabase.functions.invoke(
-          'send-push', // rename if your Edge Function uses a different name
-          body: <String, dynamic>{
-            'token': token,
-            'title': title,
-            'body': body,
-            'data': data,
-          },
-        );
-        sent++;
-      }
-
-      print('✅ Edge function push enqueued to $sent device(s) for $userId');
-      return sent > 0;
+      await FirebaseMessaging.instance.deleteToken();
+      await _initializeFCMToken();
+      print('🔄 FCM token refreshed');
     } catch (e) {
-      print('❌ Error in sendNotificationViaEdgeFunction: $e');
-      return false;
+      print('❌ Error refreshing FCM token: $e');
+    }
+  }
+
+  // 🔥 CLEANUP METHOD - Call this when user logs out
+  Future<void> cleanup() async {
+    if (kIsWeb) return;
+
+    try {
+      final user = supabase.auth.currentUser;
+      if (user != null && _fcmToken != null) {
+        // Mark current device as inactive
+        await supabase.from('user_devices')
+            .update({'is_active': false})
+            .eq('user_id', user.id)
+            .eq('device_token', _fcmToken!);
+
+        await unsubscribeFromTopics(user.id);
+      }
+
+      _fcmToken = null;
+      print('🧹 Notification service cleaned up');
+    } catch (e) {
+      print('❌ Error during cleanup: $e');
     }
   }
 }

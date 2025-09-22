@@ -1,24 +1,18 @@
 // lib/widgets/notification_handler.dart
-// ============================================
-// FIXED HARDCODED NOTIFICATION SOLUTION
-// ============================================
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'notification_service.dart'; // Your existing notification service
+import 'notification_service.dart';
 
 class NotificationHandler {
   static final NotificationHandler _instance = NotificationHandler._internal();
   factory NotificationHandler() => _instance;
   NotificationHandler._internal();
 
-  StreamSubscription<List<Map<String, dynamic>>>? _notificationSubscription; // ✅ typed
+  StreamSubscription<List<Map<String, dynamic>>>? _notificationSubscription;
   bool _isListening = false;
 
-  // ============================================
-  // MAIN METHOD: Start listening for notifications
-  // ============================================
   void startListeningToNotifications() {
     if (_isListening) return;
 
@@ -30,7 +24,6 @@ class NotificationHandler {
 
     print('🔔 Starting notification listener for user: ${user.id}');
 
-    // ✅ Keep the subscription so we can cancel later
     _notificationSubscription = Supabase.instance.client
         .from('notifications')
         .stream(primaryKey: ['id'])
@@ -40,7 +33,6 @@ class NotificationHandler {
         if (rows.isEmpty) return;
         print('📡 Real-time notifications batch: ${rows.length} item(s)');
 
-        // Process each notification row
         for (final notif in rows) {
           _handleRealtimeNotification(notif);
         }
@@ -55,9 +47,6 @@ class NotificationHandler {
     print('✅ Notification listener started');
   }
 
-  // ============================================
-  // HANDLE REAL-TIME NOTIFICATION
-  // ============================================
   void _handleRealtimeNotification(Map<String, dynamic> notification) {
     final title = (notification['title'] ?? 'IronXpress').toString();
     print('📱 Processing notification: $title');
@@ -65,7 +54,6 @@ class NotificationHandler {
     final bool isRead = (notification['is_read'] ?? false) == true;
     final bool isSent = (notification['is_sent'] ?? false) == true;
 
-    // created_at can be String/DateTime/null -> coerce safely
     final createdAtRaw = notification['created_at'];
     DateTime createdAt = DateTime.now();
     if (createdAtRaw is String) {
@@ -77,66 +65,66 @@ class NotificationHandler {
     final now = DateTime.now();
     final bool isRecent = now.difference(createdAt).inMinutes < 5;
 
-    // Show popup for unread, unsent, and recent notifications
+    // Only send push for unread, unsent, and recent notifications
     if (!isRead && !isSent && isRecent) {
-      _showPhonePopup(notification);
+      _sendPushNotification(notification);
     }
   }
 
-  // ============================================
-  // SHOW PHONE POPUP NOTIFICATION
-  // ============================================
-  Future<void> _showPhonePopup(Map<String, dynamic> notification) async {
-    print('🔔 Showing phone popup for: ${notification['title']}');
+  Future<void> _sendPushNotification(Map<String, dynamic> notification) async {
+    print('🔔 Sending push notification for: ${notification['title']}');
+
     try {
       final String userId = (notification['user_id'] ?? '').toString();
       if (userId.isEmpty) {
-        print('⚠️ Missing user_id in notification; skipping popup.');
+        print('⚠️ Missing user_id in notification; skipping push.');
         return;
       }
 
       final String title = (notification['title'] ?? 'IronXpress').toString();
-      final String body =
-      (notification['body'] ?? 'You have a new notification').toString();
+      final String body = (notification['body'] ?? 'You have a new notification').toString();
       final String type = (notification['type'] ?? 'general').toString();
+      final Map<String, dynamic> rawData = _coerceToMap(notification['data']) ?? <String, dynamic>{};
 
-      // data can be Map or JSON string — normalize to Map<String, dynamic>
-      final Map<String, dynamic> rawData =
-          _coerceToMap(notification['data']) ?? <String, dynamic>{};
-
-      final bool success =
-      await NotificationService().sendNotificationViaEdgeFunction(
+      final bool success = await NotificationService().sendPushNotification(
         userId: userId,
         title: title,
         body: body,
         data: <String, dynamic>{
           'notification_id': notification['id'],
           'type': type,
-          ...rawData, // ✅ spread after normalization
+          ...rawData,
         },
       );
 
       if (success) {
-        print('✅ Phone popup sent successfully');
-        // Mark as sent in database
-        await Supabase.instance.client
-            .from('notifications')
-            .update({
-          'is_sent': true,
-          'sent_at': DateTime.now().toIso8601String(),
-        })
-            .eq('id', notification['id']);
+        print('✅ Push notification sent successfully');
+        await _markNotificationAsSent(notification['id']);
       } else {
-        print('❌ Failed to send phone popup');
+        print('❌ Failed to send push notification');
       }
     } catch (e) {
-      print('❌ Error showing phone popup: $e');
+      print('❌ Error sending push notification: $e');
     }
   }
 
-  // ============================================
-  // MANUAL METHOD: Send notification + popup immediately
-  // ============================================
+  Future<void> _markNotificationAsSent(dynamic notificationId) async {
+    try {
+      await Supabase.instance.client
+          .from('notifications')
+          .update({
+        'is_sent': true,
+        'sent_at': DateTime.now().toIso8601String(),
+      })
+          .eq('id', notificationId);
+
+      print('✅ Notification marked as sent');
+    } catch (e) {
+      print('❌ Error marking notification as sent: $e');
+    }
+  }
+
+  // 🔥 IMPROVED: Direct push notification methods using the fixed service
   static Future<void> sendNotificationWithPopup({
     required String userId,
     required String title,
@@ -145,9 +133,9 @@ class NotificationHandler {
     Map<String, dynamic>? data,
   }) async {
     try {
-      print('📤 Sending notification with popup: $title');
+      print('📤 Sending notification with push: $title');
 
-      // 1) Insert into DB (in-app list)
+      // 1) Insert into DB for in-app display
       final inserted = await Supabase.instance.client
           .from('notifications')
           .insert({
@@ -165,8 +153,8 @@ class NotificationHandler {
 
       print('✅ Notification saved to database (id: ${inserted['id']})');
 
-      // 2) Trigger phone popup immediately
-      final ok = await NotificationService().sendNotificationViaEdgeFunction(
+      // 2) Send push notification using the improved service
+      final pushSuccess = await NotificationService().sendPushNotification(
         userId: userId,
         title: title,
         body: body,
@@ -177,8 +165,8 @@ class NotificationHandler {
         },
       );
 
-      // 3) Mark as sent if success
-      if (ok) {
+      // 3) Mark as sent if push succeeded
+      if (pushSuccess) {
         await Supabase.instance.client
             .from('notifications')
             .update({
@@ -186,18 +174,16 @@ class NotificationHandler {
           'sent_at': DateTime.now().toIso8601String(),
         })
             .eq('id', inserted['id']);
-        print('✅ Notification with popup sent successfully');
+        print('✅ Notification with push sent successfully');
       } else {
-        print('⚠️ Notification saved but popup sending failed');
+        print('⚠️ Notification saved but push failed');
       }
     } catch (e) {
-      print('❌ Error sending notification with popup: $e');
+      print('❌ Error sending notification with push: $e');
     }
   }
 
-  // ============================================
-  // METHODS FOR DIFFERENT NOTIFICATION TYPES
-  // ============================================
+  // Convenience methods for specific notification types
   static Future<void> sendOrderConfirmation({
     required String userId,
     required String orderId,
@@ -205,8 +191,7 @@ class NotificationHandler {
     await sendNotificationWithPopup(
       userId: userId,
       title: 'Order Confirmed! 🎉',
-      body:
-      'Your order #$orderId has been confirmed and will be picked up soon.',
+      body: 'Your order #$orderId has been confirmed and will be picked up soon.',
       type: 'order_confirmation',
       data: {
         'order_id': orderId,
@@ -229,21 +214,43 @@ class NotificationHandler {
         body = 'Your laundry has been picked up and is being processed.';
         break;
       case 'in_progress':
+      case 'work_in_progress':
+      case 'working_in_progress':
         title = 'Order In Progress 🧽';
         body = 'Your laundry is being cleaned with care.';
         break;
       case 'ready_for_delivery':
+      case 'ready_to_dispatch':
         title = 'Ready for Delivery 🚚';
         body = 'Your fresh laundry is ready and will be delivered soon!';
         break;
+      case 'in_transit':
+        title = 'Out for Delivery 🚛';
+        body = 'Your order #$orderId is on the way to your address.';
+        break;
       case 'delivered':
         title = 'Order Delivered ✅';
-        body =
-        'Your laundry has been delivered. Thank you for choosing IronXpress!';
+        body = 'Your laundry has been delivered. Thank you for choosing IronXpress!';
+        break;
+      case 'completed':
+        title = 'Order Completed 🎉';
+        body = 'Your order #$orderId has been completed successfully. Thank you!';
+        break;
+      case 'cancelled':
+        title = 'Order Cancelled ❌';
+        body = 'Your order #$orderId has been cancelled. Contact support if you have questions.';
+        break;
+      case 'accepted':
+        title = 'Order Accepted ✅';
+        body = 'Great news! Your order #$orderId has been accepted and is being prepared.';
+        break;
+      case 'assigned':
+        title = 'Rider Assigned 🚚';
+        body = 'A delivery partner has been assigned to your order #$orderId. They will contact you soon!';
         break;
       default:
-        title = 'Order Update';
-        body = 'Your order status has been updated.';
+        title = 'Order Update 📦';
+        body = 'Your order #$orderId status has been updated to: ${status.replaceAll('_', ' ')}';
     }
 
     await sendNotificationWithPopup(
@@ -267,8 +274,7 @@ class NotificationHandler {
     await sendNotificationWithPopup(
       userId: userId,
       title: 'Special Offer! 🎁',
-      body:
-      'Get $discountPercent% off your next order with code $promoCode!',
+      body: 'Get $discountPercent% off your next order with code $promoCode!',
       type: 'promotion',
       data: {
         'promo_code': promoCode,
@@ -278,7 +284,6 @@ class NotificationHandler {
     );
   }
 
-  // ✅ Properly stop listening and cancel subscription
   void stopListening() {
     _notificationSubscription?.cancel();
     _notificationSubscription = null;
@@ -286,9 +291,6 @@ class NotificationHandler {
     print('🔕 Notification listener stopped');
   }
 
-  // ---- Helpers ----
-
-  /// Normalize dynamic `data` column to Map<String, dynamic> when it can be
   Map<String, dynamic>? _coerceToMap(dynamic raw) {
     try {
       if (raw == null) return <String, dynamic>{};
@@ -308,150 +310,31 @@ class NotificationHandler {
   }
 }
 
-// ============================================
-// USAGE IN YOUR APP
-// ============================================
-
-// 1) Add to your main app initialization
-class MyApp extends StatefulWidget {
-  const MyApp({super.key});
-
-  @override
-  State<MyApp> createState() => _MyAppState();
-}
-
-class _MyAppState extends State<MyApp> {
-  @override
-  void initState() {
-    super.initState();
-    // Start listening once the first frame is rendered (context is ready)
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      NotificationHandler().startListeningToNotifications();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'IronXpress',
-      home: Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
-              Icon(Icons.local_laundry_service, size: 64, color: Colors.blue),
-              SizedBox(height: 16),
-              Text(
-                'IronXpress',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-              SizedBox(height: 32),
-              TestNotificationButton(), // Test button to verify notifications work
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// 2) Add to your order creation code
-Future<void> createOrder(Map<String, dynamic> orderData) async {
-  try {
-    // Create the order
-    final order = await Supabase.instance.client
-        .from('orders')
-        .insert(orderData)
-        .select()
-        .single();
-
-    print('✅ Order created: ${order['id']}');
-
-    // Immediately send notification with popup
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user != null) {
-      await NotificationHandler.sendOrderConfirmation(
-        userId: user.id,
-        orderId: order['id'],
-      );
-    }
-  } catch (e) {
-    print('❌ Error creating order: $e');
-  }
-}
-
-// 3) Add to your order status update code
-Future<void> updateOrderStatus(String orderId, String newStatus) async {
-  try {
-    // Update order status
-    await Supabase.instance.client
-        .from('orders')
-        .update({'order_status': newStatus})
-        .eq('id', orderId);
-
-    // Get order details
-    final order = await Supabase.instance.client
-        .from('orders')
-        .select('user_id')
-        .eq('id', orderId)
-        .single();
-
-    // Immediately send status update notification with popup
-    await NotificationHandler.sendOrderStatusUpdate(
-      userId: order['user_id'],
-      orderId: orderId,
-      status: newStatus,
-    );
-  } catch (e) {
-    print('❌ Error updating order status: $e');
-  }
-}
-
-// 4) Test button for your app
-class TestNotificationButton extends StatelessWidget {
-  const TestNotificationButton({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return ElevatedButton(
-      onPressed: () async {
-        final user = Supabase.instance.client.auth.currentUser;
-        if (user != null) {
-          // Test notification with popup
-          await NotificationHandler.sendNotificationWithPopup(
-            userId: user.id,
-            title: 'Test Notification 🧪',
-            body: 'This should show in app AND as phone popup!',
-            type: 'test',
-            data: {'test': true},
-          );
-
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Test notification sent!')),
-            );
-          }
-        }
-      },
-      child: const Text('Test Notification + Popup'),
-    );
-  }
-}
-
-// ============================================
-// AUTH LISTENER SETUP
-// ============================================
+// Authentication handler to manage notification lifecycle
 class AuthHandler {
   static void setupAuthListener() {
-    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+    Supabase.instance.client.auth.onAuthStateChange.listen((data) async {
       final user = data.session?.user;
       if (user != null) {
-        // User logged in - start listening to notifications
         print('👤 User logged in: ${user.id}');
+
+        // Refresh FCM token on login
+        await NotificationService().refreshFCMToken();
+
+        // Subscribe to topics
+        if (NotificationService().isInitialized) {
+          await NotificationService().subscribeToTopics(user.id);
+        }
+
+        // Start listening to notifications
         NotificationHandler().startListeningToNotifications();
       } else {
-        // User logged out - stop listening
         print('👤 User logged out');
+
+        // Cleanup on logout
+        await NotificationService().cleanup();
+
+        // Stop listening
         NotificationHandler().stopListening();
       }
     });

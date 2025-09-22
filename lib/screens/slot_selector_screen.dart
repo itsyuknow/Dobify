@@ -31,6 +31,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
   Map<String, dynamic>? selectedAddress;
   bool isServiceAvailable = true;
   bool isLoadingServiceAvailability = false;
+  bool onlinePaymentEnabled = true;
 
   Map<String, dynamic>? selectedPickupSlot;
   Map<String, dynamic>? selectedDeliverySlot;
@@ -242,6 +243,8 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
           }
       };
 
+      final bool onlineEnabled = (response['online_payment_enabled'] ?? true) as bool;
+
       setState(() {
         minimumCartFee        = (response['minimum_cart_fee'] ?? 100).toDouble();
         platformFee           = (response['platform_fee'] ?? 0).toDouble();
@@ -251,6 +254,13 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
         deliveryGstPercent    = (response['delivery_gst_percent'] ?? 0).toDouble();
         freeStandardThreshold = (response['free_standard_threshold'] ?? 300).toDouble();
 
+        onlinePaymentEnabled  = onlineEnabled;
+
+        // If online is OFF but user had 'online' selected, force COD
+        if (!onlinePaymentEnabled && _selectedPaymentMethod == 'online') {
+          _selectedPaymentMethod = 'cod';
+        }
+
         _billingNotes = notesMap;
         isLoadingBillingSettings = false;
       });
@@ -258,6 +268,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
       setState(() => isLoadingBillingSettings = false);
     }
   }
+
 
 
 
@@ -969,6 +980,12 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
       return;
     }
 
+    // Safety: if online is disabled, force COD even if UI state was stale
+    if (!onlinePaymentEnabled && _selectedPaymentMethod == 'online') {
+      setState(() => _selectedPaymentMethod = 'cod');
+    }
+
+
     // Process order based on payment method
     if (_selectedPaymentMethod == 'online') {
       _initiateOnlinePayment();
@@ -1566,8 +1583,12 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
   }
 
 
-  // Payment method selection widget
   Widget _buildPaymentMethodSelection(double cardMargin, double cardPadding, bool isSmallScreen) {
+    // Ensure UI state stays consistent with toggle
+    if (!onlinePaymentEnabled && _selectedPaymentMethod == 'online') {
+      _selectedPaymentMethod = 'cod';
+    }
+
     return Container(
       margin: EdgeInsets.all(cardMargin),
       padding: EdgeInsets.all(cardPadding),
@@ -1594,89 +1615,119 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
           ),
           SizedBox(height: cardPadding),
 
-          // Online Payment Option
-          Container(
-            margin: EdgeInsets.only(bottom: cardPadding * 0.75),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: _selectedPaymentMethod == 'online' ? kPrimaryColor : Colors.grey.shade300,
-                width: 2,
+          // If online payments are OFF, show a small info banner
+          if (!onlinePaymentEnabled)
+            Container(
+              width: double.infinity,
+              margin: EdgeInsets.only(bottom: cardPadding * 0.75),
+              padding: EdgeInsets.all(cardPadding * 0.75),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.orange.withOpacity(0.4)),
               ),
-              color: _selectedPaymentMethod == 'online'
-                  ? kPrimaryColor.withOpacity(0.05)
-                  : Colors.white,
-            ),
-            child: RadioListTile<String>(
-              value: 'online',
-              groupValue: _selectedPaymentMethod,
-              onChanged: (value) {
-                setState(() {
-                  _selectedPaymentMethod = value!;
-                });
-              },
-              title: Row(
+              child: Row(
                 children: [
-                  Container(
-                    padding: EdgeInsets.all(isSmallScreen ? 4 : 6),
-                    decoration: BoxDecoration(
-                      color: kPrimaryColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Icon(
-                      Icons.payment,
-                      color: kPrimaryColor,
-                      size: isSmallScreen ? 14 : 16,
-                    ),
-                  ),
-                  SizedBox(width: cardPadding * 0.6),
+                  Icon(Icons.info_outline, color: Colors.orange, size: isSmallScreen ? 16 : 18),
+                  SizedBox(width: 8),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Pay Online',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: isSmallScreen ? 12 : 14,
-                          ),
-                        ),
-                        Text(
-                          'UPI, Card, Net Banking, Wallet',
-                          style: TextStyle(
-                            fontSize: isSmallScreen ? 9 : 11,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      'Online payment is temporarily unavailable. Please choose Pay on Delivery.',
+                      style: TextStyle(
+                        fontSize: isSmallScreen ? 10.5 : 12,
+                        color: Colors.orange.shade800,
+                        height: 1.2,
+                      ),
                     ),
                   ),
-                  if (_selectedPaymentMethod == 'online')
-                    Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: isSmallScreen ? 4 : 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.green.shade100,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        'RECOMMENDED',
-                        style: TextStyle(
-                          color: Colors.green,
-                          fontSize: isSmallScreen ? 7 : 8,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
                 ],
               ),
-              activeColor: kPrimaryColor,
             ),
-          ),
 
-          // Cash on Delivery Option
+          // Online Payment Option (only if enabled)
+          if (onlinePaymentEnabled)
+            Container(
+              margin: EdgeInsets.only(bottom: cardPadding * 0.75),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _selectedPaymentMethod == 'online' ? kPrimaryColor : Colors.grey.shade300,
+                  width: 2,
+                ),
+                color: _selectedPaymentMethod == 'online'
+                    ? kPrimaryColor.withOpacity(0.05)
+                    : Colors.white,
+              ),
+              child: RadioListTile<String>(
+                value: 'online',
+                groupValue: _selectedPaymentMethod,
+                onChanged: (value) {
+                  setState(() {
+                    _selectedPaymentMethod = value!;
+                  });
+                },
+                title: Row(
+                  children: [
+                    Container(
+                      padding: EdgeInsets.all(isSmallScreen ? 4 : 6),
+                      decoration: BoxDecoration(
+                        color: kPrimaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Icon(
+                        Icons.payment,
+                        color: kPrimaryColor,
+                        size: isSmallScreen ? 14 : 16,
+                      ),
+                    ),
+                    SizedBox(width: cardPadding * 0.6),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Pay Online',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: isSmallScreen ? 12 : 14,
+                            ),
+                          ),
+                          Text(
+                            'UPI, Card, Net Banking, Wallet',
+                            style: TextStyle(
+                              fontSize: isSmallScreen ? 9 : 11,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (_selectedPaymentMethod == 'online')
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isSmallScreen ? 4 : 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'RECOMMENDED',
+                          style: TextStyle(
+                            color: Colors.green,
+                            fontSize: isSmallScreen ? 7 : 8,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                activeColor: kPrimaryColor,
+              ),
+            ),
+
+          // Cash on Delivery Option (always)
           Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
@@ -1741,6 +1792,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
       ),
     );
   }
+
 
   Widget _buildSelectionSummary(double cardMargin, double cardPadding, bool isSmallScreen) {
     if (selectedPickupSlot == null) return const SizedBox.shrink();

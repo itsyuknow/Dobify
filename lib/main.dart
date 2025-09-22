@@ -1,5 +1,4 @@
 // lib/main.dart
-// ✅ SIMPLIFIED MAIN.DART — PREMIUM SPLASH WITH TRANSPARENT LOGO (NO 10s ANIMATION)
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -10,45 +9,45 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-// Project imports
 import 'package:ironly/widgets/mobile_wrapper.dart';
 import 'screens/colors.dart';
 import 'screens/app_wrapper.dart';
 import 'widgets/notification_service.dart';
+import 'widgets/notification_handler.dart'; // Import the handler
 
-// If you reference EmailService elsewhere, keep this import. Safe to leave even if unused.
-import 'widgets/email_service.dart';
-
-// A global notifier you can use anywhere (e.g., to update cart badge)
 final ValueNotifier<int> cartItemCountNotifier = ValueNotifier<int>(0);
 
-// ✅ BACKGROUND MESSAGE HANDLER (TOP-LEVEL FUNCTION)
 @pragma('vm:entry-point')
 Future<void> _handleBackgroundMessage(RemoteMessage message) async {
   print('📱 Background message received: ${message.messageId}');
   try {
     await Firebase.initializeApp();
 
-    // Ensure Supabase is ready in background isolate
     try {
       Supabase.instance.client;
     } catch (_) {
       await Supabase.initialize(
         url: 'https://qehtgclgjhzdlqcjujpp.supabase.co',
-        anonKey:
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
+        anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
       );
     }
 
-    await Supabase.instance.client.from('notifications').insert({
-      'message_id': message.messageId,
-      'title': message.notification?.title ?? 'IronXpress',
-      'body': message.notification?.body ?? '',
-      'data': message.data,
-      'type': message.data['type'] ?? 'general',
-      'is_read': false,
-      'created_at': DateTime.now().toIso8601String(),
-    });
+    // Store background notification
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user != null) {
+      await Supabase.instance.client.from('notifications').insert({
+        'user_id': user.id,
+        'message_id': message.messageId,
+        'title': message.notification?.title ?? 'IronXpress',
+        'body': message.notification?.body ?? '',
+        'data': message.data,
+        'type': message.data['type'] ?? 'general',
+        'is_read': false,
+        'is_sent': true, // Mark as sent since it came via FCM
+        'sent_at': DateTime.now().toIso8601String(),
+        'created_at': DateTime.now().toIso8601String(),
+      });
+    }
 
     print('✅ Background notification stored');
   } catch (e) {
@@ -88,14 +87,12 @@ Future<void> main() async {
       print('✅ Firebase initialized successfully');
       firebaseInitialized = true;
 
-      // iOS foreground presentation options (has no effect on Android)
       await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
         alert: true,
         badge: true,
         sound: true,
       );
 
-      // Background message handler
       FirebaseMessaging.onBackgroundMessage(_handleBackgroundMessage);
       print('✅ Background message handler set');
     } catch (firebaseError) {
@@ -105,8 +102,7 @@ Future<void> main() async {
 
     await Supabase.initialize(
       url: 'https://qehtgclgjhzdlqcjujpp.supabase.co',
-      anonKey:
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
+      anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
     );
     print('✅ Supabase initialized');
 
@@ -120,6 +116,10 @@ Future<void> main() async {
     } else {
       print('⚠️ Skipping notification service (Firebase not available)');
     }
+
+    // 🔥 Setup auth listener for notifications
+    AuthHandler.setupAuthListener();
+    print('✅ Auth handler setup complete');
 
     print('🎉 App initialization complete!');
   } catch (e) {
@@ -186,13 +186,10 @@ class MyApp extends StatelessWidget {
             ),
           ),
           home: const IronXpressPremiumEntry(),
-
-          // 🔥 CRITICAL: Wrap ENTIRE app with MobileWrapper
           builder: (context, child) {
             print('🔧 MaterialApp.builder called — wrapping with MobileWrapper');
             if (child == null) return const SizedBox.shrink();
 
-            // Clamp text scaling & pass into MobileWrapper
             final mediaQuery = MediaQuery.of(context);
             final adjustedChild = MediaQuery(
               data: mediaQuery.copyWith(
@@ -208,7 +205,6 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// ✅ PREMIUM ENTRY: Transparent logo splash (3s), then status text, then go forward.
 class IronXpressPremiumEntry extends StatefulWidget {
   const IronXpressPremiumEntry({super.key});
 
@@ -233,32 +229,9 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
 
     setState(() => _showStatus = true);
 
-    await _setupNotificationSystemAsync();
-
+    // Give the auth listener time to setup
     await Future.delayed(const Duration(seconds: 2));
     _navigateToAppWrapper();
-  }
-
-  Future<void> _setupNotificationSystemAsync() async {
-    try {
-      Supabase.instance.client.auth.onAuthStateChange.listen((data) async {
-        final user = data.session?.user;
-        if (user != null) {
-          try {
-            if (NotificationService().isInitialized) {
-              await NotificationService().subscribeToTopics(user.id);
-            }
-          } catch (_) {}
-        } else {
-          try {
-            final currentUser = Supabase.instance.client.auth.currentUser;
-            if (currentUser != null && NotificationService().isInitialized) {
-              await NotificationService().unsubscribeFromTopics(currentUser.id);
-            }
-          } catch (_) {}
-        }
-      });
-    } catch (_) {}
   }
 
   void _navigateToAppWrapper() {
@@ -301,8 +274,7 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
 
     final effectiveTop = max(padding.top, viewPadding.top);
     final effectiveBottom = max(padding.bottom, viewPadding.bottom);
-    final availableHeight =
-        size.height - effectiveTop - effectiveBottom - viewInsets.bottom;
+    final availableHeight = size.height - effectiveTop - effectiveBottom - viewInsets.bottom;
 
     final isSmall = availableHeight < 600;
     final isLarge = availableHeight > 800;
@@ -326,7 +298,6 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Transparent PNG logo
                 SizedBox(
                   width: logoSize,
                   height: logoSize,
@@ -336,7 +307,6 @@ class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
                   ),
                 ),
                 SizedBox(height: availableHeight * 0.06),
-
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 300),
                   child: _showStatus
