@@ -294,11 +294,12 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
   PreferredSizeWidget _buildPremiumAppBar() {
     return AppBar(
       title: const Text(
-        'ironXpress',
+        'Dobify',
         style: TextStyle(
           fontWeight: FontWeight.w800,
           letterSpacing: 0.8,
           fontSize: 22,
+          color: Colors.white,
         ),
       ),
       backgroundColor: Colors.transparent,

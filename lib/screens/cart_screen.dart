@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'colors.dart';
 import 'review_cart_screen.dart';
 import '../utils/globals.dart';
+import 'package:flutter/services.dart';
+
 
 class CartScreen extends StatefulWidget {
   const CartScreen({super.key});
@@ -550,6 +552,10 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
     return AppBar(
       elevation: 0,
       backgroundColor: Colors.transparent,
+      automaticallyImplyLeading: true, // ensure back arrow shows when canPop
+      systemOverlayStyle: SystemUiOverlayStyle.light, // white status bar icons
+      iconTheme: const IconThemeData(color: Colors.white), // <-- back arrow white
+      foregroundColor: Colors.white, // safety: text & default icons white
       flexibleSpace: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -565,7 +571,6 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
       ),
-      // REMOVED CART ICON FROM TITLE
       title: const Text(
         "My Cart",
         style: TextStyle(
@@ -576,12 +581,11 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
         ),
       ),
       actions: [
-        // Clear cart button only
         if (_cartItems.isNotEmpty)
           IconButton(
             onPressed: _isClearingCart ? null : _clearCart,
             icon: _isClearingCart
-                ? SizedBox(
+                ? const SizedBox(
               width: 20,
               height: 20,
               child: CircularProgressIndicator(
@@ -589,13 +593,14 @@ class _CartScreenState extends State<CartScreen> with TickerProviderStateMixin {
                 strokeWidth: 2,
               ),
             )
-                : const Icon(Icons.delete_sweep, color: Colors.white),
+                : const Icon(Icons.delete_sweep),
             tooltip: 'Clear Cart',
           ),
         const SizedBox(width: 8),
       ],
     );
   }
+
 
   Widget _buildBottomBar() {
     return Container(

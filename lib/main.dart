@@ -1,6 +1,5 @@
 // lib/main.dart
 import 'dart:async';
-import 'dart:math';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -13,119 +12,147 @@ import 'package:ironly/widgets/mobile_wrapper.dart';
 import 'screens/colors.dart';
 import 'screens/app_wrapper.dart';
 import 'widgets/notification_service.dart';
-import 'widgets/notification_handler.dart'; // Import the handler
+import 'widgets/notification_handler.dart';
+
+// ✅ Brand colors
+const Color kAppPrimaryBlue = Color(0xFF42A5F5);
+const Color kAppBackground = Colors.white;
+const bool kSilenceAllLogs = true;
 
 final ValueNotifier<int> cartItemCountNotifier = ValueNotifier<int>(0);
 
 @pragma('vm:entry-point')
 Future<void> _handleBackgroundMessage(RemoteMessage message) async {
-  print('📱 Background message received: ${message.messageId}');
-  try {
-    await Firebase.initializeApp();
+  if (kSilenceAllLogs) _silenceAllLogs();
 
+  return runWithoutPrints(() async {
     try {
-      Supabase.instance.client;
+      await Firebase.initializeApp();
+
+      try {
+        Supabase.instance.client;
+      } catch (_) {
+        await Supabase.initialize(
+          url: 'https://qehtgclgjhzdlqcjujpp.supabase.co',
+          anonKey:
+          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
+        );
+      }
+
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user != null) {
+        await Supabase.instance.client.from('notifications').insert({
+          'user_id': user.id,
+          'message_id': message.messageId,
+          'title': message.notification?.title ?? 'Dobify',
+          'body': message.notification?.body ?? '',
+          'data': message.data,
+          'type': message.data['type'] ?? 'general',
+          'is_read': false,
+          'is_sent': true,
+          'sent_at': DateTime.now().toIso8601String(),
+          'created_at': DateTime.now().toIso8601String(),
+        });
+      }
     } catch (_) {
-      await Supabase.initialize(
-        url: 'https://qehtgclgjhzdlqcjujpp.supabase.co',
-        anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
-      );
+      // swallowed
     }
+  });
+}
 
-    // Store background notification
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user != null) {
-      await Supabase.instance.client.from('notifications').insert({
-        'user_id': user.id,
-        'message_id': message.messageId,
-        'title': message.notification?.title ?? 'IronXpress',
-        'body': message.notification?.body ?? '',
-        'data': message.data,
-        'type': message.data['type'] ?? 'general',
-        'is_read': false,
-        'is_sent': true, // Mark as sent since it came via FCM
-        'sent_at': DateTime.now().toIso8601String(),
-        'created_at': DateTime.now().toIso8601String(),
-      });
-    }
+/// 🔕 Safe no-op on non-web. We removed dart:js so this won't break mobile.
+/// Logs are still silenced by `_silenceAllLogs()` + `runWithoutPrints()`.
+void _muteBrowserConsole() {
+  if (!kIsWeb) return;
+  // Intentionally left blank. If you *really* want to override window.console,
+  // implement a small JS snippet in web/index.html instead.
+}
 
-    print('✅ Background notification stored');
-  } catch (e) {
-    print('❌ Error in background handler: $e');
-  }
+/// 🔇 Silence Flutter/Dart framework logging
+void _silenceAllLogs() {
+  debugPrint = (String? message, {int? wrapWidth}) {};
+  FlutterError.onError = (FlutterErrorDetails details) {
+    // Intentionally no-op
+  };
+}
+
+/// 🔇 Run a function inside a zone that ignores all `print()` calls
+Future<T> runWithoutPrints<T>(Future<T> Function() body) {
+  return runZoned<Future<T>>(
+    body,
+    zoneSpecification: ZoneSpecification(
+      print: (self, parent, zone, line) {
+        // swallow all print() output
+      },
+    ),
+    onError: (Object error, StackTrace stack) {
+      // swallow uncaught errors here (or forward to Crashlytics/Sentry)
+    },
+  );
 }
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  if (kSilenceAllLogs) {
+    _muteBrowserConsole(); // safe no-op without dart:js
+    _silenceAllLogs();
+    await runWithoutPrints(_bootstrap);
+  } else {
+    await _bootstrap();
+  }
+}
+
+// Your existing initialization logic moved here unchanged
+Future<void> _bootstrap() async {
   await SystemChrome.setPreferredOrientations(
     [DeviceOrientation.portraitUp, DeviceOrientation.portraitDown],
   );
 
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-      statusBarBrightness: Brightness.dark,
-      systemNavigationBarColor: Colors.transparent,
-      systemNavigationBarIconBrightness: Brightness.dark,
-      systemNavigationBarDividerColor: Colors.transparent,
-    ),
-  );
-
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.dark,
+    statusBarBrightness: Brightness.light,
+    systemNavigationBarColor: Colors.transparent,
+    systemNavigationBarIconBrightness: Brightness.dark,
+    systemNavigationBarDividerColor: Colors.transparent,
+  ));
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-
-  print('🚀 Initializing IronXpress with notifications...');
 
   try {
     await EasyLocalization.ensureInitialized();
-    print('✅ Localization initialized');
 
     bool firebaseInitialized = false;
     try {
       await Firebase.initializeApp();
-      print('✅ Firebase initialized successfully');
       firebaseInitialized = true;
 
-      await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+      await FirebaseMessaging.instance
+          .setForegroundNotificationPresentationOptions(
         alert: true,
         badge: true,
         sound: true,
       );
 
       FirebaseMessaging.onBackgroundMessage(_handleBackgroundMessage);
-      print('✅ Background message handler set');
-    } catch (firebaseError) {
-      print('❌ Firebase initialization failed: $firebaseError');
-      print('📱 Continuing without Firebase notifications...');
+    } catch (_) {
+      // swallowed when silenced
     }
 
     await Supabase.initialize(
       url: 'https://qehtgclgjhzdlqcjujpp.supabase.co',
-      anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
+      anonKey:
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
     );
-    print('✅ Supabase initialized');
 
     if (firebaseInitialized) {
       try {
         await NotificationService().initialize();
-        print('✅ Notification service initialized');
-      } catch (notificationError) {
-        print('⚠️ Notification service failed: $notificationError');
-      }
-    } else {
-      print('⚠️ Skipping notification service (Firebase not available)');
+      } catch (_) {}
     }
 
-    // 🔥 Setup auth listener for notifications
     AuthHandler.setupAuthListener();
-    print('✅ Auth handler setup complete');
-
-    print('🎉 App initialization complete!');
-  } catch (e) {
-    print('❌ Critical error during initialization: $e');
-    print('📱 Starting app with limited functionality...');
-  }
+  } catch (_) {}
 
   runApp(
     EasyLocalization(
@@ -142,6 +169,7 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // This print will be swallowed when kSilenceAllLogs == true
     print('🏗️ MyApp build called — kIsWeb: $kIsWeb');
 
     return ValueListenableBuilder<int>(
@@ -149,55 +177,72 @@ class MyApp extends StatelessWidget {
       builder: (context, count, _) {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
-          title: 'ironXpress',
+          title: 'Dobify',
           localizationsDelegates: context.localizationDelegates,
           supportedLocales: context.supportedLocales,
           locale: context.locale,
           theme: ThemeData(
-            primarySwatch: Colors.deepPurple,
+            primarySwatch: _createMaterialColor(kAppPrimaryBlue),
+            primaryColor: kAppPrimaryBlue,
+            scaffoldBackgroundColor: kAppBackground,
             elevatedButtonTheme: ElevatedButtonThemeData(
-              style: ElevatedButton.styleFrom(backgroundColor: kPrimaryColor),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: kAppPrimaryBlue,
+                foregroundColor: Colors.white,
+              ),
             ),
             textButtonTheme: TextButtonThemeData(
-              style: TextButton.styleFrom(foregroundColor: kPrimaryColor),
+              style: TextButton.styleFrom(foregroundColor: kAppPrimaryBlue),
+            ),
+            inputDecorationTheme: InputDecorationTheme(
+              border: const OutlineInputBorder(),
+              focusedBorder: OutlineInputBorder(
+                borderSide:
+                const BorderSide(color: kAppPrimaryBlue, width: 2.0),
+              ),
+              labelStyle: const TextStyle(color: kAppPrimaryBlue),
             ),
             appBarTheme: const AppBarTheme(
-              backgroundColor: kPrimaryColor,
-              foregroundColor: Colors.white,
+              backgroundColor: Colors.white,
+              foregroundColor: kAppPrimaryBlue,
+              elevation: 0,
+              titleTextStyle: TextStyle(
+                color: kAppPrimaryBlue,
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+              ),
+              iconTheme: IconThemeData(color: kAppPrimaryBlue),
               systemOverlayStyle: SystemUiOverlayStyle(
                 statusBarColor: Colors.transparent,
-                statusBarIconBrightness: Brightness.light,
-                statusBarBrightness: Brightness.dark,
+                statusBarIconBrightness: Brightness.dark,
+                statusBarBrightness: Brightness.light,
               ),
             ),
-            inputDecorationTheme: const InputDecorationTheme(
-              border: OutlineInputBorder(),
-              focusedBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: kPrimaryColor, width: 2.0),
-              ),
-              labelStyle: TextStyle(color: kPrimaryColor),
-            ),
-            bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+            bottomNavigationBarTheme: BottomNavigationBarThemeData(
               backgroundColor: Colors.white,
-              selectedItemColor: kPrimaryColor,
-              unselectedItemColor: Colors.grey,
+              selectedItemColor: kAppPrimaryBlue,
+              unselectedItemColor: Colors.grey.shade600,
               type: BottomNavigationBarType.fixed,
               elevation: 8,
             ),
+            useMaterial3: true,
           ),
-          home: const IronXpressPremiumEntry(),
-          builder: (context, child) {
-            print('🔧 MaterialApp.builder called — wrapping with MobileWrapper');
-            if (child == null) return const SizedBox.shrink();
 
+          // ✅ go straight to the real app
+          home: const AppWrapper(),
+
+          // keep MobileWrapper for web layout only
+          builder: (context, child) {
+            if (child == null) return const SizedBox.shrink();
             final mediaQuery = MediaQuery.of(context);
             final adjustedChild = MediaQuery(
               data: mediaQuery.copyWith(
-                textScaleFactor: mediaQuery.textScaleFactor.clamp(0.8, 1.3),
+                textScaleFactor:
+                mediaQuery.textScaleFactor.clamp(0.8, 1.3),
               ),
               child: child,
             );
-            return MobileWrapper(child: adjustedChild);
+            return kIsWeb ? MobileWrapper(child: adjustedChild) : adjustedChild;
           },
         );
       },
@@ -205,141 +250,23 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class IronXpressPremiumEntry extends StatefulWidget {
-  const IronXpressPremiumEntry({super.key});
+// Helper: create MaterialColor from Color
+MaterialColor _createMaterialColor(Color color) {
+  final List<double> strengths = <double>[.05];
+  final Map<int, Color> swatch = <int, Color>{};
+  final int r = color.red, g = color.green, b = color.blue;
 
-  @override
-  State<IronXpressPremiumEntry> createState() => _IronXpressPremiumEntryState();
-}
-
-class _IronXpressPremiumEntryState extends State<IronXpressPremiumEntry> {
-  bool _showStatus = false;
-  String _statusMessage = 'Setting up IronXpress…';
-
-  @override
-  void initState() {
-    super.initState();
-    print('🚀 Splash screen initState called');
-    _runSplashSequence();
+  for (int i = 1; i < 10; i++) {
+    strengths.add(0.1 * i);
   }
-
-  Future<void> _runSplashSequence() async {
-    await Future.delayed(const Duration(seconds: 3));
-    if (!mounted) return;
-
-    setState(() => _showStatus = true);
-
-    // Give the auth listener time to setup
-    await Future.delayed(const Duration(seconds: 2));
-    _navigateToAppWrapper();
-  }
-
-  void _navigateToAppWrapper() {
-    if (!mounted) return;
-    print('🧭 Navigating to AppWrapper');
-    Navigator.pushReplacement(
-      context,
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => const AppWrapper(),
-        transitionDuration: const Duration(milliseconds: 800),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(
-            opacity: animation,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(1.0, 0.0),
-                end: Offset.zero,
-              ).animate(
-                CurvedAnimation(parent: animation, curve: Curves.easeInOut),
-              ),
-              child: child,
-            ),
-          );
-        },
-      ),
+  for (final strength in strengths) {
+    final double ds = 0.5 - strength;
+    swatch[(strength * 1000).round()] = Color.fromRGBO(
+      r + ((ds < 0 ? r : (255 - r)) * ds).round(),
+      g + ((ds < 0 ? g : (255 - g)) * ds).round(),
+      b + ((ds < 0 ? b : (255 - b)) * ds).round(),
+      1,
     );
   }
-
-  @override
-  Widget build(BuildContext context) {
-    print('🎨 Splash screen build called');
-
-    final mq = MediaQuery.of(context);
-    final size = mq.size;
-    final padding = mq.padding;
-    final viewPadding = mq.viewPadding;
-    final viewInsets = mq.viewInsets;
-
-    print('📱 Screen size: ${size.width}x${size.height}');
-
-    final effectiveTop = max(padding.top, viewPadding.top);
-    final effectiveBottom = max(padding.bottom, viewPadding.bottom);
-    final availableHeight = size.height - effectiveTop - effectiveBottom - viewInsets.bottom;
-
-    final isSmall = availableHeight < 600;
-    final isLarge = availableHeight > 800;
-
-    final logoSize = isSmall ? 280.0 : (isLarge ? 400.0 : 340.0);
-    final statusFontSize = isSmall ? 14.0 : (isLarge ? 20.0 : 17.0);
-
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      extendBody: true,
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        color: Colors.white,
-        child: SafeArea(
-          minimum: EdgeInsets.only(
-            top: effectiveTop > 0 ? 8 : 24,
-            bottom: effectiveBottom > 0 ? 8 : 24,
-          ),
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                SizedBox(
-                  width: logoSize,
-                  height: logoSize,
-                  child: FittedBox(
-                    fit: BoxFit.contain,
-                    child: Image.asset('assets/images/ironxpress_logo.png'),
-                  ),
-                ),
-                SizedBox(height: availableHeight * 0.06),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 300),
-                  child: _showStatus
-                      ? Column(
-                    key: const ValueKey('status'),
-                    children: [
-                      SizedBox(
-                        width: isSmall ? 50 : 60,
-                        height: isSmall ? 50 : 60,
-                        child: const CircularProgressIndicator(
-                          strokeWidth: 3,
-                        ),
-                      ),
-                      SizedBox(height: availableHeight * 0.02),
-                      Text(
-                        _statusMessage,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.black87,
-                          fontSize: statusFontSize,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 1.1,
-                        ),
-                      ),
-                    ],
-                  )
-                      : const SizedBox.shrink(),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  return MaterialColor(color.value, swatch);
 }

@@ -8,12 +8,19 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'colors.dart'; // Replace with your actual theme import
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
+// ⬆️ put this near your imports, not inside a class
+const String _gmapsKey = 'AIzaSyDjxtVK1EXQuaYOc0-a0V5-Wb8xR-koHZ0';
 
 
 class AddressBookScreen extends StatefulWidget {
   final Function(Map<String, dynamic>) onAddressSelected;
 
   const AddressBookScreen({super.key, required this.onAddressSelected});
+
 
   @override
   State<AddressBookScreen> createState() => _AddressBookScreenState();
@@ -26,11 +33,72 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
   bool isLoading = true;
   String? selectedAddressId;
 
+
+
+  Future<Map<String, String>> _reverseGeocodeWeb(LatLng loc) async {
+    final uri = Uri.parse(
+      'https://maps.googleapis.com/maps/api/geocode/json'
+          '?latlng=${loc.latitude},${loc.longitude}&key=$_gmapsKey',
+    );
+    final res = await http.get(uri);
+    if (res.statusCode != 200) return {};
+    final data = json.decode(res.body);
+    final results = (data['results'] as List?) ?? [];
+    if (data['status'] != 'OK' || results.isEmpty) return {};
+
+    final comps = (results.first['address_components'] as List).cast<dynamic>();
+    String? postal, city, state, route, sublocality;
+    for (final c in comps) {
+      final types = (c['types'] as List).cast<String>();
+      if (types.contains('postal_code')) postal = c['long_name'];
+      if (types.contains('locality')) city = c['long_name'];
+      if (types.contains('administrative_area_level_1')) state = c['long_name'];
+      if (types.contains('route')) route = c['long_name'];
+      if (types.contains('sublocality') || types.contains('sublocality_level_1')) {
+        sublocality = c['long_name'];
+      }
+    }
+
+    final line1 = [route].where((e) => (e ?? '').isNotEmpty).join(', ');
+    final line2 = [sublocality, city].where((e) => (e ?? '').isNotEmpty).join(', ');
+
+    return {
+      'line1': line1,
+      'line2': line2,
+      'city': city ?? '',
+      'state': state ?? '',
+      'pincode': postal ?? '',
+      'formatted': results.first['formatted_address'] ?? '',
+    };
+  }
+
+  Future<LatLng?> _forwardGeocodeWeb(String query) async {
+    final uri = Uri.parse(
+      'https://maps.googleapis.com/maps/api/geocode/json'
+          '?address=${Uri.encodeComponent(query)}&key=$_gmapsKey',
+    );
+    final res = await http.get(uri);
+    if (res.statusCode != 200) return null;
+    final data = json.decode(res.body);
+    final results = (data['results'] as List?) ?? [];
+    if (data['status'] != 'OK' || results.isEmpty) return null;
+
+    final loc = results.first['geometry']['location'];
+    return LatLng((loc['lat'] as num).toDouble(), (loc['lng'] as num).toDouble());
+  }
+
+
+
   @override
   void initState() {
     super.initState();
     _loadAddresses();
   }
+
+
+
+
+
 
   Future<void> _loadAddresses() async {
     final userId = supabase.auth.currentUser?.id;
@@ -678,6 +746,60 @@ class AddAddressScreen extends StatefulWidget {
   State<AddAddressScreen> createState() => _AddAddressScreenState();
 }
 
+// ---- Web Geocoding helpers (TOP-LEVEL, not inside a class) ----
+Future<Map<String, String>> _reverseGeocodeWeb(LatLng loc) async {
+  final uri = Uri.parse(
+    'https://maps.googleapis.com/maps/api/geocode/json'
+        '?latlng=${loc.latitude},${loc.longitude}&key=$_gmapsKey',
+  );
+  final res = await http.get(uri);
+  if (res.statusCode != 200) return {};
+  final data = json.decode(res.body);
+  final results = (data['results'] as List?) ?? [];
+  if (data['status'] != 'OK' || results.isEmpty) return {};
+
+  final comps = (results.first['address_components'] as List).cast<dynamic>();
+  String? postal, city, state, route, sublocality;
+  for (final c in comps) {
+    final types = (c['types'] as List).cast<String>();
+    if (types.contains('postal_code')) postal = c['long_name'];
+    if (types.contains('locality')) city = c['long_name'];
+    if (types.contains('administrative_area_level_1')) state = c['long_name'];
+    if (types.contains('route')) route = c['long_name'];
+    if (types.contains('sublocality') || types.contains('sublocality_level_1')) {
+      sublocality = c['long_name'];
+    }
+  }
+
+  final line1 = [route].where((e) => (e ?? '').isNotEmpty).join(', ');
+  final line2 = [sublocality, city].where((e) => (e ?? '').isNotEmpty).join(', ');
+
+  return {
+    'line1': line1,
+    'line2': line2,
+    'city': city ?? '',
+    'state': state ?? '',
+    'pincode': postal ?? '',
+    'formatted': results.first['formatted_address'] ?? '',
+  };
+}
+
+Future<LatLng?> _forwardGeocodeWeb(String query) async {
+  final uri = Uri.parse(
+    'https://maps.googleapis.com/maps/api/geocode/json'
+        '?address=${Uri.encodeComponent(query)}&key=$_gmapsKey',
+  );
+  final res = await http.get(uri);
+  if (res.statusCode != 200) return null;
+  final data = json.decode(res.body);
+  final results = (data['results'] as List?) ?? [];
+  if (data['status'] != 'OK' || results.isEmpty) return null;
+
+  final loc = results.first['geometry']['location'];
+  return LatLng((loc['lat'] as num).toDouble(), (loc['lng'] as num).toDouble());
+}
+
+
 class _AddAddressScreenState extends State<AddAddressScreen> with TickerProviderStateMixin {
 
   final supabase = Supabase.instance.client;
@@ -767,23 +889,30 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
   Future<void> _onMapTap(LatLng location) async {
     setState(() {
       _selectedLocation = location;
-    });
-
-    setState(() {
       _isLoadingAddress = true;
     });
 
     try {
-      List<Placemark> placemarks = await placemarkFromCoordinates(
-        location.latitude,
-        location.longitude,
-      );
-
-      if (placemarks.isNotEmpty) {
-        final place = placemarks[0];
-        final address = '${place.street ?? ''}, ${place.locality ?? ''}, ${place
-            .postalCode ?? ''}';
-        setState(() {
+      if (kIsWeb) {
+        final data = await _reverseGeocodeWeb(location);
+        if (data.isNotEmpty) {
+          _addressLine1Controller.text = data['line1'] ?? '';
+          _addressLine2Controller.text = data['line2'] ?? '';
+          _cityController.text = data['city'] ?? '';
+          _stateController.text = data['state'] ?? '';
+          _pincodeController.text = data['pincode'] ?? '';
+          latitude = location.latitude;
+          longitude = location.longitude;
+          _selectedAddress = data['formatted'] ?? '';
+        }
+      } else {
+        final placemarks = await placemarkFromCoordinates(
+          location.latitude, location.longitude,
+        );
+        if (placemarks.isNotEmpty) {
+          final place = placemarks.first;
+          final address =
+              '${place.street ?? ''}, ${place.locality ?? ''}, ${place.postalCode ?? ''}';
           _addressLine1Controller.text = place.street ?? '';
           _cityController.text = place.locality ?? '';
           _pincodeController.text = place.postalCode ?? '';
@@ -791,16 +920,17 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
           latitude = location.latitude;
           longitude = location.longitude;
           _selectedAddress = address;
-        });
+        }
       }
     } catch (e) {
       print('Error getting address from tap: $e');
     } finally {
-      setState(() {
-        _isLoadingAddress = false;
-      });
+      if (mounted) {
+        setState(() => _isLoadingAddress = false);
+      }
     }
   }
+
 
   Future<void> _getCurrentLocationOnInit() async {
     try {
@@ -901,32 +1031,30 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
   }
 
   Future<void> _searchLocation(String query) async {
-    if (query
-        .trim()
-        .isEmpty) return;
+    if (query.trim().isEmpty) return;
 
-    setState(() {
-      _isSearching = true;
-    });
+    setState(() => _isSearching = true);
 
     try {
-      List<Location> locations = await locationFromAddress(query);
-      if (locations.isNotEmpty) {
-        Location location = locations.first;
-        LatLng newPosition = LatLng(location.latitude, location.longitude);
+      LatLng? newPosition;
+      if (kIsWeb) {
+        newPosition = await _forwardGeocodeWeb(query);
+      } else {
+        final locations = await locationFromAddress(query);
+        if (locations.isNotEmpty) {
+          final l = locations.first;
+          newPosition = LatLng(l.latitude, l.longitude);
+        }
+      }
 
+      if (newPosition != null) {
         _addMarker(newPosition);
-
         if (_mapController != null) {
           await _mapController!.animateCamera(
             CameraUpdate.newLatLngZoom(newPosition, 15),
           );
         }
-
-        setState(() {
-          _searchController.clear();
-        });
-
+        setState(() => _searchController.clear());
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Location found successfully!'),
@@ -942,11 +1070,10 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
         ),
       );
     } finally {
-      setState(() {
-        _isSearching = false;
-      });
+      if (mounted) setState(() => _isSearching = false);
     }
   }
+
 
   Future<void> _checkServiceAvailability(String pincode) async {
     if (pincode.length != 6) return;
@@ -1102,19 +1229,27 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
   }
 
   Future<void> _getAddressFromCoordinates(LatLng position) async {
-    setState(() {
-      _isLoadingAddress = true;
-    });
+    setState(() => _isLoadingAddress = true);
 
     try {
-      List<Placemark> placemarks = await placemarkFromCoordinates(
-        position.latitude,
-        position.longitude,
-      );
-
-      if (placemarks.isNotEmpty) {
-        Placemark place = placemarks[0];
-        setState(() {
+      if (kIsWeb) {
+        final data = await _reverseGeocodeWeb(position);
+        if (data.isNotEmpty) {
+          _addressLine1Controller.text = data['line1'] ?? '';
+          _addressLine2Controller.text = data['line2'] ?? '';
+          _cityController.text = data['city'] ?? '';
+          _stateController.text = data['state'] ?? '';
+          _pincodeController.text = data['pincode'] ?? '';
+          if ((data['pincode'] ?? '').length == 6) {
+            _checkServiceAvailability(data['pincode']!);
+          }
+        }
+      } else {
+        final placemarks = await placemarkFromCoordinates(
+          position.latitude, position.longitude,
+        );
+        if (placemarks.isNotEmpty) {
+          final place = placemarks.first;
           _addressLine1Controller.text =
               '${place.street ?? ''} ${place.name ?? ''}'.trim();
           _addressLine2Controller.text =
@@ -1123,20 +1258,18 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
           _cityController.text = place.locality ?? '';
           _stateController.text = place.administrativeArea ?? '';
           _pincodeController.text = place.postalCode ?? '';
-        });
-
-        if (place.postalCode != null && place.postalCode!.length == 6) {
-          _checkServiceAvailability(place.postalCode!);
+          if ((place.postalCode ?? '').length == 6) {
+            _checkServiceAvailability(place.postalCode!);
+          }
         }
       }
     } catch (e) {
       print('Error getting address: $e');
     } finally {
-      setState(() {
-        _isLoadingAddress = false;
-      });
+      if (mounted) setState(() => _isLoadingAddress = false);
     }
   }
+
 
   Future<void> _saveAddress() async {
     if (!_formKey.currentState!.validate()) return;
@@ -1952,39 +2085,39 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
     if (pincode.length != 6) return;
 
     try {
-      // Using geocoding package to get location from pincode
-      List<Location> locations = await locationFromAddress(pincode + ', India');
-
-      if (locations.isNotEmpty) {
-        Location location = locations.first;
-
-        // Get address details from coordinates
-        List<Placemark> placemarks = await placemarkFromCoordinates(
-          location.latitude,
-          location.longitude,
-        );
-
-        if (placemarks.isNotEmpty) {
-          Placemark place = placemarks[0];
-
+      if (kIsWeb) {
+        final loc = await _forwardGeocodeWeb('$pincode, India');
+        if (loc != null) {
+          final data = await _reverseGeocodeWeb(loc);
           setState(() {
-            // Auto-fill city and state
-            _cityController.text = place.locality ?? place.subAdministrativeArea ?? '';
-            _stateController.text = place.administrativeArea ?? '';
-
-            // Update coordinates if not already set from map
-            if (latitude == null || longitude == null) {
-              latitude = location.latitude;
-              longitude = location.longitude;
-            }
+            _cityController.text = data['city'] ?? '';
+            _stateController.text = data['state'] ?? '';
+            latitude ??= loc.latitude;
+            longitude ??= loc.longitude;
           });
+        }
+      } else {
+        final locations = await locationFromAddress('$pincode, India');
+        if (locations.isNotEmpty) {
+          final l = locations.first;
+          final placemarks = await placemarkFromCoordinates(l.latitude, l.longitude);
+          if (placemarks.isNotEmpty) {
+            final place = placemarks.first;
+            setState(() {
+              _cityController.text =
+                  place.locality ?? place.subAdministrativeArea ?? '';
+              _stateController.text = place.administrativeArea ?? '';
+              latitude ??= l.latitude;
+              longitude ??= l.longitude;
+            });
+          }
         }
       }
     } catch (e) {
       print('Error fetching location from pincode: $e');
-      // Don't show error to user as this is auto-fetch
     }
   }
+
 
 // AND UPDATE YOUR _buildTextField METHOD:
   Widget _buildTextField({

@@ -29,20 +29,12 @@ class MobileWrapper extends StatelessWidget {
     print('🌐 Running on web - applying Samsung S21 Ultra style mobile container');
 
     return Material(
-      color: const Color(0xFF1a1a2e), // Dark blue-purple background like Samsung
+      color: Colors.black, // ⬅️ solid black background
       child: Container(
         width: double.infinity,
         height: double.infinity,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              const Color(0xFF1a1a2e),
-              const Color(0xFF16213e),
-              const Color(0xFF0f3460),
-            ],
-          ),
+        decoration: const BoxDecoration(
+          color: Colors.black, // ⬅️ remove gradient, keep pure black
         ),
         child: Center(
           child: Container(
@@ -50,7 +42,7 @@ class MobileWrapper extends StatelessWidget {
             height: mobileHeight,
             decoration: BoxDecoration(
               color: Colors.black, // Phone frame color
-              borderRadius: BorderRadius.circular(25), // Samsung-like rounded corners
+              borderRadius: BorderRadius.zero, // ⬅️ make edges straight (no rounding)
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.5),
@@ -71,10 +63,10 @@ class MobileWrapper extends StatelessWidget {
               child: Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(21), // Inner screen radius
+                  borderRadius: BorderRadius.zero, // ⬅️ inner screen straight
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(21),
+                  borderRadius: BorderRadius.zero, // ⬅️ no rounded clip
                   child: MediaQuery(
                     data: MediaQuery.of(context).copyWith(
                       size: const Size(mobileWidth - 8, mobileHeight - 8), // Account for frame

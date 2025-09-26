@@ -10,13 +10,11 @@ import 'colors.dart';
 import 'app_wrapper.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
-
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key}
-);
+  const LoginScreen({super.key});
 
-@override
-State<LoginScreen> createState() => _LoginScreenState();
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin {
@@ -50,15 +48,15 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   void _initializeAnimations() {
     _fadeController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 200),
+      duration: const Duration(milliseconds: 1200),
     );
     _slideController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 200),
+      duration: const Duration(milliseconds: 1200),
     );
     _scaleController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 200),
+      duration: const Duration(milliseconds: 1200),
     );
     _rotationController = AnimationController(
       vsync: this,
@@ -111,22 +109,25 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   }
 
   void _initDeepLinks() {
+    if (kIsWeb) {
+      return;
+    }
+
     _appLinks = AppLinks();
 
     _linkSubscription = _appLinks.uriLinkStream.listen(
           (Uri uri) {
-        print('📱 Deep link received: $uri');
+        debugPrint('📱 Deep link received: $uri');
         _handleIncomingLink(uri);
       },
       onError: (err) {
-        print('❌ Deep link error: $err');
+        debugPrint('❌ Deep link error: $err');
       },
     );
 
-    // Check for initial link when app starts
     _appLinks.getInitialLink().then((Uri? uri) {
       if (uri != null) {
-        print('📱 Initial deep link: $uri');
+        debugPrint('📱 Initial deep link: $uri');
         _handleIncomingLink(uri);
       }
     });
@@ -135,17 +136,9 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   void _handleIncomingLink(Uri uri) async {
     print('🔗 Processing link: ${uri.toString()}');
 
-    // ✅ FIXED: Let Supabase handle OAuth callbacks automatically
-    // Don't manually process OAuth callbacks - Supabase will handle them
     if (uri.scheme == 'com.yuknow.ironly' && uri.host == 'oauth-callback') {
       print('✅ OAuth callback received - letting Supabase handle it automatically');
 
-      // Just show a processing message
-      if (mounted) {
-        _showMessage('🔄 Processing authentication...', isError: false);
-      }
-
-      // Optional: Set a timeout to reset loading state if needed
       Timer(const Duration(seconds: 10), () {
         if (mounted && _isGoogleLoggingIn) {
           setState(() {
@@ -153,39 +146,15 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           });
         }
       });
-
-      return; // Don't process manually - let Supabase handle it
+      return;
     }
 
-    // Handle other types of deep links here if needed
     print('🔗 Non-OAuth deep link: $uri');
   }
 
-  void _handleOAuthSuccess() {
-    if (!mounted) return;
-
-    setState(() {
-      _isGoogleLoggingIn = false;
-    });
-    _showMessage('🎉 Welcome! Signing you in...', isError: false);
-    print('✅ OAuth login successful');
-  }
-
-  void _handleOAuthError(String error) {
-    if (!mounted) return;
-
-    setState(() {
-      _isGoogleLoggingIn = false;
-    });
-    _showMessage('Google login failed: $error', isError: true);
-    print('❌ OAuth error: $error');
-  }
-
-  /// --- NEW: Extract Google display name (only name) from user metadata ---
   String _extractGoogleName(User user) {
     final meta = user.userMetadata;
     if (meta is Map) {
-      // Common keys returned by Google via Supabase
       final candidates = [
         'full_name',
         'name',
@@ -202,7 +171,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     }
     return '';
   }
-  /// ----------------------------------------------------------------------
 
   void _setupAuthListener() {
     supabase.auth.onAuthStateChange.listen((data) {
@@ -219,10 +187,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
             _isGoogleLoggingIn = false;
           });
 
-          // Vibration feedback for success
           HapticFeedback.lightImpact();
 
-          // --- UPDATED: Prefer Google name from user metadata, fallback to email/phone/User ---
           final googleName = _extractGoogleName(session.user);
           String userName = googleName.isNotEmpty
               ? googleName
@@ -230,10 +196,9 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
               ?? session.user.phone?.replaceAll('+91', '')
               ?? 'User');
 
-          _showMessage('🎉 Welcome back, $userName!', isError: false);
+          _showMessage('Welcome back, $userName!', isError: false);
           print('✅ Login successful');
 
-          // Navigate to AppWrapper after a brief delay
           Future.delayed(const Duration(milliseconds: 1500), () {
             if (mounted) {
               Navigator.pushAndRemoveUntil(
@@ -256,55 +221,53 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   }
 
   Future<void> _loginWithGoogle() async {
-    HapticFeedback.selectionClick();
+    HapticFeedback.mediumImpact();
 
-    setState(() {
-      _isGoogleLoggingIn = true;
-    });
+    setState(() => _isGoogleLoggingIn = true);
 
     try {
-      // Choose redirect depending on platform
-      // Option: use a dedicated callback path '/auth/callback' for web (recommended)
-      final String redirectUrl = kIsWeb
-          ? Uri.base.origin + '/auth/callback' // e.g. https://yourdomain.com/auth/callback
-          : 'com.yuknow.ironly://oauth-callback'; // your existing mobile scheme
+      final String webRedirect = const String.fromEnvironment('WEB_REDIRECT_URL',
+          defaultValue: 'https://www.dobify.in/');
 
-      print('🔐 Using redirect URL: $redirectUrl');
+      const String mobileRedirect = 'com.yuknow.ironly://oauth-callback';
+
+      final String redirectUrl = kIsWeb ? webRedirect : mobileRedirect;
+      debugPrint('🔐 Using redirect URL: $redirectUrl');
 
       await supabase.auth.signInWithOAuth(
         OAuthProvider.google,
         redirectTo: redirectUrl,
-        authScreenLaunchMode: LaunchMode.externalApplication,
+        authScreenLaunchMode:
+        kIsWeb ? LaunchMode.platformDefault : LaunchMode.externalApplication,
       );
-
-      // On web the browser will navigate to Google and then back to redirectUrl.
-      // Auth state changes are handled by your onAuthStateChange listener.
     } catch (e) {
       if (!mounted) return;
-
-      setState(() {
-        _isGoogleLoggingIn = false;
-      });
+      setState(() => _isGoogleLoggingIn = false);
 
       String errorMessage = e.toString();
       if (errorMessage.contains('OAuth state mismatch')) {
         errorMessage = 'Authentication session expired. Please try again.';
-      } else if (errorMessage.contains('localhost') || errorMessage.contains('127.0.0.1')) {
-        errorMessage = 'Please configure OAuth redirect URL in Supabase dashboard';
+      } else if (errorMessage.contains('localhost') ||
+          errorMessage.contains('127.0.0.1')) {
+        errorMessage =
+        'Please add your correct Redirect URL in Supabase (no localhost on production).';
       } else if (errorMessage.contains('CANCELLED')) {
         errorMessage = 'Login was cancelled';
       } else if (errorMessage.contains('PlatformException')) {
-        errorMessage = 'Unable to launch authentication. Please try again.';
+        errorMessage =
+        'Unable to launch authentication. Please try again.';
+      } else if (errorMessage.contains('404')) {
+        errorMessage =
+        'OAuth callback URL not found. Check your Supabase Redirect URL.';
       }
 
       _showMessage('Google login failed: $errorMessage', isError: true);
-      print('❌ Google login error: $e');
+      debugPrint('❌ Google login error: $e');
     }
   }
 
-
   void _navigateToPhoneLogin() {
-    HapticFeedback.selectionClick();
+    HapticFeedback.mediumImpact();
     Navigator.push(
       context,
       PageRouteBuilder(
@@ -454,12 +417,16 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                // Premium Logo & Welcome Section
+                                // Premium Welcome Section (no logo)
                                 _buildWelcomeSection(),
                                 const SizedBox(height: 60),
 
                                 // Google Login Button
                                 _buildGoogleLoginButton(),
+                                const SizedBox(height: 20),
+
+                                // OR Divider
+                                _buildORDivider(),
                                 const SizedBox(height: 20),
 
                                 // Phone Login Button
@@ -584,172 +551,149 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     );
   }
 
-  Widget _buildWelcomeSection() {
-    return Column(
-      children: [
-        // Enhanced 3D Logo with floating animation
-        AnimatedBuilder(
-          animation: _floatAnimation,
-          builder: (context, child) {
-            return Transform.translate(
-              offset: Offset(0, _floatAnimation.value * 8 - 4),
-              child: Transform(
-                alignment: Alignment.center,
-                transform: Matrix4.identity()
-                  ..setEntry(3, 2, 0.001) // Perspective
-                  ..rotateX(0.1 + (_floatAnimation.value * 0.05))
-                  ..rotateY(0.05),
-                child: Container(
-                  width: 100,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        kPrimaryColor,
-                        kPrimaryColor.withOpacity(0.8),
-                        kPrimaryColor.withOpacity(0.6),
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      // Main 3D shadow
-                      BoxShadow(
-                        color: kPrimaryColor.withOpacity(0.4),
-                        blurRadius: 35,
-                        offset: const Offset(8, 20),
-                      ),
-                      // Depth shadow
-                      BoxShadow(
-                        color: kPrimaryColor.withOpacity(0.2),
-                        blurRadius: 70,
-                        offset: const Offset(15, 40),
-                      ),
-                    ],
-                  ),
-                  child: Transform(
-                    alignment: Alignment.center,
-                    transform: Matrix4.identity()
-                      ..setEntry(3, 2, 0.001)
-                      ..rotateX(-0.05),
-                    child: const Icon(
-                      Icons.local_laundry_service_rounded,
-                      color: Colors.white,
-                      size: 50,
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
-        const SizedBox(height: 32),
+  // ADD THIS inside _LoginScreenState (above _buildWelcomeSection)
+  Widget _gradientHeadline(
+      String text, {
+        required double size,
+        required FontWeight weight,
+        double letterSpacing = -0.5,
+      }) {
+    final Paint strokePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6
+      ..color = kPrimaryColor.withOpacity(0.55);
 
-        // Enhanced 3D Welcome Text with depth
-        Transform(
-          alignment: Alignment.center,
-          transform: Matrix4.identity()
-            ..setEntry(3, 2, 0.001)
-            ..rotateX(0.02),
-          child: Stack(
-            children: [
-              // Shadow text for 3D depth
-              Transform.translate(
-                offset: const Offset(2, 3),
-                child: ShaderMask(
-                  shaderCallback: (bounds) => LinearGradient(
-                    colors: [
-                      Colors.black.withOpacity(0.2),
-                      Colors.black.withOpacity(0.1),
-                    ],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ).createShader(bounds),
-                  child: const Text(
-                    'Welcome to\nironXpress',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 34,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                      letterSpacing: -0.5,
-                      height: 1.2,
-                    ),
-                    overflow: TextOverflow.visible,
-                    softWrap: true,
-                  ),
-                ),
-              ),
-              // Main text
-              ShaderMask(
-                shaderCallback: (bounds) => LinearGradient(
-                  colors: [
-                    kPrimaryColor,
-                    kPrimaryColor.withOpacity(0.8),
-                    kPrimaryColor.withOpacity(0.6),
-                  ],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                ).createShader(bounds),
-                child: const Text(
-                  'Welcome to\nironXpress',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 34,
-                    fontWeight: FontWeight.w900,
-                    color: Colors.white,
-                    letterSpacing: -0.5,
-                    height: 1.2,
-                    shadows: [
-                      Shadow(
-                        color: Colors.black12,
-                        offset: Offset(1, 2),
-                        blurRadius: 4,
-                      ),
-                    ],
-                  ),
-                  overflow: TextOverflow.visible,
-                  softWrap: true,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
+    final outline = Text(
+      text,
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        fontSize: size,
+        fontWeight: weight,
+        letterSpacing: letterSpacing,
+        height: 1.1,
+        foreground: strokePaint,
+      ),
+    );
 
-        // Enhanced subtitle with subtle 3D effect
-        Transform(
-          alignment: Alignment.center,
-          transform: Matrix4.identity()
-            ..setEntry(3, 2, 0.001)
-            ..rotateX(0.01),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0),
-            child: Text(
-              'Your premium laundry service awaits.\nSign in to continue your journey.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.grey.shade600,
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-                height: 1.5,
-                shadows: [
-                  Shadow(
-                    color: Colors.black.withOpacity(0.1),
-                    offset: const Offset(0, 1),
-                    blurRadius: 2,
-                  ),
-                ],
-              ),
-              overflow: TextOverflow.visible,
-              softWrap: true,
+    final fill = ShaderMask(
+      shaderCallback: (bounds) => LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          kPrimaryColor,
+          kPrimaryColor.withOpacity(0.85),
+        ],
+      ).createShader(bounds),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: size,
+          fontWeight: weight,
+          letterSpacing: letterSpacing,
+          height: 1.1,
+          color: Colors.white,
+          shadows: [
+            Shadow(
+              color: kPrimaryColor.withOpacity(0.28),
+              offset: const Offset(0, 2),
+              blurRadius: 10,
             ),
-          ),
+            Shadow(
+              color: kPrimaryColor.withOpacity(0.20),
+              offset: const Offset(0, 6),
+              blurRadius: 18,
+            ),
+          ],
         ),
+      ),
+    );
+
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        outline,
+        fill,
       ],
     );
   }
+
+
+  // REPLACE your existing _buildWelcomeSection with this
+  Widget _buildWelcomeSection() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final smallSize = w < 360 ? 22.0 : (w < 420 ? 26.0 : 30.0);
+        final bigSize   = w < 360 ? 34.0 : (w < 420 ? 40.0 : 46.0);
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Headline with slight 3D tilt
+            Transform(
+              alignment: Alignment.center,
+              transform: Matrix4.identity()
+                ..setEntry(3, 2, 0.001)
+                ..rotateX(0.015),
+              child: Column(
+                children: [
+                  _gradientHeadline(
+                    'Welcome to',
+                    size: smallSize,
+                    weight: FontWeight.w600,
+                    letterSpacing: 1,
+                  ),
+                  const SizedBox(height: 6),
+                  _gradientHeadline(
+                    'Dobify',
+                    size: bigSize,
+                    weight: FontWeight.w900,
+                    letterSpacing: 1,
+                  ),
+                ],
+              ),
+            ),
+
+            // ↓ Small gap before subtitle
+            const SizedBox(height: 8),
+
+            // Subtitle
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0),
+              child: Text(
+                'Your premium Ironing service awaits.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.grey.shade700,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  height: 1.4,
+                  shadows: [
+                    Shadow(
+                      color: kPrimaryColor.withOpacity(0.18),
+                      offset: const Offset(0, 1),
+                      blurRadius: 2,
+                    ),
+                  ],
+                ),
+                overflow: TextOverflow.visible,
+                softWrap: true,
+              ),
+            ),
+
+            // ↓ Final spacing before the next widget (Google button)
+            const SizedBox(height: 16),
+          ],
+        );
+      },
+    );
+  }
+
+
+
+
+
 
   Widget _buildGoogleLoginButton() {
     return Transform(
@@ -765,26 +709,26 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           borderRadius: BorderRadius.circular(20),
           gradient: LinearGradient(
             colors: [
-              Colors.red.shade50,
-              Colors.red.shade400,
+              Colors.white,
+              Colors.grey.shade50,
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           border: Border.all(
-            color: Colors.red.withOpacity(0.3),
+            color: Colors.grey.withOpacity(0.3),
             width: 1.5,
           ),
           boxShadow: [
             // Main 3D shadow
             BoxShadow(
-              color: Colors.red.withOpacity(0.25),
+              color: Colors.grey.withOpacity(0.25),
               blurRadius: 25,
               offset: const Offset(6, 12),
             ),
             // Depth shadow
             BoxShadow(
-              color: Colors.red.withOpacity(0.15),
+              color: Colors.grey.withOpacity(0.15),
               blurRadius: 45,
               offset: const Offset(12, 25),
             ),
@@ -811,16 +755,16 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                     width: 24,
                     height: 24,
                     child: CircularProgressIndicator(
-                      color: Colors.red.shade600,
+                      color: kPrimaryColor,
                       strokeWidth: 2.5,
                     ),
                   ),
                   const SizedBox(width: 16),
                   Flexible(
                     child: Text(
-                      'Connecting...',
+                      'Signing in...',
                       style: TextStyle(
-                        color: Colors.red.shade600,
+                        color: Colors.grey.shade700,
                         fontWeight: FontWeight.w700,
                         fontSize: 17,
                         shadows: [
@@ -891,7 +835,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                     child: Text(
                       'Continue with Google',
                       style: TextStyle(
-                        color: Colors.red.shade700,
+                        color: Colors.grey.shade700,
                         fontWeight: FontWeight.w700,
                         fontSize: 17,
                         letterSpacing: 0.2,
@@ -978,6 +922,80 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     }
   }
 
+  Widget _buildORDivider() {
+    return Transform(
+      alignment: Alignment.center,
+      transform: Matrix4.identity()
+        ..setEntry(3, 2, 0.001)
+        ..rotateX(0.01),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              height: 1,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.transparent,
+                    Colors.grey.shade300,
+                    Colors.transparent,
+                  ],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.grey.withOpacity(0.2),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Text(
+              'OR',
+              style: TextStyle(
+                color: Colors.grey.shade400,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1,
+                shadows: [
+                  Shadow(
+                    color: Colors.black.withOpacity(0.1),
+                    offset: const Offset(0, 1),
+                    blurRadius: 2,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: Container(
+              height: 1,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.transparent,
+                    Colors.grey.shade300,
+                    Colors.transparent,
+                  ],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.grey.withOpacity(0.2),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPhoneLoginButton() {
     return Transform(
       alignment: Alignment.center,
@@ -992,26 +1010,26 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           borderRadius: BorderRadius.circular(20),
           gradient: LinearGradient(
             colors: [
-              Colors.blue.shade400,
-              Colors.blue.shade200,
+              kPrimaryColor,
+              kPrimaryColor.withOpacity(0.8),
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           border: Border.all(
-            color: Colors.blue.withOpacity(0.3),
+            color: kPrimaryColor.withOpacity(0.3),
             width: 1.5,
           ),
           boxShadow: [
             // Main 3D shadow
             BoxShadow(
-              color: Colors.blue.withOpacity(0.25),
+              color: kPrimaryColor.withOpacity(0.25),
               blurRadius: 25,
               offset: const Offset(6, 12),
             ),
             // Depth shadow
             BoxShadow(
-              color: Colors.blue.withOpacity(0.15),
+              color: kPrimaryColor.withOpacity(0.15),
               blurRadius: 45,
               offset: const Offset(12, 25),
             ),
@@ -1045,7 +1063,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                         borderRadius: BorderRadius.circular(10),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.blue.withOpacity(0.2),
+                            color: kPrimaryColor.withOpacity(0.2),
                             blurRadius: 8,
                             offset: const Offset(2, 3),
                           ),
@@ -1053,7 +1071,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                       ),
                       child: Icon(
                         Icons.phone_android_rounded,
-                        color: Colors.blue.shade600,
+                        color: kPrimaryColor,
                         size: 24,
                       ),
                     ),
@@ -1123,7 +1141,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
               ..setEntry(3, 2, 0.001)
               ..rotateX(0.02),
             child: Text(
-              'Secure • Fast • Reliable',
+              'Doorstep • Instant • Reliable',
               style: TextStyle(
                 color: Colors.grey.shade500,
                 fontSize: 14,
@@ -1214,4 +1232,5 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         ),
       ),
     );
-  }}
+  }
+}

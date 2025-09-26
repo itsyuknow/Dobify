@@ -8,9 +8,6 @@ import 'package:permission_handler/permission_handler.dart';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
-// ============================================
-// BACKGROUND MESSAGE HANDLER (TOP-LEVEL FUNCTION)
-// ============================================
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   print('📱 Background message received: ${message.messageId}');
@@ -43,9 +40,7 @@ Future<void> _storeBackgroundNotification(RemoteMessage message) async {
   }
 }
 
-// ============================================
-// COMPLETE NOTIFICATION SERVICE
-// ============================================
+
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
@@ -63,9 +58,7 @@ class NotificationService {
 
   bool _isInitialized = false;
 
-  // ============================================
-  // INITIALIZATION - GUARANTEES PHONE POPUPS
-  // ============================================
+
   Future<void> initialize() async {
     if (_isInitialized) return;
 
@@ -251,7 +244,7 @@ class NotificationService {
   }
 
   Future<void> _showLocalPopupNotification(RemoteMessage message) async {
-    final title = message.notification?.title ?? 'ironXpress';
+    final title = message.notification?.title ?? 'Dobify';
     final body = message.notification?.body ?? 'New notification';
     final type = message.data['type'] ?? 'general';
 

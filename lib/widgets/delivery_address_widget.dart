@@ -7,6 +7,11 @@ import 'package:geocoding/geocoding.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '/widgets/colors.dart';
 import '/screens/app_wrapper.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
+const String _gmapsKey = 'AIzaSyDjxtVK1EXQuaYOc0-a0V5-Wb8xR-koHZ0';
 
 class DeliveryAddressWidget extends StatefulWidget {
   final VoidCallback? onLocationUpdated;
@@ -15,6 +20,48 @@ class DeliveryAddressWidget extends StatefulWidget {
     super.key,
     this.onLocationUpdated,
   });
+
+
+  Future<({String address, String? pincode})> _reverseGeocode(double lat, double lng) async {
+    // Web: use Google Geocoding REST
+    if (kIsWeb) {
+      final url = Uri.parse(
+          'https://maps.googleapis.com/maps/api/geocode/json?latlng=$lat,$lng&key=$_gmapsKey'
+      );
+      final resp = await http.get(url).timeout(const Duration(seconds: 10));
+      if (resp.statusCode == 200) {
+        final data = json.decode(resp.body);
+        if ((data['results'] as List).isNotEmpty) {
+          final first = data['results'][0];
+          final formatted = (first['formatted_address'] as String?) ?? 'Selected location';
+          String? pin;
+          for (final comp in (first['address_components'] as List)) {
+            final types = (comp['types'] as List).cast<String>();
+            if (types.contains('postal_code')) {
+              pin = (comp['long_name'] as String?)?.replaceAll(RegExp(r'[^0-9]'), '');
+              break;
+            }
+          }
+          return (address: formatted, pincode: pin);
+        }
+      }
+      return (address: 'Selected location', pincode: null);
+    }
+
+    // Mobile/Desktop (non-web): use geocoding package
+    final placemarks = await placemarkFromCoordinates(lat, lng);
+    if (placemarks.isNotEmpty) {
+      final p = placemarks.first;
+      final addr =
+      '${p.name ?? p.subLocality ?? ''}, ${p.locality ?? ''}, ${p.postalCode ?? ''}'
+          .replaceAll(RegExp(r'^, |, ,'), '')
+          .trim();
+      final pin = p.postalCode?.replaceAll(RegExp(r'[^0-9]'), '');
+      return (address: addr.isEmpty ? 'Selected location' : addr, pincode: pin);
+    }
+    return (address: 'Selected location', pincode: null);
+  }
+
 
   @override
   State<DeliveryAddressWidget> createState() => _DeliveryAddressWidgetState();
@@ -742,56 +789,38 @@ class _DeliveryAddressWidgetState extends State<DeliveryAddressWidget>
     });
 
     try {
-      List<Placemark> placemarks = await placemarkFromCoordinates(
-        location.latitude,
-        location.longitude,
-      );
+      final geo = await widget._reverseGeocode(location.latitude, location.longitude);
 
-      if (placemarks.isNotEmpty) {
-        final place = placemarks[0];
-        final address =
-            '${place.name ?? place.subLocality ?? ''}, ${place.locality ?? ''}, ${place.postalCode ?? ''}';
-        setState(() {
-          _selectedAddress = address;
-          _markers = {
-            Marker(
-              markerId: const MarkerId('selected_location'),
-              position: location,
-              infoWindow: InfoWindow(title: 'Selected Location', snippet: address),
-            ),
-          };
-        });
-      }
-    } catch (e) {
+      setState(() {
+        _selectedAddress = geo.address;
+        _markers = {
+          Marker(
+            markerId: const MarkerId('selected_location'),
+            position: location,
+            infoWindow: InfoWindow(title: 'Selected Location', snippet: geo.address),
+          ),
+        };
+      });
+    } catch (_) {
       setState(() {
         _selectedAddress = 'Selected location';
       });
     }
   }
 
+
   Future<bool> _checkServiceAvailability(double latitude, double longitude) async {
     try {
-      List<Placemark> placemarks = await placemarkFromCoordinates(
-        latitude,
-        longitude,
-      );
+      final geo = await widget._reverseGeocode(latitude, longitude);
 
-      if (placemarks.isEmpty) return false;
-
-      final place = placemarks[0];
-      final pincode = place.postalCode;
-
-      if (pincode == null || pincode.isEmpty) {
-        return false;
-      }
-
-      final cleanPincode = pincode.replaceAll(RegExp(r'[^0-9]'), '');
+      final pincode = geo.pincode;
+      if (pincode == null || pincode.isEmpty) return false;
 
       final response = await supabase
           .from('service_areas')
           .select()
-          .or('pincode.eq.$pincode,pincode.eq.$cleanPincode')
           .eq('is_active', true)
+          .or('pincode.eq.$pincode')
           .maybeSingle();
 
       return response != null;
@@ -800,6 +829,7 @@ class _DeliveryAddressWidgetState extends State<DeliveryAddressWidget>
       return false;
     }
   }
+
 
   // ✅ ENHANCED LOCATION UPDATE WITH REAL-TIME SYNC
   Future<void> _confirmLocationUpdate() async {
@@ -810,36 +840,31 @@ class _DeliveryAddressWidgetState extends State<DeliveryAddressWidget>
     });
 
     try {
-      bool serviceAvailable = await _checkServiceAvailability(
-        _selectedLocation!.latitude,
-        _selectedLocation!.longitude,
-      );
+      final lat = _selectedLocation!.latitude;
+      final lng = _selectedLocation!.longitude;
+
+      // ✅ Get address & pincode in a cross-platform way (Web uses Google Geocoding REST)
+      final geo = await widget._reverseGeocode(lat, lng);
+
+
+      // ✅ Check service availability (already uses reverse geocode internally)
+      final serviceAvailable = await _checkServiceAvailability(lat, lng);
 
       final user = supabase.auth.currentUser;
       if (user != null) {
-        List<Placemark> placemarks = await placemarkFromCoordinates(
-          _selectedLocation!.latitude,
-          _selectedLocation!.longitude,
-        );
-
-        String? pincode;
-        if (placemarks.isNotEmpty) {
-          pincode = placemarks[0].postalCode?.replaceAll(RegExp(r'[^0-9]'), '');
-        }
-
-        // ✅ Update database - this will trigger the stream subscription
+        // ✅ Update DB — triggers your realtime subscription to refresh UI
         await supabase.from('profiles').upsert({
           'id': user.id,
-          'location': _selectedAddress,
-          'latitude': _selectedLocation!.latitude,
-          'longitude': _selectedLocation!.longitude,
-          'pincode': pincode,
+          'location': (geo.address.isNotEmpty ? geo.address : _selectedAddress).trim(),
+          'latitude': lat,
+          'longitude': lng,
+          'pincode': geo.pincode,
           'updated_at': DateTime.now().toIso8601String(),
         });
 
-        Navigator.pop(context);
-
         if (mounted) {
+          Navigator.pop(context);
+
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Row(
@@ -868,10 +893,8 @@ class _DeliveryAddressWidgetState extends State<DeliveryAddressWidget>
           );
         }
 
-        // ✅ Notify parent widget
-        if (widget.onLocationUpdated != null) {
-          widget.onLocationUpdated!();
-        }
+        // ✅ Notify parent if provided
+        widget.onLocationUpdated?.call();
       }
     } catch (e) {
       print('Error updating location: $e');
@@ -893,11 +916,14 @@ class _DeliveryAddressWidgetState extends State<DeliveryAddressWidget>
         );
       }
     } finally {
-      setState(() {
-        _isUpdating = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isUpdating = false;
+        });
+      }
     }
   }
+
 
   @override
   void dispose() {

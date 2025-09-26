@@ -1080,17 +1080,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
         'updated_at': DateTime.now().toIso8601String(),
       });
 
-      await NotificationService().sendOrderPlacedNotification(
-        userId: user.id,
-        orderId: orderId,
-        orderData: {
-          'pickup_date': selectedPickupDate.toIso8601String().split('T')[0],
-          'delivery_date': selectedDeliveryDate.toIso8601String().split('T')[0],
-          'total_amount': totalAmount,
-          'payment_method': _selectedPaymentMethod,
-          'delivery_type': isExpressDelivery ? 'express' : 'standard',
-        },
-      );
+
 
       // Create order items
       for (final item in widget.cartItems) {

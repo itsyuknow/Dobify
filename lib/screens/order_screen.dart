@@ -6,6 +6,8 @@ import 'colors.dart';
 import 'product_details_screen.dart';
 import '../widgets/custom_bottom_nav.dart';
 import '../screens/cart_screen.dart';
+import 'dart:convert'; // <-- needed for jsonDecode
+
 
 class OrdersScreen extends StatefulWidget {
   final String? category;
@@ -111,8 +113,9 @@ class _OrdersScreenState extends State<OrdersScreen>
       final response = await supabase
           .from('products')
           .select(
-        'id, product_name, product_price, image_url, category_id, is_enabled, created_at, sort_order, tag, recommended_service_id, categories(name)',
+          'id, product_name, product_price, image_url, category_id, is_enabled, created_at, sort_order, tag, recommended_service_id, services_provided, categories(name)'
       )
+
           .eq('is_enabled', true)
           .order('sort_order', ascending: true) // ✅ Primary sort by sort_order
           .order('product_name', ascending: true); // ✅ Secondary sort by name
@@ -766,6 +769,48 @@ class _OrdersScreenState extends State<OrdersScreen>
       return;
     }
 
+    // --- Robust parser for services_provided in ANY format ---
+    List<String> _parseServiceIds(dynamic raw) {
+      try {
+        if (raw == null) return [];
+        // If already a List
+        if (raw is List) {
+          return raw
+              .map((e) => e?.toString().trim() ?? '')
+              .where((s) => s.isNotEmpty)
+              .toList();
+        }
+        // If string JSON (e.g. '["id1","id2"]')
+        if (raw is String) {
+          final s = raw.trim();
+          if (s.isEmpty) return [];
+          if ((s.startsWith('[') && s.endsWith(']')) ||
+              (s.startsWith('"') && s.endsWith('"'))) {
+            final decoded = jsonDecode(s);
+            if (decoded is List) {
+              return decoded
+                  .map((e) => e?.toString().trim() ?? '')
+                  .where((x) => x.isNotEmpty)
+                  .toList();
+            }
+          }
+          // If comma-separated string
+          if (s.contains(',')) {
+            return s
+                .split(',')
+                .map((e) => e.trim())
+                .where((e) => e.isNotEmpty)
+                .toList();
+          }
+          // Single id as string
+          return [s];
+        }
+        return [];
+      } catch (_) {
+        return [];
+      }
+    }
+
     try {
       if (mounted) {
         showDialog(
@@ -775,15 +820,34 @@ class _OrdersScreenState extends State<OrdersScreen>
         );
       }
 
-      final response = await supabase
-          .from('services')
-          .select('*')
-          .eq('is_active', true)
-          .order('sort_order');
+      // Parse allowed service UUIDs from product
+      final allowedServiceIds = _parseServiceIds(product['services_provided']);
 
-      final services = List<Map<String, dynamic>>.from(response);
+// Fetch services
+      List<Map<String, dynamic>> services;
+      if (allowedServiceIds.isNotEmpty) {
+        final resp = await supabase
+            .from('services')
+            .select('*')
+            .inFilter('id', allowedServiceIds) // <-- use inFilter
+            .eq('is_active', true)
+            .order('sort_order');
+
+        services = List<Map<String, dynamic>>.from(resp ?? []);
+      } else {
+        // Fallback: show all active (keep or switch to strict block as you prefer)
+        final resp = await supabase
+            .from('services')
+            .select('*')
+            .eq('is_active', true)
+            .order('sort_order');
+
+        services = List<Map<String, dynamic>>.from(resp ?? []);
+      }
+
 
       if (mounted) Navigator.pop(context);
+
       if (services.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -794,7 +858,6 @@ class _OrdersScreenState extends State<OrdersScreen>
       }
 
       final basePrice = (product['product_price'] as num?)?.toDouble() ?? 0.0;
-      // ✅ NEW: Get the recommended service ID for this product
       final recommendedServiceId = product['recommended_service_id']?.toString();
 
       if (!mounted) return;
@@ -832,12 +895,11 @@ class _OrdersScreenState extends State<OrdersScreen>
                         final service = services[index];
                         final serviceId = service['id']?.toString();
                         final name = service['name'] ?? '';
-                        final price = service['price'] ?? 0;
+                        final int priceInt = (service['price'] as num?)?.toInt() ?? 0;
                         final description = service['service_description'] ?? '';
                         final iconName = service['icon_name'];
-                        final totalPrice = basePrice + price;
+                        final totalPrice = basePrice + priceInt.toDouble();
 
-                        // ✅ NEW: Check if this service is recommended for this product
                         final isRecommended = recommendedServiceId != null &&
                             recommendedServiceId.isNotEmpty &&
                             serviceId == recommendedServiceId;
@@ -845,7 +907,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                         return GestureDetector(
                           onTap: () async {
                             Navigator.pop(context);
-                            await _addToCartWithService(product, name, price);
+                            await _addToCartWithService(product, name, priceInt);
                           },
                           child: Container(
                             margin: const EdgeInsets.only(bottom: 12),
@@ -853,10 +915,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                  color: Colors.grey.shade200,
-                                  width: 1
-                              ),
+                              border: Border.all(color: Colors.grey.shade200, width: 1),
                             ),
                             child: Stack(
                               children: [
@@ -910,7 +969,6 @@ class _OrdersScreenState extends State<OrdersScreen>
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
-                                      // ✅ UPDATED: Increased font size for better visibility
                                       if (isRecommended)
                                         Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -922,7 +980,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                                             'Recommended',
                                             style: TextStyle(
                                               color: Colors.white,
-                                              fontSize: 9, // ✅ Increased from 4.75 to 9
+                                              fontSize: 9,
                                               fontWeight: FontWeight.bold,
                                             ),
                                           ),
@@ -947,7 +1005,10 @@ class _OrdersScreenState extends State<OrdersScreen>
                     ),
                   ),
                   const SizedBox(height: 10),
-                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel'),
+                  ),
                 ],
               ),
             ),
@@ -962,6 +1023,9 @@ class _OrdersScreenState extends State<OrdersScreen>
       );
     }
   }
+
+
+
 
   Future<void> _clearCart() async {
     final user = supabase.auth.currentUser;

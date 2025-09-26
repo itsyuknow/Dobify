@@ -555,7 +555,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
         print('✅ IronXpress available, navigating to home');
         if (mounted) {
           setState(() {
-            _currentLocation = 'Welcome to ironXpress';
+            _currentLocation = 'Welcome to Dobify';
           });
         }
         await Future.delayed(const Duration(milliseconds: 1500));
@@ -772,7 +772,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                   CircularProgressIndicator(color: Colors.white),
                   SizedBox(height: 20),
                   Text(
-                    'Setting up ironXpress...',
+                    'Setting up Dobify...',
                     style: TextStyle(
                       fontSize: 14,
                       color: Colors.white,
@@ -895,7 +895,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
             ),
             const SizedBox(height: 50),
             const Text(
-              'Setting up ironXpress area',
+              'Setting up Dobify area',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
@@ -1551,7 +1551,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                     colors: [Colors.white, Colors.orange.withOpacity(0.8)],
                   ).createShader(bounds),
                   child: const Text(
-                    'IronXpress Not Available',
+                    'Dobify Not Available',
                     style: TextStyle(
                       fontSize: 32,
                       fontWeight: FontWeight.bold,

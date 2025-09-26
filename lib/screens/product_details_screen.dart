@@ -3,6 +3,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../utils/globals.dart';
 import 'colors.dart';
 import 'order_screen.dart';
+import 'dart:convert'; // <-- needed for jsonDecode
+import 'package:flutter/services.dart';
+
+
 
 class ProductDetailsScreen extends StatefulWidget {
   final String productId;
@@ -38,13 +42,49 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
   late Animation<double> _successScale;
   late Animation<double> _floatAnimation;
 
+  List<String> _parseServiceIds(dynamic raw) {
+    try {
+      if (raw == null) return [];
+      if (raw is List) {
+        return raw.map((e) => e?.toString().trim() ?? '')
+            .where((s) => s.isNotEmpty)
+            .toList();
+      }
+      if (raw is String) {
+        final s = raw.trim();
+        if (s.isEmpty) return [];
+        if ((s.startsWith('[') && s.endsWith(']')) ||
+            (s.startsWith('"') && s.endsWith('"'))) {
+          final decoded = jsonDecode(s);
+          if (decoded is List) {
+            return decoded.map((e) => e?.toString().trim() ?? '')
+                .where((x) => x.isNotEmpty)
+                .toList();
+          }
+        }
+        if (s.contains(',')) {
+          return s.split(',')
+              .map((e) => e.trim())
+              .where((e) => e.isNotEmpty)
+              .toList();
+        }
+        return [s]; // single id as plain string
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+
   Future<void> _fetchProductDetails() async {
     setState(() => _isLoading = true);
     try {
       final response = await supabase
           .from('products')
           .select(
-          'id, product_name, product_price, image_url, category_id, is_enabled, created_at, recommended_service_id, categories(name)')  // ADDED: recommended_service_id
+          'id, product_name, product_price, image_url, category_id, is_enabled, created_at, recommended_service_id, services_provided, categories(name)'
+      )
           .eq('id', widget.productId)
           .eq('is_enabled', true)
           .maybeSingle();
@@ -52,9 +92,13 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       if (response != null) {
         setState(() {
           _product = response;
-          _recommendedServiceId = response['recommended_service_id']; // NEW: Store recommended service ID
+          _recommendedServiceId = response['recommended_service_id']?.toString(); // ensure string
           _isLoading = false;
         });
+
+        // 👇 load services only AFTER product is set
+        await _fetchServices();
+        // selected service is chosen in _fetchServices(); now read cart qty for that service
         await _fetchCurrentCartQuantity();
       } else {
         await _fetchProductDetailsFallback();
@@ -63,6 +107,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       await _fetchProductDetailsFallback();
     }
   }
+
 
   Future<void> _fetchProductDetailsFallback() async {
     try {
@@ -92,9 +137,12 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
 
         setState(() {
           _product = response;
-          _recommendedServiceId = response['recommended_service_id']; // NEW: Store recommended service ID
+          _recommendedServiceId = response['recommended_service_id']?.toString();
           _isLoading = false;
         });
+
+        // 👇 load services AFTER product is set
+        await _fetchServices();
         await _fetchCurrentCartQuantity();
       } else {
         setState(() => _isLoading = false);
@@ -124,37 +172,55 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     }
   }
 
+
   Future<void> _fetchServices() async {
     try {
-      final response = await supabase
-          .from('services')
-          .select()
-          .eq('is_active', true)
-          .order('sort_order');
+      // Parse allowed service UUIDs from product (uuid[] / JSON string / csv / single)
+      final allowedServiceIds = _parseServiceIds(_product?['services_provided']);
 
-      final serviceList = List<Map<String, dynamic>>.from(response);
+      var query = supabase
+          .from('services')
+          .select('*')
+          .eq('is_active', true);
+
+      if (allowedServiceIds.isNotEmpty) {
+        query = query.inFilter('id', allowedServiceIds); // correct Supabase filter
+      }
+
+      final response = await query.order('sort_order');
+      final serviceList = List<Map<String, dynamic>>.from(response ?? []);
+
       setState(() {
         _services = serviceList;
 
-        // NEW: Set recommended service as default if available
         if (_services.isNotEmpty) {
-          if (_recommendedServiceId != null) {
-            // Try to find the recommended service
-            final recommendedService = _services.firstWhere(
-                  (service) => service['id'] == _recommendedServiceId,
-              orElse: () => _services[0], // Fallback to first service
-            );
-            _selectedService = recommendedService['name'];
-            _selectedServicePrice = recommendedService['price'];
-          } else {
-            // Fallback to first service if no recommendation
-            _selectedService = _services[0]['name'];
-            _selectedServicePrice = _services[0]['price'];
+          // prefer recommended if present and in filtered list
+          final recId = (_recommendedServiceId ?? '').toString();
+          Map<String, dynamic>? recommendedService;
+          if (recId.isNotEmpty) {
+            try {
+              recommendedService = _services.firstWhere(
+                    (s) => (s['id']?.toString() ?? '') == recId,
+              );
+            } catch (_) {}
           }
+
+          final chosen = recommendedService ?? _services.first;
+          _selectedService = chosen['name'] ?? '';
+          _selectedServicePrice = (chosen['price'] as num?)?.toInt() ?? 0;
+        } else {
+          _selectedService = '';
+          _selectedServicePrice = 0;
         }
       });
-    } catch (_) {}
+
+      await _fetchCurrentCartQuantity();
+    } catch (_) {
+      // silent as per your style
+    }
   }
+
+
 
 // NEW: Helper method to check if a service is recommended
   bool _isRecommendedService(String serviceId) {
@@ -166,10 +232,10 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
   void initState() {
     super.initState();
     _initializeAnimations();
-    _fetchProductDetails();
-    _fetchServices();
+    _fetchProductDetails(); // this will now chain to _fetchServices()
     cartCountNotifier.addListener(_onCartCountChanged);
   }
+
 
   void _initializeAnimations() {
     _fadeController = AnimationController(
@@ -212,12 +278,13 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
   Future<void> _fetchCurrentCartQuantity() async {
     final user = supabase.auth.currentUser;
     if (user == null || _product == null || _selectedService.isEmpty) return;
+
     try {
       final response = await supabase
           .from('cart')
-          .select('product_quantity, service_type, service_price')
+          .select('id, product_quantity')
           .eq('user_id', user.id)
-          .eq('product_name', _product!['product_name'])
+          .eq('product_id', _product!['id'].toString())
           .eq('service_type', _selectedService)
           .maybeSingle();
 
@@ -225,16 +292,17 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
         final quantity = response['product_quantity'] as int? ?? 0;
         setState(() {
           _currentCartQuantity = quantity;
-          _quantity = quantity; // ✅ mirror cart quantity; stays 0 if none
+          _quantity = quantity;
         });
       } else {
         setState(() {
           _currentCartQuantity = 0;
-          _quantity = 0; // ✅ keep 0 when not in cart
+          _quantity = 0;
         });
       }
     } catch (_) {}
   }
+
 
   void _onCartCountChanged() async {
     await _fetchCurrentCartQuantity();
@@ -248,28 +316,36 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       );
       return;
     }
+    if (_selectedService.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a service')),
+      );
+      return;
+    }
 
     setState(() => _isAddingToCart = true);
     _buttonController.forward();
 
     try {
+      final productId = _product!['id'].toString();
       final name = _product!['product_name'];
       final basePrice = (_product!['product_price'] as num?)?.toDouble() ?? 0.0;
       final image = _product!['image_url'] ?? '';
       final category = _product!['categories']?['name'] ?? 'General';
       final totalPrice = (basePrice + _selectedServicePrice) * _quantity;
 
+      // 🔁 Look up existing row by product_id + service_type (not product_name)
       final existing = await supabase
           .from('cart')
           .select('*')
           .eq('user_id', user.id)
-          .eq('product_name', name)
+          .eq('product_id', productId)
           .eq('service_type', _selectedService)
           .maybeSingle();
 
       if (existing != null) {
         if (_quantity <= 0) {
-          // ✅ quantity 0 => remove row
+          // quantity 0 => remove row
           await supabase.from('cart').delete().eq('id', existing['id']);
           setState(() {
             _currentCartQuantity = 0;
@@ -295,13 +371,16 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
         } else {
           await supabase.from('cart').insert({
             'user_id': user.id,
+            'product_id': productId,                       // ✅ key for joins
+            // The following are display fields (optional but handy for UI):
             'product_name': name,
             'product_price': basePrice,
             'product_image': image,
-            'product_quantity': _quantity,
             'category': category,
+            // Selection
             'service_type': _selectedService,
             'service_price': _selectedServicePrice.toDouble(),
+            'product_quantity': _quantity,
             'total_price': totalPrice,
           });
           setState(() {
@@ -356,6 +435,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     }
   }
 
+
   Future<void> _updateCartCount() async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
@@ -409,8 +489,15 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
         backgroundColor: const Color(0xFFF8F9FA),
         appBar: AppBar(
           backgroundColor: kPrimaryColor,
-          title: const Text('Loading...'),
-          foregroundColor: Colors.white,
+          iconTheme: const IconThemeData(color: Colors.white), // 👈 arrow white
+          title: const Text(
+            'Loading...',
+            style: TextStyle(
+              color: Colors.white, // 👈 title white
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ),
         body: Center(
           child: Column(
@@ -430,8 +517,15 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
         backgroundColor: const Color(0xFFF8F9FA),
         appBar: AppBar(
           backgroundColor: kPrimaryColor,
-          title: const Text('Product Not Found'),
-          foregroundColor: Colors.white,
+          iconTheme: const IconThemeData(color: Colors.white), // 👈 arrow white
+          title: const Text(
+            'Product Not Found',
+            style: TextStyle(
+              color: Colors.white, // 👈 title white
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ),
         body: Center(
           child: Column(
@@ -457,10 +551,14 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       appBar: AppBar(
         elevation: 0,
         backgroundColor: kPrimaryColor,
-        foregroundColor: Colors.white,
+        iconTheme: const IconThemeData(color: Colors.white), // 👈 arrow white
         title: Text(
           _product!['product_name'] ?? 'Product',
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+          style: const TextStyle(
+            color: Colors.white, // 👈 title white
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         // ❌ centerTitle removed → left aligned (default on Android)
       ),
@@ -501,6 +599,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       // ⛔️ No bottomNavigationBar (CTA scrolls within content)
     );
   }
+
+
 
   // Image
   Widget _buildCompactProductImage() {
@@ -705,16 +805,16 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
           scrollDirection: Axis.horizontal,
           child: Row(
             children: _services.map((service) {
-              final name = service['name'];
-              final price = service['price'];
-              final selected = _selectedService == name;
+              final String name = (service['name'] ?? '').toString();
+              final int price = (service['price'] as num?)?.toInt() ?? 0; // ✅ ensure int
+              final bool selected = _selectedService == name;
 
               return Container(
                 margin: const EdgeInsets.only(right: 12),
                 child: GestureDetector(
                   onTap: () => setState(() {
                     _selectedService = name;
-                    _selectedServicePrice = price;
+                    _selectedServicePrice = price; // ✅ use int
                     _fetchCurrentCartQuantity();
                   }),
                   child: AnimatedContainer(
@@ -771,6 +871,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       ],
     );
   }
+
 
   // Quantity & total
   Widget _buildQuantityAndPrice() {

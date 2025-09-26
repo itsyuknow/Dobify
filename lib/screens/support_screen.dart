@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'colors.dart';
 
 class PremiumSupportScreen extends StatefulWidget {
@@ -126,14 +127,31 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
     ));
   }
 
+  // Enhanced HTTP client with better web support
+  Map<String, String> _getHeaders() {
+    final headers = {
+      'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
+      'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
+      'Content-Type': 'application/json',
+    };
+
+    // Add CORS headers for web
+    if (kIsWeb) {
+      headers.addAll({
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
+      });
+    }
+
+    return headers;
+  }
+
   Future<void> _fetchSupportContacts() async {
     try {
       final response = await http.get(
         Uri.parse('https://qehtgclgjhzdlqcjujpp.supabase.co/rest/v1/ui_contacts'),
-        headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
-        },
+        headers: _getHeaders(),
       );
 
       if (response.statusCode == 200) {
@@ -168,6 +186,7 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
     }
   }
 
+  // Enhanced message sending with user context and order information
   Future<void> _sendMessage(String message) async {
     if (message.trim().isEmpty) return;
 
@@ -187,18 +206,28 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
     _scrollToBottom();
 
     try {
+      // Get user context and order information
+      final userContext = await _getUserContext();
+
+      final requestBody = {
+        'conversation_id': _conversationId,
+        'user_id': widget.userId ?? '0926603f-4b26-44b8-9726-2d7a830cdbe0',
+        'message': message,
+        'user_context': userContext, // Add user context
+        'platform': kIsWeb ? 'web' : 'mobile', // Platform information
+        'timestamp': DateTime.now().toIso8601String(),
+      };
+
+      print('Sending request with context: $requestBody'); // Debug log
+
       final response = await http.post(
         Uri.parse('https://qehtgclgjhzdlqcjujpp.supabase.co/functions/v1/chat'),
-        headers: {
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlaHRnY2xnamh6ZGxxY2p1anBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4NDk2NzYsImV4cCI6MjA2NjQyNTY3Nn0.P7buCrNPIBShznBQgkdEHx6BG5Bhv9HOq7pn6e0HfLo',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'conversation_id': _conversationId,
-          'user_id': widget.userId ?? '0926603f-4b26-44b8-9726-2d7a830cdbe0',
-          'message': message,
-        }),
+        headers: _getHeaders(),
+        body: jsonEncode(requestBody),
       );
+
+      print('Response status: ${response.statusCode}'); // Debug log
+      print('Response body: ${response.body}'); // Debug log
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -210,9 +239,20 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
           ));
         });
       } else {
+        // Better error handling
+        String errorMessage = 'I apologize, but I\'m experiencing technical difficulties.';
+
+        if (response.statusCode == 404) {
+          errorMessage = 'Service endpoint not found. Please contact support directly.';
+        } else if (response.statusCode == 500) {
+          errorMessage = 'Server error occurred. Please try again in a moment.';
+        } else if (response.statusCode == 403) {
+          errorMessage = 'Authentication error. Please restart the app and try again.';
+        }
+
         setState(() {
           _messages.add(ChatMessage(
-            text: 'I apologize, but I\'m experiencing technical difficulties. Please try again in a moment or contact our support team directly. 🔧',
+            text: '$errorMessage 🔧',
             isUser: false,
             timestamp: DateTime.now(),
           ));
@@ -220,9 +260,17 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
       }
     } catch (e) {
       print('Error sending message: $e');
+      String errorMessage = 'Connection issue detected.';
+
+      if (kIsWeb) {
+        errorMessage = 'Web connection issue. Please check your internet connection and try again.';
+      } else {
+        errorMessage = 'Network error. Please check your internet connection and try again.';
+      }
+
       setState(() {
         _messages.add(ChatMessage(
-          text: 'Connection issue detected. Please check your internet connection and try again. 📶',
+          text: '$errorMessage 📶',
           isUser: false,
           timestamp: DateTime.now(),
         ));
@@ -232,6 +280,72 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
         _isSendingMessage = false;
       });
       _scrollToBottom();
+    }
+  }
+
+  // Get comprehensive user context including orders
+  Future<Map<String, dynamic>> _getUserContext() async {
+    final userId = widget.userId ?? '0926603f-4b26-44b8-9726-2d7a830cdbe0';
+
+    try {
+      // Fetch user orders
+      final ordersResponse = await http.get(
+        Uri.parse('https://qehtgclgjhzdlqcjujpp.supabase.co/rest/v1/orders?user_id=eq.$userId&select=*&order=created_at.desc&limit=10'),
+        headers: _getHeaders(),
+      );
+
+      // Fetch user profile
+      final profileResponse = await http.get(
+        Uri.parse('https://qehtgclgjhzdlqcjujpp.supabase.co/rest/v1/users?id=eq.$userId&select=*'),
+        headers: _getHeaders(),
+      );
+
+      Map<String, dynamic> context = {
+        'user_id': userId,
+        'platform': kIsWeb ? 'web' : 'mobile',
+        'conversation_id': _conversationId,
+        'session_start': DateTime.now().toIso8601String(),
+      };
+
+      // Add orders information if available
+      if (ordersResponse.statusCode == 200) {
+        final orders = List<Map<String, dynamic>>.from(jsonDecode(ordersResponse.body));
+        context['recent_orders'] = orders;
+        context['total_orders'] = orders.length;
+
+        if (orders.isNotEmpty) {
+          context['latest_order'] = orders.first;
+          context['has_active_orders'] = orders.any((order) =>
+          order['status'] != null &&
+              !['completed', 'cancelled', 'delivered'].contains(order['status'].toString().toLowerCase())
+          );
+        }
+      }
+
+      // Add profile information if available
+      if (profileResponse.statusCode == 200) {
+        final profiles = List<Map<String, dynamic>>.from(jsonDecode(profileResponse.body));
+        if (profiles.isNotEmpty) {
+          final profile = profiles.first;
+          context['user_profile'] = {
+            'name': profile['name'] ?? profile['full_name'],
+            'email': profile['email'],
+            'phone': profile['phone'],
+            'address': profile['address'],
+            'membership_type': profile['membership_type'] ?? 'standard',
+          };
+        }
+      }
+
+      return context;
+    } catch (e) {
+      print('Error fetching user context: $e');
+      return {
+        'user_id': userId,
+        'platform': kIsWeb ? 'web' : 'mobile',
+        'conversation_id': _conversationId,
+        'error': 'Failed to load user context',
+      };
     }
   }
 
@@ -352,7 +466,7 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
               children: [
                 const Text(
                   'IronBot AI Assistant',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, letterSpacing: 0.5),
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16,color: Colors.white, letterSpacing: 0.5),
                 ),
                 const SizedBox(height: 2),
                 Row(
@@ -392,7 +506,7 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
     return AppBar(
       title: const Text(
         'Customer Support',
-        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, letterSpacing: 0.5),
+        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18,color: Colors.white, letterSpacing: 0.5),
       ),
       backgroundColor: kPrimaryColor,
       foregroundColor: Colors.white,
@@ -554,7 +668,7 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
                 ),
                 const SizedBox(width: 12),
                 const Text(
-                  'IronXpress',
+                  'Dobify',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.w800,
@@ -691,37 +805,6 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
           margin: const EdgeInsets.symmetric(vertical: 20),
           child: Row(
             children: [
-              Expanded(
-                child: Container(
-                  height: 1.5,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        Colors.transparent,
-                        kPrimaryColor.withOpacity(0.3),
-                        Colors.transparent,
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                decoration: BoxDecoration(
-                  color: kPrimaryColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: kPrimaryColor.withOpacity(0.2)),
-                ),
-                child: Text(
-                  'Alternative Support',
-                  style: TextStyle(
-                    color: kPrimaryColor,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12,
-                    letterSpacing: 0.3,
-                  ),
-                ),
-              ),
               Expanded(
                 child: Container(
                   height: 1.5,
@@ -1563,10 +1646,10 @@ class _PremiumSupportScreenState extends State<PremiumSupportScreen>
 
   Widget _buildQuickResponses() {
     final quickResponses = [
-      '📦 Track my order',
-      '💰 Pricing info',
-      '🕐 Service hours',
-      '📍 Pickup locations',
+      'Track my order',
+      'Pricing info',
+      'Service hours',
+      'Pickup locations',
     ];
 
     return SizedBox(
