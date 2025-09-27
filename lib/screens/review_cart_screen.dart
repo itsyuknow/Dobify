@@ -205,7 +205,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
       // 1) settings
       final settings = await supabase.from('billing_settings').select().single();
 
-      // 2) notes (add delivery_gst so the info icon popup works for GST) ✅
+      // 2) notes (incl. delivery_gst so info icon explains GST on delivery)
       final List<dynamic> notesResp = await supabase
           .from('billing_notes')
           .select()
@@ -216,7 +216,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
               'key.eq.delivery_standard,'
               'key.eq.delivery_standard_free,'
               'key.eq.delivery_express,'
-              'key.eq.delivery_gst' // ✅ added
+              'key.eq.delivery_gst'
       );
 
       // 3) map to {key: {title, content}}
@@ -228,16 +228,23 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
           }
       };
 
+      // ✅ Robust min-cart threshold (accepts minimum_cart_value OR minimum_cart_fee)
+      final dynamic _minCartRaw =
+          settings['minimum_cart_value'] ?? settings['minimum_cart_fee'] ?? 100;
+
       setState(() {
-        minimumCartFee = (settings['minimum_cart_fee'] ?? 100).toDouble();
-        platformFee = (settings['platform_fee'] ?? 0).toDouble();
-        serviceTaxPercent = (settings['service_tax_percent'] ?? 0).toDouble();
-        standardDeliveryFee = (settings['standard_delivery_fee'] ?? 0).toDouble();
-        expressDeliveryFee = (settings['express_delivery_fee'] ?? 0).toDouble();
+        minimumCartFee        = (_minCartRaw is num)
+            ? _minCartRaw.toDouble()
+            : double.tryParse(_minCartRaw.toString()) ?? 100.0;
+
+        platformFee           = (settings['platform_fee'] ?? 0).toDouble();
+        serviceTaxPercent     = (settings['service_tax_percent'] ?? 0).toDouble();
+        standardDeliveryFee   = (settings['standard_delivery_fee'] ?? 0).toDouble();
+        expressDeliveryFee    = (settings['express_delivery_fee'] ?? 0).toDouble();
         freeStandardThreshold = (settings['free_standard_threshold'] ?? 300).toDouble();
 
-        // Pull the GST % from Supabase (this was missing!) ✅
-        deliveryGstPercent = (settings['delivery_gst_percent'] ?? 0).toDouble(); // ✅ added
+        // GST on delivery (so Service Taxes = item GST + delivery GST)
+        deliveryGstPercent    = (settings['delivery_gst_percent'] ?? 0).toDouble();
 
         _billingNotes = notesMap;
         _billingLoading = false;
@@ -255,6 +262,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
       setState(() => _billingLoading = false);
     }
   }
+
 
 
 
@@ -550,46 +558,43 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
       return sum + (item['total_price']?.toDouble() ?? 0.0);
     });
 
-    // 2) Discount applied
+    // 2) Discount applied (cap at subtotal)
     final double discountApplied = discount.clamp(0.0, itemSubtotal);
 
-    // 3) New subtotal after discount
+    // 3) Subtotal AFTER discount
     final double discountedSubtotal = itemSubtotal - discountApplied;
 
-    // 4) Minimum cart fee (now based on DISCOUNTED subtotal)
+    // 4) Minimum cart fee ✅ based on DISCOUNTED subtotal
     final double minCartFeeApplied =
     discountedSubtotal < minimumCartFee ? (minimumCartFee - discountedSubtotal) : 0.0;
 
-
-    // 5) Delivery fee
-    final bool isStandard = selectedDeliveryType == 'Standard';
+    // 5) Delivery fee (Standard can be free if discounted subtotal ≥ threshold)
+    final bool isStandard = (selectedDeliveryType == 'Standard');
     final bool qualifiesFreeStandard = isStandard && (discountedSubtotal >= freeStandardThreshold);
     final double deliveryFee = isStandard
         ? (qualifiesFreeStandard ? 0.0 : standardDeliveryFee)
         : expressDeliveryFee;
 
-    // 6) Service Taxes (on discounted subtotal + delivery GST)
-    final double serviceTaxItems =
-        (discountedSubtotal * (serviceTaxPercent)) / 100.0;
-    final double serviceTaxDelivery =
-    deliveryFee > 0 ? (deliveryFee * (deliveryGstPercent)) / 100.0 : 0.0;
-    final double serviceTax = serviceTaxItems + serviceTaxDelivery;
+    // 6) Service Taxes = items GST + delivery GST
+    final double serviceTaxItems    = (discountedSubtotal * serviceTaxPercent) / 100.0;
+    final double serviceTaxDelivery = deliveryFee > 0 ? (deliveryFee * deliveryGstPercent) / 100.0 : 0.0;
+    final double serviceTax         = serviceTaxItems + serviceTaxDelivery;
 
     // 7) Total
-    double totalAmount =
-        discountedSubtotal + minCartFeeApplied + platformFee + deliveryFee + serviceTax;
+    double totalAmount = discountedSubtotal + minCartFeeApplied + platformFee + deliveryFee + serviceTax;
     if (totalAmount < 0) totalAmount = 0;
 
     return {
-      'subtotal': itemSubtotal,          // original subtotal (before discount)
-      'discount': discountApplied,       // discount applied
-      'minimumCartFee': minCartFeeApplied,
-      'platformFee': platformFee,
-      'deliveryFee': deliveryFee,
-      'serviceTax': serviceTax,
-      'totalAmount': totalAmount,
+      'subtotal'       : itemSubtotal,
+      'discount'       : discountApplied,
+      'minimumCartFee' : minCartFeeApplied,
+      'platformFee'    : platformFee,
+      'deliveryFee'    : deliveryFee,
+      'serviceTax'     : serviceTax,
+      'totalAmount'    : totalAmount,
     };
   }
+
 
 
 

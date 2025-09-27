@@ -220,7 +220,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
       // 1) settings
       final response = await supabase.from('billing_settings').select().single();
 
-      // 2) notes (include delivery_gst so the info icon can explain GST on delivery)
+      // 2) notes (incl. delivery_gst)
       final List<dynamic> notesResp = await supabase
           .from('billing_notes')
           .select()
@@ -234,7 +234,6 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
               'key.eq.delivery_gst'
       );
 
-      // 3) map to {key: {title, content}}
       final Map<String, Map<String, String>> notesMap = {
         for (final row in notesResp)
           (row['key'] as String): {
@@ -243,10 +242,17 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
           }
       };
 
+      // ✅ Robust min-cart threshold (accepts minimum_cart_value OR minimum_cart_fee)
+      final dynamic _minCartRaw =
+          response['minimum_cart_value'] ?? response['minimum_cart_fee'] ?? 100;
+
       final bool onlineEnabled = (response['online_payment_enabled'] ?? true) as bool;
 
       setState(() {
-        minimumCartFee        = (response['minimum_cart_fee'] ?? 100).toDouble();
+        minimumCartFee        = (_minCartRaw is num)
+            ? _minCartRaw.toDouble()
+            : double.tryParse(_minCartRaw.toString()) ?? 100.0;
+
         platformFee           = (response['platform_fee'] ?? 0).toDouble();
         serviceTaxPercent     = (response['service_tax_percent'] ?? 0).toDouble();
         expressDeliveryFee    = (response['express_delivery_fee'] ?? 0).toDouble();
@@ -255,8 +261,6 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
         freeStandardThreshold = (response['free_standard_threshold'] ?? 300).toDouble();
 
         onlinePaymentEnabled  = onlineEnabled;
-
-        // If online is OFF but user had 'online' selected, force COD
         if (!onlinePaymentEnabled && _selectedPaymentMethod == 'online') {
           _selectedPaymentMethod = 'cod';
         }
@@ -268,6 +272,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
       setState(() => isLoadingBillingSettings = false);
     }
   }
+
 
 
 
@@ -404,8 +409,6 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
   }
 
 
-  // Calculate billing breakdown
-  // Calculate billing breakdown (merged service taxes + free standard on discounted subtotal)
   Map<String, double> _calculateBilling() {
     // 1) Original subtotal from items
     final double itemSubtotal = widget.cartItems.fold(0.0, (sum, item) {
@@ -413,10 +416,10 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     });
 
     // 2) Apply coupon/discount only on items subtotal
-    final double discountApplied   = widget.discount.clamp(0.0, itemSubtotal);
+    final double discountApplied    = widget.discount.clamp(0.0, itemSubtotal);
     final double discountedSubtotal = itemSubtotal - discountApplied;
 
-    // 3) Minimum cart fee (compare against ORIGINAL subtotal)
+    // 3) Minimum cart fee ✅ based on DISCOUNTED subtotal
     final double minCartFeeApplied =
     discountedSubtotal < minimumCartFee ? (minimumCartFee - discountedSubtotal) : 0.0;
 
@@ -425,14 +428,14 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     final bool qualifiesFreeStandard = isStandard && (discountedSubtotal >= freeStandardThreshold);
     final double deliveryFee = isStandard
         ? (qualifiesFreeStandard ? 0.0 : standardDeliveryFee)
-        : expressDeliveryFee; // Express is never free
+        : expressDeliveryFee;
 
     // 5) Service taxes = (discountedSubtotal × serviceTax%) + (deliveryFee × deliveryGST%)
     final double serviceTaxItems    = (discountedSubtotal * serviceTaxPercent) / 100.0;
     final double serviceTaxDelivery = deliveryFee > 0 ? (deliveryFee * deliveryGstPercent) / 100.0 : 0.0;
     final double serviceTax         = serviceTaxItems + serviceTaxDelivery;
 
-    // 6) Total = (Subtotal − Discount) + Min Cart + Platform + Delivery + Service Taxes
+    // 6) Total
     double totalAmount = discountedSubtotal + minCartFeeApplied + platformFee + deliveryFee + serviceTax;
     if (totalAmount < 0) totalAmount = 0;
 
@@ -446,6 +449,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
       'totalAmount'    : totalAmount,
     };
   }
+
 
 
 
