@@ -6,7 +6,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
-import 'about_us_screen.dart';
 import 'colors.dart';
 import 'login_screen.dart';
 import 'support_screen.dart';
@@ -14,6 +13,8 @@ import 'address_book_screen.dart';
 import '../widgets/custom_bottom_nav.dart';
 import 'order_history_screen.dart';
 import 'notifications_screen.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 
 class ProfileScreen extends StatefulWidget {
   final bool openOrderHistory;
@@ -49,20 +50,15 @@ class _ProfileScreenState extends State<ProfileScreen>
       );
       if (picked == null) return null;
 
-      final file = File(picked.path);
-      if (!await file.exists()) throw Exception('Selected file does not exist');
+      // --- Validate type/size and upload (web vs non-web) ---
+      final ext = (kIsWeb ? p.extension(picked.name) : p.extension(picked.path))
+          .toLowerCase();
 
-      final size = await file.length();
-      if (size > 5 * 1024 * 1024) {
-        throw Exception('File size too large (max 5MB)');
-      }
-
-      final ext = p.extension(file.path).toLowerCase();
       if (!['.jpg', '.jpeg', '.png', '.webp'].contains(ext)) {
         throw Exception('Invalid file format. Please use JPG, PNG, or WebP');
       }
 
-      // ensure bucket is accessible
+      // Ensure bucket is accessible first
       try {
         await supabase.storage.from('avatars').list();
       } catch (_) {
@@ -70,11 +66,51 @@ class _ProfileScreenState extends State<ProfileScreen>
       }
 
       final fileName = '${user.id}_${DateTime.now().millisecondsSinceEpoch}$ext';
-      await supabase.storage.from('avatars').upload(
-        fileName,
-        file,
-        fileOptions: const FileOptions(cacheControl: '3600', upsert: true),
-      );
+
+      // Content-Type
+      String contentType = 'application/octet-stream';
+      if (ext == '.jpg' || ext == '.jpeg') contentType = 'image/jpeg';
+      if (ext == '.png') contentType = 'image/png';
+      if (ext == '.webp') contentType = 'image/webp';
+
+      if (kIsWeb) {
+        // ✅ WEB: read bytes and uploadBinary
+        final bytes = await picked.readAsBytes();
+        final size = bytes.length;
+        if (size > 5 * 1024 * 1024) {
+          throw Exception('File size too large (max 5MB)');
+        }
+
+        await supabase.storage.from('avatars').uploadBinary(
+          fileName,
+          bytes,
+          fileOptions: FileOptions(
+            cacheControl: '3600',
+            upsert: true,
+            contentType: contentType,
+          ),
+        );
+      } else {
+        // ✅ MOBILE/DESKTOP: use dart:io File
+        final file = File(picked.path);
+        if (!await file.exists()) {
+          throw Exception('Selected file does not exist');
+        }
+        final size = await file.length();
+        if (size > 5 * 1024 * 1024) {
+          throw Exception('File size too large (max 5MB)');
+        }
+
+        await supabase.storage.from('avatars').upload(
+          fileName,
+          file,
+          fileOptions: FileOptions(
+            cacheControl: '3600',
+            upsert: true,
+            contentType: contentType,
+          ),
+        );
+      }
 
       final url = supabase.storage.from('avatars').getPublicUrl(fileName);
       if (mounted) {
@@ -88,6 +124,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       return null;
     }
   }
+
 
   bool get _isPhoneLogin {
     final user = supabase.auth.currentUser;
@@ -216,14 +253,6 @@ class _ProfileScreenState extends State<ProfileScreen>
       setState(fn);
     }
   }
-
-  void _navigateToAboutUs() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const AboutUsScreen()),
-    );
-  }
-
 
   Future<void> _loadProfileData() async {
     final user = supabase.auth.currentUser;
@@ -546,60 +575,78 @@ class _ProfileScreenState extends State<ProfileScreen>
         maxHeight: 1000,
         imageQuality: 90,
       );
-
       if (pickedFile == null) return;
 
       _safeSetState(() {
         isUploadingImage = true;
         uploadProgress = 0.0;
       });
-
       _simulateUploadProgress();
 
-      final file = File(pickedFile.path);
-      if (!await file.exists()) {
-        throw Exception('Selected file does not exist');
-      }
-
-      final fileSize = await file.length();
-
-      if (fileSize > 5 * 1024 * 1024) {
-        throw Exception('File size too large (max 5MB)');
-      }
-
-      final fileExt = p.extension(file.path).toLowerCase();
-      if (fileExt.isEmpty || !['.jpg', '.jpeg', '.png', '.webp'].contains(fileExt)) {
+      final ext = (kIsWeb ? p.extension(pickedFile.name) : p.extension(pickedFile.path))
+          .toLowerCase();
+      if (!['.jpg', '.jpeg', '.png', '.webp'].contains(ext)) {
         throw Exception('Invalid file format. Please use JPG, PNG, or WebP');
       }
 
-      final fileName = '${user.id}_${DateTime.now().millisecondsSinceEpoch}$fileExt';
-
+      // Ensure bucket exists / allowed
       try {
         await supabase.storage.from('avatars').list();
       } catch (e) {
         throw Exception('Storage bucket "avatars" not accessible. Please check bucket exists and RLS policies.');
       }
 
-      final uploadResponse = await supabase.storage
-          .from('avatars')
-          .upload(
-        fileName,
-        file,
-        fileOptions: const FileOptions(
-          cacheControl: '3600',
-          upsert: true,
-        ),
-      );
+      final fileName = '${user.id}_${DateTime.now().millisecondsSinceEpoch}$ext';
 
-      final publicUrl = supabase.storage
-          .from('avatars')
-          .getPublicUrl(fileName);
+      // Content-Type
+      String contentType = 'application/octet-stream';
+      if (ext == '.jpg' || ext == '.jpeg') contentType = 'image/jpeg';
+      if (ext == '.png') contentType = 'image/png';
+      if (ext == '.webp') contentType = 'image/webp';
+
+      if (kIsWeb) {
+        // ✅ WEB path: bytes + uploadBinary
+        final bytes = await pickedFile.readAsBytes();
+        if (bytes.length > 5 * 1024 * 1024) {
+          throw Exception('File size too large (max 5MB)');
+        }
+
+        await supabase.storage.from('avatars').uploadBinary(
+          fileName,
+          bytes,
+          fileOptions: FileOptions(
+            cacheControl: '3600',
+            upsert: true,
+            contentType: contentType,
+          ),
+        );
+      } else {
+        // ✅ MOBILE path: File + upload
+        final file = File(pickedFile.path);
+        if (!await file.exists()) {
+          throw Exception('Selected file does not exist');
+        }
+        final fileSize = await file.length();
+        if (fileSize > 5 * 1024 * 1024) {
+          throw Exception('File size too large (max 5MB)');
+        }
+
+        await supabase.storage.from('avatars').upload(
+          fileName,
+          file,
+          fileOptions: FileOptions(
+            cacheControl: '3600',
+            upsert: true,
+            contentType: contentType,
+          ),
+        );
+      }
+
+      final publicUrl = supabase.storage.from('avatars').getPublicUrl(fileName);
 
       _safeSetState(() => uploadProgress = 1.0);
 
-      await supabase
-          .from('user_profiles')
-          .upsert({
+      await supabase.from('user_profiles').upsert({
         'user_id': user.id,
         'avatar_url': publicUrl,
         'updated_at': DateTime.now().toIso8601String(),
@@ -610,7 +657,6 @@ class _ProfileScreenState extends State<ProfileScreen>
 
       HapticFeedback.mediumImpact();
       _showSuccessSnackBar('Profile picture updated successfully!');
-
     } catch (e) {
       _showErrorSnackBar(_getErrorMessage(e.toString()));
     } finally {
@@ -620,6 +666,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       });
     }
   }
+
 
   Widget _buildImageSourceOption({
     required IconData icon,
@@ -1481,15 +1528,6 @@ class _ProfileScreenState extends State<ProfileScreen>
         'gradient': [kPrimaryColor.withOpacity(0.4), kPrimaryColor.withOpacity(0.2)],
         'onTap': () => _openTermsConditions(),
       },
-
-      {
-        'icon': Icons.info_rounded,
-        'title': 'About Us',
-        'subtitle': 'Know our story & mission',
-        'gradient': [kPrimaryColor.withOpacity(0.35), kPrimaryColor.withOpacity(0.15)],
-        'onTap': () => _navigateToAboutUs(),
-      },
-
     ];
 
     return Container(

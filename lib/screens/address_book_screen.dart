@@ -1284,63 +1284,83 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
       return;
     }
 
-    setState(() {
-      isLoading = true;
-    });
+    setState(() => isLoading = true);
 
     final userId = supabase.auth.currentUser?.id;
     if (userId == null) {
-      setState(() {
-        isLoading = false;
-      });
+      setState(() => isLoading = false);
       return;
     }
 
     try {
+      final nowIso = DateTime.now().toIso8601String();
+
       final addressData = {
         'user_id': userId,
         'recipient_name': _recipientNameController.text.trim(),
         'phone_number': _phoneController.text.trim(),
         'address_line_1': _addressLine1Controller.text.trim(),
-        'address_line_2': _addressLine2Controller.text
-            .trim()
-            .isEmpty
-            ? null : _addressLine2Controller.text.trim(),
-        'landmark': _landmarkController.text
-            .trim()
-            .isEmpty
-            ? null : _landmarkController.text.trim(),
+        'address_line_2': _addressLine2Controller.text.trim().isEmpty
+            ? null
+            : _addressLine2Controller.text.trim(),
+        'landmark': _landmarkController.text.trim().isEmpty
+            ? null
+            : _landmarkController.text.trim(),
         'pincode': _pincodeController.text.trim(),
         'city': _cityController.text.trim(),
         'state': _stateController.text.trim(),
         'address_type': selectedAddressType,
-        'is_default': isDefault,
+        // IMPORTANT: always send a boolean; never leave null
+        'is_default': isDefault == true,
         'latitude': latitude,
         'longitude': longitude,
-        'updated_at': DateTime.now().toIso8601String(),
+        'updated_at': nowIso,
       };
 
-      if (widget.existingAddress != null) {
-        await supabase
-            .from('user_addresses')
-            .update(addressData)
-            .eq('id', widget.existingAddress!['id'])
-            .eq('user_id', userId);
-      } else {
-        addressData['created_at'] = DateTime.now().toIso8601String();
-        await supabase.from('user_addresses').insert(addressData);
-      }
-
-      if (isDefault) {
+      // If this one should be default, UNSET all others first.
+      // Doing it beforehand avoids violating the unique(partial) index.
+      if (isDefault == true) {
         await supabase
             .from('user_addresses')
             .update({'is_default': false})
-            .eq('user_id', userId)
-            .neq('id', widget.existingAddress?['id'] ?? '');
+            .eq('user_id', userId);
+        // ^ no neq() here for new inserts. For edits we’ll set again below to be safe.
       }
 
+      if (widget.existingAddress != null) {
+        // EDIT FLOW
+        final id = widget.existingAddress!['id'];
+
+        // Safety: in edit flow, ensure others are false except this id when default is true
+        if (isDefault == true) {
+          await supabase
+              .from('user_addresses')
+              .update({'is_default': false})
+              .eq('user_id', userId)
+              .neq('id', id);
+        }
+
+        await supabase
+            .from('user_addresses')
+            .update(addressData)
+            .eq('id', id)
+            .eq('user_id', userId);
+      } else {
+        // CREATE FLOW
+        final dataToInsert = {
+          ...addressData,
+          'created_at': nowIso,
+        };
+
+        await supabase
+            .from('user_addresses')
+            .insert(dataToInsert);
+      }
+
+      // 🚫 DO NOT unset others after insert/update anymore (that caused the 409)
+
       widget.onAddressSaved();
-      Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1351,7 +1371,8 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
         ),
       );
     } catch (e) {
-      print("Error saving address: $e");
+      // If anything still slips, you’ll see the server error here.
+      debugPrint("Error saving address: $e");
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error saving address: ${e.toString()}'),
@@ -1359,9 +1380,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
         ),
       );
     } finally {
-      setState(() {
-        isLoading = false;
-      });
+      if (mounted) setState(() => isLoading = false);
     }
   }
 

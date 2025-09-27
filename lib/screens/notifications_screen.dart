@@ -431,10 +431,10 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       title: const Text(
         'Notifications',
         style: TextStyle(
-          fontWeight: FontWeight.w900,
-          fontSize: 22,
+          fontWeight: FontWeight.w600, // Changed from w900 to w600 to match cart
+          fontSize: 20, // Reduced from 22 to 20
           color: Colors.white,
-          letterSpacing: -0.5,
+          letterSpacing: 0.5, // Changed from -0.5 to 0.5 for better spacing
         ),
       ),
       backgroundColor: Colors.transparent,
@@ -460,28 +460,16 @@ class _NotificationsScreenState extends State<NotificationsScreen>
           ],
         ),
       ),
-      leading: Container(
-        margin: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.2),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withOpacity(0.3)),
-        ),
-        child: IconButton(
-          onPressed: () => Navigator.pop(context),
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
-        ),
+      leading: IconButton(
+        onPressed: () => Navigator.pop(context),
+        icon: const Icon(Icons.arrow_back, size: 24, color: Colors.white),
       ),
+
       actions: [
         Container(
           margin: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.2),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withOpacity(0.3)),
-          ),
           child: PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert_rounded, color: Colors.white, size: 20),
+            icon: const Icon(Icons.more_vert_rounded, color: Colors.white, size: 24),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             elevation: 20,
             shadowColor: Colors.black.withOpacity(0.2),
@@ -1211,31 +1199,52 @@ class _NotificationsScreenState extends State<NotificationsScreen>
 
   List<Color> _getTypeGradient(String type) {
     switch (type) {
+    // All order-related types get light blue (your app theme)
+      case 'order_placed':
+      case 'order_update':
+      case 'order_status_update':
       case 'order':
-        return [const Color(0xFF6366F1), const Color(0xFF8B5CF6)]; // Indigo to Purple
+        return [const Color(0xFF42A5F5), const Color(0xFF42A5F5)]; // Blue shades
+
+    // Promotion/offer related types get orange
       case 'promotion':
-        return [const Color(0xFFEC4899), const Color(0xFFF97316)]; // Pink to Orange
+      case 'offer':
+      case 'coupon':
+      case 'discount':
+        return [const Color(0xFFFF9500), const Color(0xFFFFB347)]; // Orange shades
+
+    // System notifications get red
       case 'system':
-        return [const Color(0xFF06B6D4), const Color(0xFF3B82F6)]; // Cyan to Blue
+      case 'maintenance':
+      case 'update':
+        return [const Color(0xFFEF4444), const Color(0xFFF87171)]; // Red shades
+
+    // Warning/alert types keep amber
       case 'warning':
-        return [const Color(0xFFEF4444), const Color(0xFFF59E0B)]; // Red to Amber
+      case 'alert':
+        return [const Color(0xFFF59E0B), const Color(0xFFFBBF24)]; // Amber shades
+
+    // Default for general/unknown types
+      case 'general':
       default:
-        return [const Color(0xFF64748B), const Color(0xFF475569)]; // Slate gradients
+        return [const Color(0xFF6B7280), const Color(0xFF9CA3AF)]; // Gray shades
     }
   }
 
   IconData _getTypeIcon(String type) {
     switch (type) {
       case 'order':
-        return Icons.shopping_bag_rounded;
+        return Icons.shopping_cart_rounded; // Changed to cart icon
       case 'promotion':
-        return Icons.local_offer_rounded;
+      case 'offer':
+      case 'coupon':
+        return Icons.local_offer_rounded; // Keep offer icon
       case 'system':
-        return Icons.settings_rounded;
+        return Icons.info_rounded; // Changed to info icon for system
       case 'warning':
-        return Icons.warning_rounded;
+        return Icons.warning_rounded; // Keep warning icon
       default:
-        return Icons.notifications_rounded;
+        return Icons.notifications_rounded; // Keep default
     }
   }
 
@@ -1245,6 +1254,10 @@ class _NotificationsScreenState extends State<NotificationsScreen>
         return 'ORDER UPDATE';
       case 'promotion':
         return 'PROMOTION';
+      case 'offer':
+        return 'SPECIAL OFFER';
+      case 'coupon':
+        return 'COUPON';
       case 'system':
         return 'SYSTEM';
       case 'warning':
@@ -1492,15 +1505,18 @@ class NotificationDetailSheet extends StatelessWidget {
   List<Color> _getTypeGradient(String type) {
     switch (type) {
       case 'order':
-        return [const Color(0xFF6366F1), const Color(0xFF8B5CF6)];
+        return [const Color(0xFF3B82F6), const Color(0xFF60A5FA)]; // Blue shades
       case 'promotion':
-        return [const Color(0xFFEC4899), const Color(0xFFF97316)];
+      case 'offer':
+      case 'coupon':
+        return [const Color(0xFFFF9500), const Color(0xFFFFB347)]; // Orange shades
       case 'system':
-        return [const Color(0xFF06B6D4), const Color(0xFF3B82F6)];
+        return [const Color(0xFFEF4444), const Color(0xFFF87171)]; // Red shades
       case 'warning':
-        return [const Color(0xFFEF4444), const Color(0xFFF59E0B)];
+        return [const Color(0xFFF59E0B), const Color(0xFFFBBF24)]; // Amber shades
+      case 'general':
       default:
-        return [const Color(0xFF64748B), const Color(0xFF475569)];
+        return [const Color(0xFF6B7280), const Color(0xFF9CA3AF)]; // Gray shades
     }
   }
 

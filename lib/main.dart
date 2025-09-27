@@ -55,24 +55,22 @@ Future<void> _handleBackgroundMessage(RemoteMessage message) async {
         });
       }
     } catch (_) {
-      // swallowed
+      // fully silenced
     }
   });
 }
 
-/// 🔕 Safe no-op on non-web. We removed dart:js so this won't break mobile.
-/// Logs are still silenced by `_silenceAllLogs()` + `runWithoutPrints()`.
+/// 🔕 Safe no-op on non-web. Browser console override moved to web/index.html
 void _muteBrowserConsole() {
   if (!kIsWeb) return;
-  // Intentionally left blank. If you *really* want to override window.console,
-  // implement a small JS snippet in web/index.html instead.
+  // left intentionally blank
 }
 
 /// 🔇 Silence Flutter/Dart framework logging
 void _silenceAllLogs() {
   debugPrint = (String? message, {int? wrapWidth}) {};
   FlutterError.onError = (FlutterErrorDetails details) {
-    // Intentionally no-op
+    // fully silenced
   };
 }
 
@@ -82,11 +80,11 @@ Future<T> runWithoutPrints<T>(Future<T> Function() body) {
     body,
     zoneSpecification: ZoneSpecification(
       print: (self, parent, zone, line) {
-        // swallow all print() output
+        // fully silenced
       },
     ),
     onError: (Object error, StackTrace stack) {
-      // swallow uncaught errors here (or forward to Crashlytics/Sentry)
+      // fully silenced
     },
   );
 }
@@ -95,7 +93,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   if (kSilenceAllLogs) {
-    _muteBrowserConsole(); // safe no-op without dart:js
+    _muteBrowserConsole();
     _silenceAllLogs();
     await runWithoutPrints(_bootstrap);
   } else {
@@ -136,7 +134,7 @@ Future<void> _bootstrap() async {
 
       FirebaseMessaging.onBackgroundMessage(_handleBackgroundMessage);
     } catch (_) {
-      // swallowed when silenced
+      // silenced
     }
 
     await Supabase.initialize(
@@ -169,7 +167,7 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // This print will be swallowed when kSilenceAllLogs == true
+    // ✅ This print will also be swallowed
     print('🏗️ MyApp build called — kIsWeb: $kIsWeb');
 
     return ValueListenableBuilder<int>(
@@ -197,8 +195,7 @@ class MyApp extends StatelessWidget {
             inputDecorationTheme: InputDecorationTheme(
               border: const OutlineInputBorder(),
               focusedBorder: OutlineInputBorder(
-                borderSide:
-                const BorderSide(color: kAppPrimaryBlue, width: 2.0),
+                borderSide: const BorderSide(color: kAppPrimaryBlue, width: 2.0),
               ),
               labelStyle: const TextStyle(color: kAppPrimaryBlue),
             ),
@@ -227,18 +224,13 @@ class MyApp extends StatelessWidget {
             ),
             useMaterial3: true,
           ),
-
-          // ✅ go straight to the real app
           home: const AppWrapper(),
-
-          // keep MobileWrapper for web layout only
           builder: (context, child) {
             if (child == null) return const SizedBox.shrink();
             final mediaQuery = MediaQuery.of(context);
             final adjustedChild = MediaQuery(
               data: mediaQuery.copyWith(
-                textScaleFactor:
-                mediaQuery.textScaleFactor.clamp(0.8, 1.3),
+                textScaleFactor: mediaQuery.textScaleFactor.clamp(0.8, 1.3),
               ),
               child: child,
             );

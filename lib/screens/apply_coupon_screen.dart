@@ -110,9 +110,20 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
 
       final coupon = couponResponse;
 
-      if (!_isCouponValid(coupon)) {
+      // ✅ Validate including per-user limit
+      final isValid = await _isCouponValid(coupon);
+      if (!isValid) {
         setState(() => _isApplying = false);
         return;
+      }
+
+      // ✅ Record a per-user usage AFTER successful validation
+      final userId = supabase.auth.currentUser?.id;
+      if (userId != null && coupon['per_user_limit'] != null) {
+        await supabase.from('coupon_usages').insert({
+          'user_id': userId,
+          'coupon_code': couponCode.toUpperCase(),
+        });
       }
 
       final double discount = _calculateDiscount(coupon);
@@ -128,7 +139,8 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
     }
   }
 
-  bool _isCouponValid(Map<String, dynamic> coupon) {
+  // ✅ Now async to allow Supabase check for per-user limit
+  Future<bool> _isCouponValid(Map<String, dynamic> coupon) async {
     final now = DateTime.now();
 
     // Expiry
@@ -151,10 +163,27 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
       }
     }
 
-    // Usage limit
+    // Global usage limit
     if (coupon['usage_limit'] != null && coupon['usage_count'] != null) {
       if ((coupon['usage_count'] as num) >= (coupon['usage_limit'] as num)) {
         _showErrorSnackBar('Coupon usage limit exceeded');
+        return false;
+      }
+    }
+
+    // ✅ Per-user usage limit
+    final userId = supabase.auth.currentUser?.id;
+    if (coupon['per_user_limit'] != null && userId != null) {
+      // fetch all usages for this user+coupon and count them
+      final usageResp = await supabase
+          .from('coupon_usages')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('coupon_code', coupon['code']);
+
+      final usageCount = (usageResp is List) ? usageResp.length : 0;
+      if (usageCount >= (coupon['per_user_limit'] as int)) {
+        _showErrorSnackBar('You have already used this coupon maximum times');
         return false;
       }
     }
@@ -637,9 +666,9 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
     return true;
   }
 
-  // ===== Details Dialog =====
 
-  void _showCouponDetailsDialog(Map<String, dynamic> coupon) {
+  // ===== Details Dialog (hide global Usage Limit / Used / Remaining) =====
+  Future<void> _showCouponDetailsDialog(Map<String, dynamic> coupon) async {
     final String code = (coupon['code'] ?? '').toString();
     final String description = (coupon['description'] ?? '').toString();
     final String type = (coupon['discount_type'] ?? '').toString();
@@ -661,11 +690,29 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
         .first
         : null;
 
-    final int? usageLimit = coupon['usage_limit'] as int?;
-    final int? usageCount = coupon['usage_count'] as int?;
-    final int? remaining = (usageLimit != null && usageCount != null)
-        ? (usageLimit - usageCount).clamp(0, usageLimit)
-        : null;
+    // Per-user usage stats
+    final int? perUserLimit = coupon['per_user_limit'] as int?;
+    int perUserUsed = 0;
+    int? perUserRemaining;
+
+    final userId = supabase.auth.currentUser?.id;
+    if (userId != null) {
+      try {
+        final rows = await supabase
+            .from('coupon_usages')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('coupon_code', code);
+        if (rows is List) {
+          perUserUsed = rows.length;
+        }
+      } catch (_) {
+        // ignore error
+      }
+    }
+    if (perUserLimit != null) {
+      perUserRemaining = (perUserLimit - perUserUsed).clamp(0, perUserLimit);
+    }
 
     final String? tag = coupon['tag']?.toString();
 
@@ -674,8 +721,7 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
       barrierDismissible: true,
       builder: (ctx) {
         return Dialog(
-          shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -715,8 +761,8 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
                     ),
                     if (tag != null && tag.isNotEmpty)
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
+                        padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: kPrimaryColor.withOpacity(0.12),
                           borderRadius: BorderRadius.circular(8),
@@ -733,29 +779,33 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
                   ],
                 ),
                 const SizedBox(height: 12),
+
                 if (description.isNotEmpty)
                   Text(
                     description,
                     style: const TextStyle(
                         fontSize: 13.5, color: Colors.black87, height: 1.35),
                   ),
+
                 const SizedBox(height: 12),
 
-                _detailRow('Type',
-                    type == 'percentage' ? 'Percentage' : 'Flat'),
-                _detailRow('Value',
-                    type == 'percentage' ? '${value.toStringAsFixed(0)} %' : '₹${value.toStringAsFixed(0)}'),
+                _detailRow('Type', type == 'percentage' ? 'Percentage' : 'Flat'),
+                _detailRow(
+                  'Value',
+                  type == 'percentage'
+                      ? '${value.toStringAsFixed(0)} %'
+                      : '₹${value.toStringAsFixed(0)}',
+                ),
                 if (maxDiscount != null)
                   _detailRow('Max Discount', '₹${maxDiscount.toStringAsFixed(0)}'),
                 if (minOrder != null)
                   _detailRow('Minimum Order', '₹${minOrder.toStringAsFixed(0)}'),
                 if (expiry != null) _detailRow('Valid Till', expiry),
-                if (usageLimit != null)
-                  _detailRow('Usage Limit', usageLimit.toString()),
-                if (usageCount != null)
-                  _detailRow('Used', usageCount.toString()),
-                if (remaining != null)
-                  _detailRow('Remaining Uses', remaining.toString()),
+
+                // ✅ Per-user usage rows
+                if (userId != null) _detailRow('Your Uses', perUserUsed.toString()),
+                if (perUserRemaining != null)
+                  _detailRow('Your Remaining', perUserRemaining.toString()),
 
                 const SizedBox(height: 12),
                 Align(
@@ -772,6 +822,9 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
       },
     );
   }
+
+
+
 
   Widget _detailRow(String label, String value) {
     return Padding(
