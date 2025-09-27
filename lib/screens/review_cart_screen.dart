@@ -556,9 +556,10 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     // 3) New subtotal after discount
     final double discountedSubtotal = itemSubtotal - discountApplied;
 
-    // 4) Minimum cart fee (based on original subtotal)
+    // 4) Minimum cart fee (now based on DISCOUNTED subtotal)
     final double minCartFeeApplied =
-    itemSubtotal < minimumCartFee ? (minimumCartFee - itemSubtotal) : 0.0;
+    discountedSubtotal < minimumCartFee ? (minimumCartFee - discountedSubtotal) : 0.0;
+
 
     // 5) Delivery fee
     final bool isStandard = selectedDeliveryType == 'Standard';

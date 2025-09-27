@@ -418,7 +418,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
 
     // 3) Minimum cart fee (compare against ORIGINAL subtotal)
     final double minCartFeeApplied =
-    itemSubtotal < minimumCartFee ? (minimumCartFee - itemSubtotal) : 0.0;
+    discountedSubtotal < minimumCartFee ? (minimumCartFee - discountedSubtotal) : 0.0;
 
     // 4) Delivery fee (Standard can be free if discounted subtotal ≥ threshold)
     final bool isStandard = !isExpressDelivery;
