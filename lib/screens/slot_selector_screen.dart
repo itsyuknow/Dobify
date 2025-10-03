@@ -998,7 +998,6 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     }
   }
 
-  // Initiate Razorpay payment
   Future<void> _initiateOnlinePayment() async {
     setState(() {
       _isProcessingPayment = true;
@@ -1009,35 +1008,78 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
       if (user == null) throw Exception('User not found');
 
       final totalAmount = _calculateTotalAmount();
+      int payablePaise = (totalAmount * 100).round();
+      if (payablePaise < 100) payablePaise = 100;
+
+      print('🔵 Creating Razorpay order for amount: ₹$totalAmount ($payablePaise paise)');
+
+      // 🔥 Call Supabase Edge Function to create Razorpay order
+      final res = await supabase.functions.invoke(
+        'create_razorpay_order',
+        body: {'amount': payablePaise},
+      );
+
+      print('🔵 Edge Function Response: ${res.data}');
+
+      // ✅ Better error handling
+      if (res.data == null) {
+        throw Exception('Edge Function returned null response');
+      }
+
+      // Check for error in response
+      if (res.data['error'] != null) {
+        throw Exception('Server error: ${res.data['error']}');
+      }
+
+      if (res.data['id'] == null) {
+        throw Exception('No order ID in response: ${res.data}');
+      }
+
+      final orderId = res.data['id']; // Razorpay order_id from server
+      print('✅ Razorpay order created: $orderId');
+
+      // ✅ REPLACE THIS WITH YOUR ACTUAL RAZORPAY KEY
+      const razorpayKeyId = 'rzp_live_RP0aiJW4EQDXKd'; // e.g., 'rzp_live_AbCdEfGhIjKl'
 
       final options = {
-        'key': 'rzp_test_rlTCKVx6XrfqtS', // Replace with your Razorpay key
-        'amount': (totalAmount * 100).toInt(), // Amount in paise
-        'name': 'ironXpress',
+        'key': razorpayKeyId,
+        'amount': payablePaise,
+        'currency': 'INR',
+        'order_id': orderId,
+        'name': 'Dobify',
         'description': 'Ironing Service Payment',
+        'image': 'https://qehtgclgjhzdlqcjujpp.supabase.co/storage/v1/object/public/public-assets/banners/dobify_logo1.png', // ⚠️ Must be a web URL
         'prefill': {
           'contact': user.phone ?? '',
           'email': user.email ?? '',
         },
+        'retry': {'enabled': true, 'max_count': 1},
+        'timeout': 180,
         'theme': {
           'color': '#${kPrimaryColor.value.toRadixString(16).substring(2)}',
-        }
+        },
       };
 
+      print('🔵 Opening Razorpay with options: $options');
       _razorpay.open(options);
-    } catch (e) {
-      setState(() {
-        _isProcessingPayment = false;
-      });
+
+    } catch (e, stackTrace) {
+      print('❌ Payment initialization error: $e');
+      print('Stack trace: $stackTrace');
+
+      setState(() => _isProcessingPayment = false);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to initiate payment: $e'),
+          content: Text('Payment failed: ${e.toString().replaceAll('Exception: ', '')}'),
           backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
         ),
       );
     }
   }
+
+
 
   // Process order completion (both online and COD)
   Future<void> _processOrderCompletion({String? paymentId}) async {
