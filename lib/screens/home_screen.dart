@@ -151,20 +151,45 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     try {
       final data = await supabase
           .from('ui_contacts')
-          .select('key, label, value, icon, link, color');
+          .select('key, label, value, icon, link, color, sort_order');
 
-      final filtered = List<Map<String, dynamic>>.from(data).where((c) {
-        final key = c['key']?.toString().toLowerCase() ?? '';
-        return ['facebook', 'website', 'instagram'].contains(key) &&
-            (c['label']?.toString().isNotEmpty ?? false) &&
-            (c['value']?.toString().isNotEmpty ?? false);
-      }).toList();
+      // Only keep IG, FB, WhatsApp — in this preferred order
+      const preferredOrder = ['instagram', 'facebook', 'whatsapp'];
+
+      final filtered = List<Map<String, dynamic>>.from(data)
+          .where((c) {
+        final key = (c['key'] ?? '').toString().toLowerCase();
+        final hasLabel = (c['label']?.toString().isNotEmpty ?? false);
+        final hasLink  = (c['link']?.toString().isNotEmpty ?? false);
+        return preferredOrder.contains(key) && hasLabel && hasLink;
+      })
+          .toList();
+
+      // Sort exactly as: instagram → facebook → whatsapp
+      filtered.sort((a, b) {
+        final ak = (a['key'] ?? '').toString().toLowerCase();
+        final bk = (b['key'] ?? '').toString().toLowerCase();
+        final ai = preferredOrder.indexOf(ak);
+        final bi = preferredOrder.indexOf(bk);
+        if (ai != bi) return ai.compareTo(bi);
+
+        // If same priority (unlikely), fall back to sort_order then label
+        final as = (a['sort_order'] is num) ? (a['sort_order'] as num).toInt() : 9999;
+        final bs = (b['sort_order'] is num) ? (b['sort_order'] as num).toInt() : 9999;
+        if (as != bs) return as.compareTo(bs);
+
+        final al = (a['label'] ?? '').toString();
+        final bl = (b['label'] ?? '').toString();
+        return al.compareTo(bl);
+      });
 
       setState(() => _contacts = filtered);
     } catch (e) {
       print('❌ Error fetching contacts: $e');
+      setState(() => _contacts = []);
     }
   }
+
 
   Future<void> _loadBanners() async {
     try {
@@ -1104,12 +1129,15 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
 
   IconData _getPremiumIcon(String key) {
     switch (key) {
-      case 'website':
-        return Icons.language_rounded;
       case 'instagram':
         return Icons.camera_alt_rounded;
       case 'facebook':
         return Icons.facebook_rounded;
+      case 'whatsapp':
+      // Material doesn’t have a WhatsApp glyph; using chat bubble as a clean fallback
+        return Icons.chat_bubble_rounded;
+      case 'website':
+        return Icons.language_rounded; // (kept for future use, not shown now)
       default:
         return Icons.link_rounded;
     }
@@ -1118,15 +1146,18 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
   Color _getPremiumColor(String key) {
     switch (key) {
       case 'instagram':
-        return const Color(0xFFE1306C);
+        return const Color(0xFFE1306C); // IG pink
       case 'facebook':
-        return const Color(0xFF1877f3);
+        return const Color(0xFF1877F3); // FB blue
+      case 'whatsapp':
+        return const Color(0xFF25D366); // WhatsApp green
       case 'website':
-        return const Color(0xFF6366f1);
+        return const Color(0xFF6366F1); // Indigo (unused now)
       default:
         return kPrimaryColor;
     }
   }
+
 
   void _launchUrl(String? url) async {
     if (url == null) return;

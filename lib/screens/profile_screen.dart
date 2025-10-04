@@ -1528,7 +1528,16 @@ class _ProfileScreenState extends State<ProfileScreen>
         'gradient': [kPrimaryColor.withOpacity(0.4), kPrimaryColor.withOpacity(0.2)],
         'onTap': () => _openTermsConditions(),
       },
+      // ✅ NEW: About Us (right after Terms & Conditions)
+      {
+        'icon': Icons.info_outline_rounded,
+        'title': 'About Us',
+        'subtitle': 'Learn about Dobify',
+        'gradient': [kPrimaryColor.withOpacity(0.3), kPrimaryColor.withOpacity(0.15)],
+        'onTap': () => _openAboutUs(),
+      },
     ];
+
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -1765,6 +1774,12 @@ class _ProfileScreenState extends State<ProfileScreen>
   Future<void> _openTermsConditions() async {
     await _openUrlFromSupabase('terms_conditions_url');
   }
+
+
+  Future<void> _openAboutUs() async {
+    await _openUrlFromSupabase('about_us_url');
+  }
+
 
   Future<void> _openUrlFromSupabase(String settingKey) async {
     try {

@@ -1044,7 +1044,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
             ),
           ),
 
-          // 🔍 Premium Search Bar
+          // 🔍 Premium Search Bar (uses Google Places Autocomplete)
           Positioned(
             top: searchBarTop,
             left: 16,
@@ -1067,7 +1067,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                 ),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: TypeAheadField<Location>(
+                  child: TypeAheadField<Map<String, String>>(
                     controller: _searchController,
                     builder: (context, controller, focusNode) {
                       return TextField(
@@ -1120,125 +1120,116 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                         ),
                       );
                     },
+
+                    // ✅ Suggestions from Google Places Autocomplete (mobile-ready)
                     suggestionsCallback: (pattern) async {
                       if (pattern.length < 2) return [];
                       try {
-                        final results = await locationFromAddress(pattern);
-                        final sorted = results
-                            .where((loc) =>
-                        loc.latitude.toString().contains(pattern) ||
-                            loc.longitude.toString().contains(pattern))
+                        final uri = Uri.parse(
+                          'https://maps.googleapis.com/maps/api/place/autocomplete/json'
+                              '?input=${Uri.encodeComponent(pattern)}'
+                              '&types=geocode'
+                              '&components=country:in' // remove for global
+                              '&key=$_gmapsKey',
+                        );
+                        final res = await http.get(uri);
+                        if (res.statusCode != 200) return [];
+                        final data = json.decode(res.body);
+                        if (data['status'] != 'OK') return [];
+                        final List preds = (data['predictions'] as List?) ?? [];
+                        return preds
+                            .map<Map<String, String>>((p) => {
+                          'description': (p['description'] ?? '').toString(),
+                          'place_id': (p['place_id'] ?? '').toString(),
+                        })
+                            .where((m) =>
+                        (m['description'] ?? '').isNotEmpty &&
+                            (m['place_id'] ?? '').isNotEmpty)
+                            .take(8)
                             .toList();
-                        return sorted.isNotEmpty ? sorted.take(3).toList() : results.take(3).toList();
-                      } catch (e) {
+                      } catch (_) {
                         return [];
                       }
                     },
-                    itemBuilder: (context, Location suggestion) {
-                      return FutureBuilder<List<Placemark>>(
-                        future: placemarkFromCoordinates(
-                          suggestion.latitude,
-                          suggestion.longitude,
+
+                    itemBuilder: (context, prediction) {
+                      return Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE3F2FD),
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        builder: (context, snapshot) {
-                          if (!snapshot.hasData) return _loadingSuggestionTile();
-
-                          final placemark = snapshot.data!.first;
-                          String mainAddress = '';
-                          String subAddress = '';
-
-                          if (placemark.street?.isNotEmpty == true) {
-                            mainAddress = placemark.street!;
-                            if (placemark.subLocality?.isNotEmpty == true) {
-                              mainAddress = '$mainAddress, ${placemark.subLocality}';
-                            }
-                            subAddress = '${placemark.locality ?? ''} ${placemark.postalCode ?? ''}'.trim();
-                          } else if (placemark.subLocality?.isNotEmpty == true) {
-                            mainAddress = placemark.subLocality!;
-                            subAddress = '${placemark.locality ?? ''} ${placemark.postalCode ?? ''}'.trim();
-                          } else {
-                            mainAddress = placemark.locality ?? 'Unknown location';
-                            subAddress = '${placemark.administrativeArea ?? ''} ${placemark.postalCode ?? ''}'.trim();
-                          }
-
-                          return Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFE3F2FD),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.location_on_rounded, color: Color(0xFF42A5F5), size: 18),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        mainAddress,
-                                        style: const TextStyle(
-                                          color: Color(0xFF42A5F5),
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      if (subAddress.isNotEmpty)
-                                        Padding(
-                                          padding: const EdgeInsets.only(top: 2),
-                                          child: Text(
-                                            subAddress,
-                                            style: TextStyle(
-                                              color: const Color(0xFF42A5F5).withOpacity(0.7),
-                                              fontSize: 12,
-                                            ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                    ],
-                                  ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.location_on_rounded,
+                                color: Color(0xFF42A5F5), size: 18),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                prediction['description']!,
+                                style: const TextStyle(
+                                  color: Color(0xFF42A5F5),
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
                                 ),
-                              ],
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                          );
-                        },
+                          ],
+                        ),
                       );
                     },
-                    onSelected: (Location selectedLocation) async {
-                      // Just center the camera; onCameraIdle will compute the TIP latlng.
-                      final latLng = LatLng(selectedLocation.latitude, selectedLocation.longitude);
-                      _mapController?.animateCamera(
-                        CameraUpdate.newCameraPosition(
-                          CameraPosition(target: latLng, zoom: 16.0),
-                        ),
-                      );
-                      _searchController.clear();
 
-                      // Keep the visible address text tidy; final address sync happens onCameraIdle.
-                      final placemarks = await placemarkFromCoordinates(
-                        selectedLocation.latitude,
-                        selectedLocation.longitude,
-                      );
-                      if (placemarks.isNotEmpty) {
-                        final p = placemarks.first;
-                        String selectedAddress = '';
-                        if (p.street?.isNotEmpty == true) {
-                          selectedAddress = '${p.street}, ${p.locality ?? ''}';
-                        } else if (p.subLocality?.isNotEmpty == true) {
-                          selectedAddress = '${p.subLocality}, ${p.locality ?? ''}';
-                        } else {
-                          selectedAddress = p.locality ?? 'Selected location';
+                    onSelected: (prediction) async {
+                      try {
+                        // Get exact coords via Place Details
+                        final detailsUri = Uri.parse(
+                          'https://maps.googleapis.com/maps/api/place/details/json'
+                              '?place_id=${prediction['place_id']}'
+                              '&fields=geometry,formatted_address'
+                              '&key=$_gmapsKey',
+                        );
+                        final res = await http.get(detailsUri);
+                        if (res.statusCode == 200) {
+                          final data = json.decode(res.body);
+                          if (data['status'] == 'OK') {
+                            final loc =
+                            data['result']?['geometry']?['location'] as Map?;
+                            if (loc != null) {
+                              final lat = (loc['lat'] as num).toDouble();
+                              final lng = (loc['lng'] as num).toDouble();
+                              final latLng = LatLng(lat, lng);
+
+                              // Center the camera (onCameraIdle will reverse-geocode)
+                              _mapController?.animateCamera(
+                                CameraUpdate.newCameraPosition(
+                                  CameraPosition(target: latLng, zoom: 16.0),
+                                ),
+                              );
+
+                              setState(() {
+                                _selectedAddress =
+                                    (data['result']?['formatted_address'] as String?) ??
+                                        prediction['description']!;
+                              });
+                            }
+                          }
                         }
-                        setState(() {
-                          _selectedAddress = selectedAddress;
-                        });
+                      } catch (_) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Could not fetch place location'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      } finally {
+                        _searchController.clear();
+                        FocusScope.of(context).unfocus();
                       }
                     },
+
                     emptyBuilder: (context) => const SizedBox.shrink(),
                     loadingBuilder: (context) => _loadingSuggestionTile(),
                     errorBuilder: (context, error) => Container(
@@ -1277,7 +1268,6 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                   await _snapPinTipToCurrentLocation();
                 }
               },
-
               child: Container(
                 width: 48,
                 height: 48,
@@ -1301,7 +1291,8 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                     ),
                   ],
                 ),
-                child: const Icon(Icons.my_location_rounded, color: Color(0xFF42A5F5), size: 24),
+                child: const Icon(Icons.my_location_rounded,
+                    color: Color(0xFF42A5F5), size: 24),
               ),
             ),
           ),
@@ -1373,7 +1364,8 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                               ),
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: const Icon(Icons.place_rounded, color: Color(0xFF42A5F5), size: 20),
+                            child: const Icon(Icons.place_rounded,
+                                color: Color(0xFF42A5F5), size: 20),
                           ),
                           const SizedBox(width: 12),
                           const Text(
@@ -1392,7 +1384,8 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                       // Address Display
                       Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                         decoration: BoxDecoration(
                           color: const Color(0xFFE3F2FD),
                           borderRadius: BorderRadius.circular(16),
@@ -1411,11 +1404,14 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.location_on_rounded, color: Color(0xFF42A5F5), size: 20),
+                            const Icon(Icons.location_on_rounded,
+                                color: Color(0xFF42A5F5), size: 20),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                _selectedAddress.isNotEmpty ? _selectedAddress : 'Move map to select location',
+                                _selectedAddress.isNotEmpty
+                                    ? _selectedAddress
+                                    : 'Move map to select location',
                                 style: const TextStyle(
                                   fontSize: 14,
                                   color: Color(0xFF42A5F5),
@@ -1455,16 +1451,21 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
                               ? const SizedBox(
                             height: 20,
                             width: 20,
-                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                                color: Colors.white, strokeWidth: 2),
                           )
                               : const Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+                              Icon(Icons.check_circle_rounded,
+                                  color: Colors.white, size: 20),
                               SizedBox(width: 8),
                               Text(
                                 'Confirm Location',
-                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                                style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white),
                               ),
                             ],
                           ),
@@ -1480,6 +1481,7 @@ class _AppWrapperState extends State<AppWrapper> with TickerProviderStateMixin {
       ),
     );
   }
+
 
 
 

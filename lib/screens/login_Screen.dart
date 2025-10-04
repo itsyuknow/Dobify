@@ -32,6 +32,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   late Animation<double> _floatAnimation;
 
   bool _isGoogleLoggingIn = false;
+  bool _navigatedAfterLogin = false; // prevents double navigation
+
 
   // App Links for handling OAuth redirects
   late AppLinks _appLinks;
@@ -108,6 +110,25 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     _floatController.repeat(reverse: true);
   }
 
+  void _goToAppWrapperOnce({String? welcomeName}) {
+    if (_navigatedAfterLogin || !mounted) return;
+    _navigatedAfterLogin = true;
+
+    if (welcomeName != null && welcomeName.isNotEmpty) {
+      _showMessage('Welcome back, $welcomeName!', isError: false);
+    }
+
+    // Small delay for any SnackBar animation, then replace route
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const AppWrapper()),
+            (route) => false,
+      );
+    });
+  }
+
   void _initDeepLinks() {
     if (kIsWeb) {
       return;
@@ -181,7 +202,13 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       print('🔐 Session exists: ${session != null}');
       print('🔐 User: ${session?.user?.email ?? session?.user?.phone}');
 
-      if (event == AuthChangeEvent.signedIn && session != null) {
+      // On web, Supabase emits `initialSession` after reload.
+      // Treat it the same as a signed-in state.
+      final bool isNowSignedIn = session != null &&
+          (event == AuthChangeEvent.signedIn ||
+              event == AuthChangeEvent.initialSession);
+
+      if (isNowSignedIn) {
         if (mounted) {
           setState(() {
             _isGoogleLoggingIn = false;
@@ -189,36 +216,43 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
 
           HapticFeedback.lightImpact();
 
-          final googleName = _extractGoogleName(session.user);
-          String userName = googleName.isNotEmpty
+          final googleName = _extractGoogleName(session!.user);
+          final userName = googleName.isNotEmpty
               ? googleName
               : (session.user.email?.split('@')[0]
               ?? session.user.phone?.replaceAll('+91', '')
               ?? 'User');
 
-          _showMessage('Welcome back, $userName!', isError: false);
-          print('✅ Login successful');
-
-          Future.delayed(const Duration(milliseconds: 1500), () {
-            if (mounted) {
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (_) => const AppWrapper()),
-                    (route) => false,
-              );
-              print('✅ Navigated to AppWrapper for location verification');
-            }
-          });
+          print('✅ Login successful / session active');
+          _goToAppWrapperOnce(welcomeName: userName);
         }
       } else if (event == AuthChangeEvent.signedOut) {
         if (mounted) {
           setState(() {
             _isGoogleLoggingIn = false;
+            _navigatedAfterLogin = false; // allow future navigation again
           });
         }
       }
     });
+
+    // 🔴 IMPORTANT for web:
+    // If the page just reloaded back from OAuth and a session is already present,
+    // navigate immediately (before the user sees the login UI).
+    final Session? existing = supabase.auth.currentSession;
+    if (existing != null) {
+      final googleName = _extractGoogleName(existing.user);
+      final userName = googleName.isNotEmpty
+          ? googleName
+          : (existing.user.email?.split('@')[0]
+          ?? existing.user.phone?.replaceAll('+91', '')
+          ?? 'User');
+
+      print('🌐 Found existing session at startup -> navigating');
+      _goToAppWrapperOnce(welcomeName: userName);
+    }
   }
+
 
   Future<void> _loginWithGoogle() async {
     HapticFeedback.mediumImpact();
@@ -226,8 +260,13 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     setState(() => _isGoogleLoggingIn = true);
 
     try {
-      final String webRedirect = const String.fromEnvironment('WEB_REDIRECT_URL',
-          defaultValue: 'https://www.dobify.in/');
+      // First read env var (const allowed), then decide fallback at runtime.
+      final String webRedirectEnv = const String.fromEnvironment('WEB_REDIRECT_URL');
+      final String webRedirect = webRedirectEnv.isNotEmpty
+          ? webRedirectEnv
+          : (kIsWeb ? Uri.base.origin : 'https://www.dobify.in/');
+
+
 
       const String mobileRedirect = 'com.yuknow.ironly://oauth-callback';
 

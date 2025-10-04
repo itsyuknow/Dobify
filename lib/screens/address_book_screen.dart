@@ -16,6 +16,64 @@ import 'dart:convert';
 const String _gmapsKey = 'AIzaSyDjxtVK1EXQuaYOc0-a0V5-Wb8xR-koHZ0';
 
 
+// ---------- Google Places helpers (TOP-LEVEL, not inside a class) ----------
+class PlacePrediction {
+  final String description;
+  final String placeId;
+  const PlacePrediction({required this.description, required this.placeId});
+}
+
+Future<List<PlacePrediction>> _placesAutocomplete(String input) async {
+  if (input.trim().isEmpty) return [];
+
+  final uri = Uri.parse(
+    'https://maps.googleapis.com/maps/api/place/autocomplete/json'
+        '?input=${Uri.encodeComponent(input)}'
+        '&types=geocode'
+        '&components=country:in' // limit to India; remove for global
+        '&key=$_gmapsKey',
+  );
+
+  final res = await http.get(uri);
+  if (res.statusCode != 200) return [];
+
+  final data = json.decode(res.body);
+  if (data['status'] != 'OK') return [];
+
+  final preds = (data['predictions'] as List?) ?? [];
+  return preds.map((p) {
+    final desc = (p['description'] ?? '').toString();
+    final id = (p['place_id'] ?? '').toString();
+    if (desc.isEmpty || id.isEmpty) return null;
+    return PlacePrediction(description: desc, placeId: id);
+  }).whereType<PlacePrediction>().toList(growable: false);
+}
+
+Future<LatLng?> _placeDetailsLatLng(String placeId) async {
+  final uri = Uri.parse(
+    'https://maps.googleapis.com/maps/api/place/details/json'
+        '?place_id=$placeId'
+        '&fields=geometry,formatted_address'
+        '&key=$_gmapsKey',
+  );
+
+  final res = await http.get(uri);
+  if (res.statusCode != 200) return null;
+
+  final data = json.decode(res.body);
+  if (data['status'] != 'OK') return null;
+
+  final loc = data['result']?['geometry']?['location'];
+  if (loc == null) return null;
+
+  return LatLng(
+    (loc['lat'] as num).toDouble(),
+    (loc['lng'] as num).toDouble(),
+  );
+}
+
+
+
 class AddressBookScreen extends StatefulWidget {
   final Function(Map<String, dynamic>) onAddressSelected;
 
@@ -1384,6 +1442,9 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
     }
   }
 
+
+
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1420,308 +1481,380 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
 
 
   Widget _buildMapView() {
-    final topPad = MediaQuery.of(context).padding.top;
+  final topPad = MediaQuery.of(context).padding.top;
 
-    // layout constants
-    const double sideGap = 12;
-    const double circleDiameter = 40;
-    const double betweenGap = 8;
+  // layout constants
+  const double sideGap = 12;
+  const double circleDiameter = 40;
+  const double betweenGap = 8;
 
-    final double searchLeft = sideGap + circleDiameter + betweenGap;
-    final double searchRight = sideGap;
+  final double searchLeft = sideGap + circleDiameter + betweenGap;
+  final double searchRight = sideGap;
 
-    // 🔧 Lift the visual pin so its TIP sits at the map center (logical px)
-    // For a ~70px tall pin, 28–32 works well. Tune if you change the asset.
-    const double pinTipLift = 30;
+  // 🔧 Lift the visual pin so its TIP sits at the map center (logical px)
+  // For a ~70px tall pin, 28–32 works well. Tune if you change the asset.
+  const double pinTipLift = 30;
 
-    // ✅ Confirm button style: Solid Blue + premium shape
-    final ButtonStyle confirmStyle = ElevatedButton.styleFrom(
-      elevation: 2,
-      backgroundColor: kPrimaryColor, // solid blue
-      foregroundColor: Colors.white,  // text & loader white
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12), // premium 12px radius
-      ),
-      padding: const EdgeInsets.symmetric(vertical: 12),
-    );
+  // ✅ Confirm button style: Solid Blue + premium shape
+  final ButtonStyle confirmStyle = ElevatedButton.styleFrom(
+  elevation: 2,
+  backgroundColor: kPrimaryColor, // solid blue
+  foregroundColor: Colors.white,  // text & loader white
+  shape: RoundedRectangleBorder(
+  borderRadius: BorderRadius.circular(12), // premium 12px radius
+  ),
+  padding: const EdgeInsets.symmetric(vertical: 12),
+  );
 
-    return Stack(
-      children: [
-        // --- MAP ---
-        GoogleMap(
-          onMapCreated: (GoogleMapController controller) {
-            _mapController = controller;
-          },
-          initialCameraPosition: CameraPosition(
-            target: _selectedLocation ?? const LatLng(20.2961, 85.8245),
-            zoom: 15.0,
-          ),
-          myLocationEnabled: true,
-          myLocationButtonEnabled: false,
-          zoomControlsEnabled: false,
+  return Stack(
+  children: [
+  // --- MAP ---
+  GoogleMap(
+  onMapCreated: (GoogleMapController controller) {
+  _mapController = controller;
+  },
+  initialCameraPosition: CameraPosition(
+  target: _selectedLocation ?? const LatLng(20.2961, 85.8245),
+  zoom: 15.0,
+  ),
+  myLocationEnabled: true,
+  myLocationButtonEnabled: false,
+  zoomControlsEnabled: false,
 
-          // Keep track of the visual center (not the pin tip yet)
-          onCameraMove: (CameraPosition p) => _selectedLocation = p.target,
+  // Keep track of the visual center (not the pin tip yet)
+  onCameraMove: (CameraPosition p) => _selectedLocation = p.target,
 
-          // When camera stops, compute the TIP LatLng and reverse-geocode that
-          onCameraIdle: () async {
-            if (_selectedLocation == null || _mapController == null) return;
+  // When camera stops, compute the TIP LatLng and reverse-geocode that
+  onCameraIdle: () async {
+  if (_selectedLocation == null || _mapController == null) return;
 
-            // Convert the visual center to screen coords, then shift UP by the
-            // amount we visually lifted the pin so we get the TIP position.
-            final dpr = MediaQuery.of(context).devicePixelRatio;
-            final centerScreen =
-            await _mapController!.getScreenCoordinate(_selectedLocation!);
-            final tipScreen = ScreenCoordinate(
-              x: centerScreen.x,
-              y: (centerScreen.y - (pinTipLift * dpr)).round(),
-            );
+  // Convert the visual center to screen coords, then shift UP by the
+  // amount we visually lifted the pin so we get the TIP position.
+  final dpr = MediaQuery.of(context).devicePixelRatio;
+  final centerScreen =
+  await _mapController!.getScreenCoordinate(_selectedLocation!);
+  final tipScreen = ScreenCoordinate(
+  x: centerScreen.x,
+  y: (centerScreen.y - (pinTipLift * dpr)).round(),
+  );
 
-            final tipLatLng = await _mapController!.getLatLng(tipScreen);
+  final tipLatLng = await _mapController!.getLatLng(tipScreen);
 
-            // Now reverse-geocode / update address based on the TIP’s LatLng
-            await _onMapTap(tipLatLng);
-          },
-        ),
+  // Now reverse-geocode / update address based on the TIP’s LatLng
+  await _onMapTap(tipLatLng);
+  },
+  ),
 
-        // --- CENTER PIN (tip aligned) ---
-        Center(
-          child: IgnorePointer(
-            ignoring: true,
-            child: Transform.translate(
-              offset: const Offset(0, -pinTipLift),
-              child: Container(
-                decoration: BoxDecoration(
-                  boxShadow: [
-                    // Soft shadow for contrast on light map tiles
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.15),
-                      blurRadius: 8,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Image.asset(
-                  'assets/images/blue_pin.png',
-                  width: 70,
-                  height: 70,
-                  filterQuality: FilterQuality.high, // crisper scaling
-                ),
-              ),
-            ),
-          ),
-        ),
+  // --- CENTER PIN (tip aligned) ---
+  Center(
+  child: IgnorePointer(
+  ignoring: true,
+  child: Transform.translate(
+  offset: const Offset(0, -pinTipLift),
+  child: Container(
+  decoration: BoxDecoration(
+  boxShadow: [
+  // Soft shadow for contrast on light map tiles
+  BoxShadow(
+  color: Colors.black.withOpacity(0.15),
+  blurRadius: 8,
+  offset: const Offset(0, 4),
+  ),
+  ],
+  ),
+  child: Image.asset(
+  'assets/images/blue_pin.png',
+  width: 70,
+  height: 70,
+  filterQuality: FilterQuality.high, // crisper scaling
+  ),
+  ),
+  ),
+  ),
+  ),
 
-        // --- TOP LEFT BACK BUTTON ---
-        Positioned(
-          top: topPad + 8,
-          left: sideGap,
-          child: Material(
-            color: Colors.white,
-            shape: const CircleBorder(),
-            elevation: 2,
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: () => Navigator.pop(context),
-              child: const SizedBox(
-                width: circleDiameter,
-                height: circleDiameter,
-                child: Center(
-                  child: Icon(Icons.arrow_back, size: 20, color: kPrimaryColor),
-                ),
-              ),
-            ),
-          ),
-        ),
+  // --- TOP LEFT BACK BUTTON ---
+  Positioned(
+  top: topPad + 8,
+  left: sideGap,
+  child: Material(
+  color: Colors.white,
+  shape: const CircleBorder(),
+  elevation: 2,
+  child: InkWell(
+  customBorder: const CircleBorder(),
+  onTap: () => Navigator.pop(context),
+  child: const SizedBox(
+  width: circleDiameter,
+  height: circleDiameter,
+  child: Center(
+  child: Icon(Icons.arrow_back, size: 20, color: kPrimaryColor),
+  ),
+  ),
+  ),
+  ),
+  ),
 
-        // --- SEARCH PILL ---
-        Positioned(
-          top: topPad + 8,
-          left: searchLeft,
-          right: searchRight,
-          child: SlideTransition(
-            position: _slideAnimation,
-            child: Container(
-              height: 44,
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.95),
-                borderRadius: BorderRadius.circular(28),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.12),
-                    blurRadius: 16,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: TypeAheadField<Location>(
-                  controller: _searchController,
-                  suggestionsCallback: (pattern) async {
-                    if (pattern.trim().isEmpty) return [];
-                    final results = await locationFromAddress(pattern);
-                    return results.take(5).toList();
-                  },
-                  itemBuilder: (context, location) {
-                    return ListTile(
-                      leading: const Icon(Icons.location_on, color: kPrimaryColor),
-                      title: Text(
-                        'Lat: ${location.latitude}, Lng: ${location.longitude}',
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                    );
-                  },
-                  onSelected: (location) async {
-                    final latLng = LatLng(location.latitude, location.longitude);
-                    await _moveCameraAndSetLocation(latLng);
-                    _searchController.clear();
-                  },
-                  builder: (context, controller, focusNode) {
-                    return TextField(
-                      controller: controller,
-                      focusNode: focusNode,
-                      style: const TextStyle(
-                        color: kPrimaryColor,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      textAlignVertical: TextAlignVertical.center,
-                      decoration: InputDecoration(
-                        hintText: 'Search area or pincode',
-                        hintStyle: TextStyle(
-                          color: kPrimaryColor.withOpacity(0.7),
-                          fontSize: 15,
-                        ),
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none, // ✅ remove blue outline
-                        focusedBorder: InputBorder.none, // ✅ remove blue outline
-                        prefixIcon: Icon(
-                          Icons.search_rounded,
-                          color: kPrimaryColor.withOpacity(0.8),
-                          size: 20,
-                        ),
-                        suffixIcon: controller.text.isNotEmpty
-                            ? IconButton(
-                          icon: const Icon(Icons.close_rounded,
-                              color: kPrimaryColor),
-                          onPressed: () {
-                            controller.clear();
-                            FocusScope.of(context).unfocus();
-                          },
-                        )
-                            : null,
-                        isDense: true,
-                        contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 8),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-        ),
+  // --- SEARCH PILL ---
+  Positioned(
+  top: topPad + 8,
+  left: searchLeft,
+  right: searchRight,
+  child: SlideTransition(
+  position: _slideAnimation,
+  child: Container(
+  height: 44,
+  decoration: BoxDecoration(
+  color: Colors.white.withOpacity(0.95),
+  borderRadius: BorderRadius.circular(28),
+  boxShadow: [
+  BoxShadow(
+  color: Colors.black.withOpacity(0.12),
+  blurRadius: 16,
+  offset: const Offset(0, 6),
+  ),
+  ],
+  ),
+  child: Padding(
+  padding: const EdgeInsets.symmetric(horizontal: 16),
+  // ✅ Places Autocomplete: no extra classes, just Map<String,String>
+  child: TypeAheadField<Map<String, String>>(
+  controller: _searchController,
+  suggestionsCallback: (pattern) async {
+  if (pattern.trim().isEmpty) return [];
 
-        // --- BOTTOM STACK ---
-        SafeArea(
-          top: false,
-          child: Align(
-            alignment: Alignment.bottomCenter,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Current Location Button
-                  Center(
-                    child: ElevatedButton.icon(
-                      onPressed: isDetectingLocation ? null : _getCurrentLocation,
-                      icon: isDetectingLocation
-                          ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.my_location,
-                          size: 20, color: Colors.white),
-                      label: const Text(
-                        'Current Location',
-                        style: TextStyle(
-                            fontWeight: FontWeight.w700, color: Colors.white),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: kPrimaryColor,
-                        elevation: 6,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 18, vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(28),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
+  try {
+  final uri = Uri.parse(
+  'https://maps.googleapis.com/maps/api/place/autocomplete/json'
+  '?input=${Uri.encodeComponent(pattern)}'
+  '&types=geocode'
+  '&components=country:in' // remove for global
+  '&key=$_gmapsKey',
+  );
 
-                  // Address Card
-                  Container(
-                    padding:
-                    const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.08),
-                          blurRadius: 12,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    child: Text(
-                      _selectedAddress ?? 'Fetching address...',
-                      style: const TextStyle(
-                        color: kPrimaryColor,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
+  final res = await http.get(uri);
+  if (res.statusCode != 200) return [];
 
-                  // ✅ Confirm Button (solid blue now)
-                  SizedBox(
-                    height: 48,
-                    child: ElevatedButton(
-                      onPressed: _selectedLocation != null && !_isLoadingAddress
-                          ? _proceedToForm
-                          : null,
-                      style: confirmStyle,
-                      child: _isLoadingAddress
-                          ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                              color: Colors.white, strokeWidth: 2.2))
-                          : const Text(
-                        'Confirm and Proceed',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
+  final data = json.decode(res.body);
+  if (data['status'] != 'OK') return [];
+
+  final List preds = (data['predictions'] as List?) ?? [];
+  // return list of {description, place_id}
+  return preds
+      .map<Map<String, String>>((p) => {
+  'description': (p['description'] ?? '').toString(),
+  'place_id': (p['place_id'] ?? '').toString(),
+  })
+      .where((m) =>
+  (m['description'] ?? '').isNotEmpty &&
+  (m['place_id'] ?? '').isNotEmpty)
+      .take(8)
+      .toList();
+  } catch (_) {
+  return [];
   }
+  },
+  itemBuilder: (context, prediction) {
+  return ListTile(
+  leading:
+  const Icon(Icons.location_on, color: kPrimaryColor),
+  title: Text(
+  prediction['description']!,
+  style: const TextStyle(fontSize: 14),
+  maxLines: 2,
+  overflow: TextOverflow.ellipsis,
+  ),
+  );
+  },
+  onSelected: (prediction) async {
+  try {
+  // Fetch exact lat/lng via Place Details
+  final detailsUri = Uri.parse(
+  'https://maps.googleapis.com/maps/api/place/details/json'
+  '?place_id=${prediction['place_id']}'
+  '&fields=geometry,formatted_address'
+  '&key=$_gmapsKey',
+  );
+  final res = await http.get(detailsUri);
+  if (res.statusCode == 200) {
+  final data = json.decode(res.body);
+  if (data['status'] == 'OK') {
+  final loc =
+  data['result']?['geometry']?['location'] as Map?;
+  if (loc != null) {
+  final lat = (loc['lat'] as num).toDouble();
+  final lng = (loc['lng'] as num).toDouble();
+  final latLng = LatLng(lat, lng);
+
+  // Move camera & let your existing flow fill fields
+  await _moveCameraAndSetLocation(latLng);
+
+  setState(() {
+  _selectedAddress = (data['result']
+  ?['formatted_address'] as String?) ??
+  prediction['description']!;
+  });
+  }
+  }
+  }
+  } catch (_) {
+  ScaffoldMessenger.of(context).showSnackBar(
+  const SnackBar(
+  content: Text('Could not fetch place location'),
+  backgroundColor: Colors.red,
+  ),
+  );
+  } finally {
+  _searchController.clear();
+  FocusScope.of(context).unfocus();
+  }
+  },
+  builder: (context, controller, focusNode) {
+  return TextField(
+  controller: controller,
+  focusNode: focusNode,
+  style: const TextStyle(
+  color: kPrimaryColor,
+  fontSize: 15,
+  fontWeight: FontWeight.w500,
+  ),
+  textAlignVertical: TextAlignVertical.center,
+  decoration: InputDecoration(
+  hintText: 'Search area, address or pincode',
+  hintStyle: TextStyle(
+  color: kPrimaryColor.withOpacity(0.7),
+  fontSize: 15,
+  ),
+  border: InputBorder.none,
+  enabledBorder: InputBorder.none, // ✅ remove blue outline
+  focusedBorder: InputBorder.none, // ✅ remove blue outline
+  prefixIcon: Icon(
+  Icons.search_rounded,
+  color: kPrimaryColor.withOpacity(0.8),
+  size: 20,
+  ),
+  suffixIcon: controller.text.isNotEmpty
+  ? IconButton(
+  icon: const Icon(Icons.close_rounded,
+  color: kPrimaryColor),
+  onPressed: () {
+  controller.clear();
+  FocusScope.of(context).unfocus();
+  },
+  )
+      : null,
+  isDense: true,
+  contentPadding:
+  const EdgeInsets.symmetric(horizontal: 8),
+  ),
+  );
+  },
+  ),
+  ),
+  ),
+  ),
+  ),
+
+  // --- BOTTOM STACK ---
+  SafeArea(
+  top: false,
+  child: Align(
+  alignment: Alignment.bottomCenter,
+  child: Padding(
+  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+  child: Column(
+  mainAxisSize: MainAxisSize.min,
+  crossAxisAlignment: CrossAxisAlignment.stretch,
+  children: [
+  // Current Location Button
+  Center(
+  child: ElevatedButton.icon(
+  onPressed: isDetectingLocation ? null : _getCurrentLocation,
+  icon: isDetectingLocation
+  ? const SizedBox(
+  width: 18,
+  height: 18,
+  child: CircularProgressIndicator(
+  strokeWidth: 2, color: Colors.white))
+      : const Icon(Icons.my_location,
+  size: 20, color: Colors.white),
+  label: const Text(
+  'Current Location',
+  style: TextStyle(
+  fontWeight: FontWeight.w700, color: Colors.white),
+  ),
+  style: ElevatedButton.styleFrom(
+  backgroundColor: kPrimaryColor,
+  elevation: 6,
+  padding: const EdgeInsets.symmetric(
+  horizontal: 18, vertical: 12),
+  shape: RoundedRectangleBorder(
+  borderRadius: BorderRadius.circular(28),
+  ),
+  ),
+  ),
+  ),
+  const SizedBox(height: 12),
+
+  // Address Card
+  Container(
+  padding:
+  const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+  decoration: BoxDecoration(
+  color: Colors.white,
+  borderRadius: BorderRadius.circular(12),
+  boxShadow: [
+  BoxShadow(
+  color: Colors.black.withOpacity(0.08),
+  blurRadius: 12,
+  offset: const Offset(0, 6),
+  ),
+  ],
+  ),
+  child: Text(
+  _selectedAddress ?? 'Fetching address...',
+  style: const TextStyle(
+  color: kPrimaryColor,
+  fontWeight: FontWeight.w600,
+  fontSize: 14,
+  ),
+  ),
+  ),
+  const SizedBox(height: 12),
+
+  // ✅ Confirm Button (solid blue now)
+  SizedBox(
+  height: 48,
+  child: ElevatedButton(
+  onPressed: _selectedLocation != null && !_isLoadingAddress
+  ? _proceedToForm
+      : null,
+  style: confirmStyle,
+  child: _isLoadingAddress
+  ? const SizedBox(
+  height: 20,
+  width: 20,
+  child: CircularProgressIndicator(
+  color: Colors.white, strokeWidth: 2.2))
+      : const Text(
+  'Confirm and Proceed',
+  style: TextStyle(
+  fontSize: 16,
+  fontWeight: FontWeight.bold,
+  color: Colors.white,
+  ),
+  ),
+  ),
+  ),
+  ],
+  ),
+  ),
+  ),
+  ),
+  ],
+  );
+  }
+
 
 
 
@@ -2285,3 +2418,5 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
     super.dispose();
   }
 }
+
+

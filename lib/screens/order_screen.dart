@@ -7,6 +7,8 @@ import 'product_details_screen.dart';
 import '../widgets/custom_bottom_nav.dart';
 import '../screens/cart_screen.dart';
 import 'dart:convert'; // <-- needed for jsonDecode
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 
 
 class OrdersScreen extends StatefulWidget {
@@ -1077,16 +1079,20 @@ class _OrdersScreenState extends State<OrdersScreen>
   }
 
   Widget _buildFloatingCart() {
+    // ✅ On web we use the AppBar cart icon; hide the floating cart completely
+    if (kIsWeb) return const SizedBox.shrink();
+
     return ValueListenableBuilder<int>(
       valueListenable: cartCountNotifier,
       builder: (context, count, child) {
         if (count == 0) return const SizedBox.shrink();
+
         final screenSize = MediaQuery.of(context).size;
-        final appBarHeight = Scaffold.of(context).appBarMaxHeight ?? kToolbarHeight;
+        final appBarHeight = (Scaffold.maybeOf(context)?.appBarMaxHeight ?? kToolbarHeight);
         final bottomNavHeight = kBottomNavigationBarHeight;
         final safeAreaBottom = MediaQuery.of(context).padding.bottom;
         final maxBottom = screenSize.height - bottomNavHeight - safeAreaBottom - 70;
-        final minTop = appBarHeight + 20;
+        final minTop = (appBarHeight > 0 ? appBarHeight : kToolbarHeight) + 20;
 
         return AnimatedBuilder(
           animation: Listenable.merge([
@@ -1175,10 +1181,8 @@ class _OrdersScreenState extends State<OrdersScreen>
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Drag to clear cart',
-                                    style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
-                                Text('Drop on 🗑️ to delete all items',
-                                    style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 10)),
+                                const Text('Drag to clear cart', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                                Text('Drop on 🗑️ to delete all items', style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 10)),
                               ],
                             ),
                           ],
@@ -1346,6 +1350,8 @@ class _OrdersScreenState extends State<OrdersScreen>
       },
     );
   }
+
+
 
   @override
   void dispose() {
@@ -1689,8 +1695,13 @@ class _OrdersScreenState extends State<OrdersScreen>
     return _buildPremiumProductGrid(context, products);
   }
 
+  @override
   PreferredSizeWidget _buildPremiumAppBar() {
     return AppBar(
+      // 👇 prevent automatic back arrow when pushed from Home
+      automaticallyImplyLeading: false,
+      leadingWidth: 0, // keep layout identical even if a leading sneaks in
+      toolbarHeight: 76,
       backgroundColor: Colors.transparent,
       foregroundColor: Colors.white,
       elevation: 0,
@@ -1711,80 +1722,134 @@ class _OrdersScreenState extends State<OrdersScreen>
           ],
         ),
       ),
-      title: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.white, Colors.grey.shade50],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+      title: SafeArea(
+        bottom: false,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.white, Colors.grey.shade50],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(15),
+            boxShadow: [
+              BoxShadow(
+                color: kPrimaryColor.withOpacity(0.1),
+                blurRadius: 15,
+                offset: const Offset(0, 4),
+              ),
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
-          borderRadius: BorderRadius.circular(15),
-          boxShadow: [
-            BoxShadow(
-              color: kPrimaryColor.withOpacity(0.1),
-              blurRadius: 15,
-              offset: const Offset(0, 4),
-            ),
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.search, color: kPrimaryColor, size: 20),
-            const SizedBox(width: 12),
-            Expanded(
-              child: TextField(
-                controller: _searchController,
-                focusNode: _searchFocusNode,
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.black87,
-                ),
-                decoration: const InputDecoration(
-                  hintText: 'Search Products...',
-                  hintStyle: TextStyle(
+          child: Row(
+            children: [
+              Icon(Icons.search, color: kPrimaryColor, size: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: _searchController,
+                  focusNode: _searchFocusNode,
+                  style: const TextStyle(
                     fontSize: 15,
-                    color: Color(0xFF42A5F5),
-                    fontWeight: FontWeight.w400,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.black87,
                   ),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  errorBorder: InputBorder.none,
-                  disabledBorder: InputBorder.none,
-                  isDense: true,
-                  contentPadding: EdgeInsets.zero,
-                ),
-                onSubmitted: (value) {
-                  setState(() => _showSearchSuggestions = false);
-                  _searchFocusNode.unfocus();
-                },
-              ),
-            ),
-            if (_searchQuery.isNotEmpty)
-              GestureDetector(
-                onTap: _clearSearch,
-                child: Container(
-                  margin: const EdgeInsets.only(left: 8),
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    shape: BoxShape.circle,
+                  decoration: const InputDecoration(
+                    hintText: 'Search Products...',
+                    hintStyle: TextStyle(
+                      fontSize: 15,
+                      color: Color(0xFF42A5F5),
+                      fontWeight: FontWeight.w400,
+                    ),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
                   ),
-                  child: const Icon(Icons.close, size: 14, color: Colors.black54),
+                  onSubmitted: (value) {
+                    setState(() => _showSearchSuggestions = false);
+                    _searchFocusNode.unfocus();
+                  },
                 ),
               ),
-          ],
+              if (_searchQuery.isNotEmpty)
+                GestureDetector(
+                  onTap: _clearSearch,
+                  child: Container(
+                    margin: const EdgeInsets.only(left: 8),
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.close, size: 14, color: Colors.black54),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
+      // Keep web-only cart icon behavior as-is
+      actions: [
+        if (kIsWeb)
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: ValueListenableBuilder<int>(
+              valueListenable: cartCountNotifier,
+              builder: (_, count, __) {
+                return Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.shopping_bag_rounded, color: Colors.white),
+                      tooltip: 'Cart',
+                      onPressed: () {
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => const CartScreen()))
+                            .then((_) => _fetchCartData());
+                      },
+                    ),
+                    if (count > 0)
+                      Positioned(
+                        right: 8,
+                        top: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.redAccent,
+                            borderRadius: BorderRadius.circular(10),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.2),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Text(
+                            count > 99 ? '99+' : '$count',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+      ],
     );
   }
+
+
+
 
   Widget _buildPremiumCategoryTabs() {
     return Container(
