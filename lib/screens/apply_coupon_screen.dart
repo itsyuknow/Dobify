@@ -110,21 +110,13 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
 
       final coupon = couponResponse;
 
-      // ✅ Validate including per-user limit
+      // ✅ Validate (per-user limit check still works by reading existing confirmed usages)
       final isValid = await _isCouponValid(coupon);
       if (!isValid) {
         setState(() => _isApplying = false);
         return;
       }
 
-      // ✅ Record a per-user usage AFTER successful validation
-      final userId = supabase.auth.currentUser?.id;
-      if (userId != null && coupon['per_user_limit'] != null) {
-        await supabase.from('coupon_usages').insert({
-          'user_id': userId,
-          'coupon_code': couponCode.toUpperCase(),
-        });
-      }
 
       final double discount = _calculateDiscount(coupon);
 
@@ -138,6 +130,7 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
       if (mounted) setState(() => _isApplying = false);
     }
   }
+
 
   // ✅ Now async to allow Supabase check for per-user limit
   Future<bool> _isCouponValid(Map<String, dynamic> coupon) async {
@@ -667,7 +660,7 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
   }
 
 
-  // ===== Details Dialog (hide global Usage Limit / Used / Remaining) =====
+  // ===== Details Dialog (NO per-user rows) =====
   Future<void> _showCouponDetailsDialog(Map<String, dynamic> coupon) async {
     final String code = (coupon['code'] ?? '').toString();
     final String description = (coupon['description'] ?? '').toString();
@@ -689,30 +682,6 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
         .split('.')
         .first
         : null;
-
-    // Per-user usage stats
-    final int? perUserLimit = coupon['per_user_limit'] as int?;
-    int perUserUsed = 0;
-    int? perUserRemaining;
-
-    final userId = supabase.auth.currentUser?.id;
-    if (userId != null) {
-      try {
-        final rows = await supabase
-            .from('coupon_usages')
-            .select('id')
-            .eq('user_id', userId)
-            .eq('coupon_code', code);
-        if (rows is List) {
-          perUserUsed = rows.length;
-        }
-      } catch (_) {
-        // ignore error
-      }
-    }
-    if (perUserLimit != null) {
-      perUserRemaining = (perUserLimit - perUserUsed).clamp(0, perUserLimit);
-    }
 
     final String? tag = coupon['tag']?.toString();
 
@@ -802,11 +771,6 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
                   _detailRow('Minimum Order', '₹${minOrder.toStringAsFixed(0)}'),
                 if (expiry != null) _detailRow('Valid Till', expiry),
 
-                // ✅ Per-user usage rows
-                if (userId != null) _detailRow('Your Uses', perUserUsed.toString()),
-                if (perUserRemaining != null)
-                  _detailRow('Your Remaining', perUserRemaining.toString()),
-
                 const SizedBox(height: 12),
                 Align(
                   alignment: Alignment.centerRight,
@@ -822,6 +786,7 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
       },
     );
   }
+
 
 
 

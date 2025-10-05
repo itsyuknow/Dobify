@@ -1698,9 +1698,8 @@ class _OrdersScreenState extends State<OrdersScreen>
   @override
   PreferredSizeWidget _buildPremiumAppBar() {
     return AppBar(
-      // 👇 prevent automatic back arrow when pushed from Home
       automaticallyImplyLeading: false,
-      leadingWidth: 0, // keep layout identical even if a leading sneaks in
+      leadingWidth: 0,
       toolbarHeight: 76,
       backgroundColor: Colors.transparent,
       foregroundColor: Colors.white,
@@ -1724,108 +1723,204 @@ class _OrdersScreenState extends State<OrdersScreen>
       ),
       title: SafeArea(
         bottom: false,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.white, Colors.grey.shade50],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+        child: Theme(
+          // kill splash/hover/focus paints and default input highlights
+          data: Theme.of(context).copyWith(
+            splashFactory: NoSplash.splashFactory,
+            splashColor: Colors.transparent,
+            highlightColor: Colors.transparent,
+            hoverColor: Colors.transparent,
+            focusColor: Colors.transparent,
+            inputDecorationTheme: const InputDecorationTheme(
+              // we’ll also set explicit borders below, but this keeps defaults quiet
+              isCollapsed: true,
             ),
-            borderRadius: BorderRadius.circular(15),
-            boxShadow: [
-              BoxShadow(
-                color: kPrimaryColor.withOpacity(0.1),
-                blurRadius: 15,
-                offset: const Offset(0, 4),
-              ),
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
           ),
-          child: Row(
-            children: [
-              Icon(Icons.search, color: kPrimaryColor, size: 20),
-              const SizedBox(width: 12),
-              Expanded(
+          child: ClipRRect(
+            // hard-clip everything to pill radius so shape never changes
+            borderRadius: BorderRadius.circular(25),
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                height: 42, // same as cart button
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.white, Colors.grey.shade50],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(25),
+                  boxShadow: [
+                    BoxShadow(
+                      color: kPrimaryColor.withOpacity(0.1),
+                      blurRadius: 15,
+                      offset: const Offset(0, 4),
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
                 child: TextField(
                   controller: _searchController,
                   focusNode: _searchFocusNode,
+                  textAlignVertical: TextAlignVertical.center,
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w500,
                     color: Colors.black87,
+                    height: 1.2,
                   ),
-                  decoration: const InputDecoration(
+                  cursorColor: kPrimaryColor,
+                  decoration: InputDecoration(
+                    // ⬇️ Force identical rounded outline in ALL states (and invisible)
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(25),
+                      borderSide: BorderSide(color: Colors.transparent, width: 0),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(25),
+                      borderSide: BorderSide(color: Colors.transparent, width: 0),
+                    ),
+                    disabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(25),
+                      borderSide: BorderSide(color: Colors.transparent, width: 0),
+                    ),
+                    errorBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(25),
+                      borderSide: BorderSide(color: Colors.transparent, width: 0),
+                    ),
+                    focusedErrorBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(25),
+                      borderSide: BorderSide(color: Colors.transparent, width: 0),
+                    ),
+                    // keep the interior clean
+                    filled: true,
+                    fillColor: Colors.transparent,
+                    isCollapsed: true,
+                    contentPadding: const EdgeInsets.only(top: 1),
+
                     hintText: 'Search Products...',
-                    hintStyle: TextStyle(
+                    hintStyle: const TextStyle(
                       fontSize: 15,
                       color: Color(0xFF42A5F5),
                       fontWeight: FontWeight.w400,
+                      height: 1.2,
                     ),
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
+
+                    // LEFT icon lane (centered)
+                    prefixIcon: const SizedBox(
+                      width: 42, height: 42,
+                      child: Center(
+                        child: Icon(Icons.search, size: 20, color: kPrimaryColor),
+                      ),
+                    ),
+                    prefixIconConstraints: const BoxConstraints(minWidth: 42, minHeight: 42),
+
+                    // RIGHT clear lane (only when text exists)
+                    suffixIcon: (_searchQuery.isNotEmpty)
+                        ? SizedBox(
+                      width: 42, height: 42,
+                      child: Center(
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(21),
+                          onTap: _clearSearch,
+                          child: Container(
+                            width: 28, height: 28,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade300,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.close, size: 14, color: Colors.black54),
+                          ),
+                        ),
+                      ),
+                    )
+                        : null,
+                    suffixIconConstraints: const BoxConstraints(minWidth: 42, minHeight: 42),
                   ),
+                  onChanged: (_) {
+                    setState(() {
+                      _searchQuery = _searchController.text;
+                      _generateSearchSuggestions();
+                      _showSearchSuggestions = _searchController.text.isNotEmpty;
+                    });
+                  },
                   onSubmitted: (value) {
                     setState(() => _showSearchSuggestions = false);
                     _searchFocusNode.unfocus();
                   },
                 ),
               ),
-              if (_searchQuery.isNotEmpty)
-                GestureDetector(
-                  onTap: _clearSearch,
-                  child: Container(
-                    margin: const EdgeInsets.only(left: 8),
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.close, size: 14, color: Colors.black54),
-                  ),
-                ),
-            ],
+            ),
           ),
         ),
       ),
-      // Keep web-only cart icon behavior as-is
       actions: [
         if (kIsWeb)
-          Padding(
-            padding: const EdgeInsets.only(right: 6),
+          Container(
+            margin: const EdgeInsets.only(right: 12),
             child: ValueListenableBuilder<int>(
               valueListenable: cartCountNotifier,
               builder: (_, count, __) {
                 return Stack(
-                  clipBehavior: Clip.none,
+                  alignment: Alignment.center,
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.shopping_bag_rounded, color: Colors.white),
-                      tooltip: 'Cart',
-                      onPressed: () {
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => const CartScreen()))
-                            .then((_) => _fetchCartData());
-                      },
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.15),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                            spreadRadius: 1,
+                          ),
+                          BoxShadow(
+                            color: Colors.white.withOpacity(0.8),
+                            blurRadius: 8,
+                            offset: const Offset(0, -2),
+                          ),
+                        ],
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(21),
+                          onTap: () async {
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const CartScreen()),
+                            );
+                            _fetchCartData();
+                          },
+                          child: const Center(
+                            child: Icon(Icons.shopping_cart_outlined, size: 22, color: kPrimaryColor),
+                          ),
+                        ),
+                      ),
                     ),
                     if (count > 0)
                       Positioned(
-                        right: 8,
-                        top: 8,
+                        right: 0,
+                        top: 0,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.all(5),
                           decoration: BoxDecoration(
-                            color: Colors.redAccent,
-                            borderRadius: BorderRadius.circular(10),
+                            gradient: LinearGradient(
+                              colors: [Colors.red.shade600, Colors.red.shade800],
+                            ),
+                            shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.2),
-                                blurRadius: 6,
-                                offset: const Offset(0, 2),
+                                color: Colors.red.withOpacity(0.6),
+                                blurRadius: 8,
+                                offset: Offset(0, 2),
                               ),
                             ],
                           ),
@@ -1833,8 +1928,8 @@ class _OrdersScreenState extends State<OrdersScreen>
                             count > 99 ? '99+' : '$count',
                             style: const TextStyle(
                               color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w900,
                             ),
                           ),
                         ),
@@ -1847,8 +1942,6 @@ class _OrdersScreenState extends State<OrdersScreen>
       ],
     );
   }
-
-
 
 
   Widget _buildPremiumCategoryTabs() {

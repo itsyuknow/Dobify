@@ -603,6 +603,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
 
 
   // Image
+  // Image (1:1 square, no extra space)
   Widget _buildCompactProductImage() {
     return AnimatedBuilder(
       animation: _floatAnimation,
@@ -610,8 +611,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
         return Transform.translate(
           offset: Offset(0, _floatAnimation.value),
           child: Container(
-            height: 220,
-            width: double.infinity,
+            width: double.infinity, // takes full width available
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
@@ -625,12 +625,20 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(12),
-              child: Image.network(
-                _product!['image_url'] ?? '',
-                fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  color: Colors.grey.shade50,
-                  child: Icon(Icons.image_not_supported, color: Colors.grey.shade400, size: 40),
+              child: AspectRatio(
+                aspectRatio: 1, // 👈 forces a perfect square (1:1)
+                child: Image.network(
+                  _product!['image_url'] ?? '',
+                  fit: BoxFit.cover,      // 👈 fills the square (no gaps)
+                  alignment: Alignment.center,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    color: Colors.grey.shade50,
+                    child: Icon(
+                      Icons.image_not_supported,
+                      color: Colors.grey.shade400,
+                      size: 40,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -639,6 +647,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       },
     );
   }
+
 
   // Product info / service description
   Widget _buildProductInfo() {

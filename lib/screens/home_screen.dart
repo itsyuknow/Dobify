@@ -1106,7 +1106,15 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                   ),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(icon, color: color, size: 28),
+                // ✅ Use your PNG for WhatsApp, icons for others
+                child: key == 'whatsapp'
+                    ? Image.asset(
+                  'assets/images/whatsapp_logo.png',
+                  width: 28,
+                  height: 28,
+                  fit: BoxFit.contain,
+                )
+                    : Icon(icon, color: color, size: 28),
               ),
             ),
           ),
@@ -1126,6 +1134,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
       ),
     );
   }
+
 
   IconData _getPremiumIcon(String key) {
     switch (key) {

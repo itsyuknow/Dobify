@@ -103,6 +103,7 @@ flutter:
     - assets/lang/
     - assets/translations/
     - assets/animations/empty_cart.json
+    - assets/images/whatsapp_logo.png
 
 # ---------- APP ICONS (Android, iOS, Web, Desktop) ----------
 flutter_launcher_icons:
