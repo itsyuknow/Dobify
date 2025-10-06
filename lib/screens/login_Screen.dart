@@ -32,19 +32,50 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   late Animation<double> _floatAnimation;
 
   bool _isGoogleLoggingIn = false;
-  bool _navigatedAfterLogin = false; // prevents double navigation
+  bool _navigatedAfterLogin = false;
+  bool _isInitializing = true;
 
-
-  // App Links for handling OAuth redirects
   late AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSubscription;
+  StreamSubscription<AuthState>? _authSubscription;
 
   @override
   void initState() {
     super.initState();
     _initializeAnimations();
+    _checkExistingSession();
     _setupAuthListener();
-    _initDeepLinks();
+    if (!kIsWeb) {
+      _initDeepLinks();
+    }
+  }
+
+  Future<void> _checkExistingSession() async {
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    final Session? existing = supabase.auth.currentSession;
+    if (existing != null && mounted) {
+      final googleName = _extractGoogleName(existing.user);
+      final userName = googleName.isNotEmpty
+          ? googleName
+          : (existing.user.email?.split('@')[0] ??
+          existing.user.phone?.replaceAll('+91', '') ??
+          'User');
+
+      print('🌐 Found existing session at startup -> navigating immediately');
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_navigatedAfterLogin) {
+          _goToAppWrapperOnce(welcomeName: userName);
+        }
+      });
+    }
+
+    if (mounted) {
+      setState(() {
+        _isInitializing = false;
+      });
+    }
   }
 
   void _initializeAnimations() {
@@ -102,10 +133,9 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     _fadeController.forward();
     _slideController.forward();
     Future.delayed(const Duration(milliseconds: 200), () {
-      _scaleController.forward();
+      if (mounted) _scaleController.forward();
     });
 
-    // Start continuous animations
     _rotationController.repeat();
     _floatController.repeat(reverse: true);
   }
@@ -118,7 +148,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       _showMessage('Welcome back, $welcomeName!', isError: false);
     }
 
-    // Small delay for any SnackBar animation, then replace route
     Future.delayed(const Duration(milliseconds: 300), () {
       if (!mounted) return;
       Navigator.pushAndRemoveUntil(
@@ -130,10 +159,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   }
 
   void _initDeepLinks() {
-    if (kIsWeb) {
-      return;
-    }
-
     _appLinks = AppLinks();
 
     _linkSubscription = _appLinks.uriLinkStream.listen(
@@ -194,7 +219,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   }
 
   void _setupAuthListener() {
-    supabase.auth.onAuthStateChange.listen((data) {
+    _authSubscription = supabase.auth.onAuthStateChange.listen((data) {
       final AuthChangeEvent event = data.event;
       final Session? session = data.session;
 
@@ -202,57 +227,34 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       print('🔐 Session exists: ${session != null}');
       print('🔐 User: ${session?.user?.email ?? session?.user?.phone}');
 
-      // On web, Supabase emits `initialSession` after reload.
-      // Treat it the same as a signed-in state.
-      final bool isNowSignedIn = session != null &&
-          (event == AuthChangeEvent.signedIn ||
-              event == AuthChangeEvent.initialSession);
-
-      if (isNowSignedIn) {
-        if (mounted) {
+      if (event == AuthChangeEvent.signedIn && session != null) {
+        if (mounted && !_navigatedAfterLogin) {
           setState(() {
             _isGoogleLoggingIn = false;
           });
 
           HapticFeedback.lightImpact();
 
-          final googleName = _extractGoogleName(session!.user);
+          final googleName = _extractGoogleName(session.user);
           final userName = googleName.isNotEmpty
               ? googleName
-              : (session.user.email?.split('@')[0]
-              ?? session.user.phone?.replaceAll('+91', '')
-              ?? 'User');
+              : (session.user.email?.split('@')[0] ??
+              session.user.phone?.replaceAll('+91', '') ??
+              'User');
 
-          print('✅ Login successful / session active');
+          print('✅ Login successful');
           _goToAppWrapperOnce(welcomeName: userName);
         }
       } else if (event == AuthChangeEvent.signedOut) {
         if (mounted) {
           setState(() {
             _isGoogleLoggingIn = false;
-            _navigatedAfterLogin = false; // allow future navigation again
+            _navigatedAfterLogin = false;
           });
         }
       }
     });
-
-    // 🔴 IMPORTANT for web:
-    // If the page just reloaded back from OAuth and a session is already present,
-    // navigate immediately (before the user sees the login UI).
-    final Session? existing = supabase.auth.currentSession;
-    if (existing != null) {
-      final googleName = _extractGoogleName(existing.user);
-      final userName = googleName.isNotEmpty
-          ? googleName
-          : (existing.user.email?.split('@')[0]
-          ?? existing.user.phone?.replaceAll('+91', '')
-          ?? 'User');
-
-      print('🌐 Found existing session at startup -> navigating');
-      _goToAppWrapperOnce(welcomeName: userName);
-    }
   }
-
 
   Future<void> _loginWithGoogle() async {
     HapticFeedback.mediumImpact();
@@ -260,25 +262,29 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     setState(() => _isGoogleLoggingIn = true);
 
     try {
-      // First read env var (const allowed), then decide fallback at runtime.
-      final String webRedirectEnv = const String.fromEnvironment('WEB_REDIRECT_URL');
-      final String webRedirect = webRedirectEnv.isNotEmpty
-          ? webRedirectEnv
-          : (kIsWeb ? Uri.base.origin : 'https://www.dobify.in/');
-
-
-
       const String mobileRedirect = 'com.yuknow.ironly://oauth-callback';
 
-      final String redirectUrl = kIsWeb ? webRedirect : mobileRedirect;
-      debugPrint('🔐 Using redirect URL: $redirectUrl');
+      if (kIsWeb) {
+        // For web, use current origin
+        final currentUrl = Uri.base;
+        final webRedirect = '${currentUrl.origin}/';
 
-      await supabase.auth.signInWithOAuth(
-        OAuthProvider.google,
-        redirectTo: redirectUrl,
-        authScreenLaunchMode:
-        kIsWeb ? LaunchMode.platformDefault : LaunchMode.externalApplication,
-      );
+        debugPrint('🔐 Web redirect URL: $webRedirect');
+
+        await supabase.auth.signInWithOAuth(
+          OAuthProvider.google,
+          redirectTo: webRedirect,
+        );
+      } else {
+        // For mobile
+        debugPrint('🔐 Mobile redirect URL: $mobileRedirect');
+
+        await supabase.auth.signInWithOAuth(
+          OAuthProvider.google,
+          redirectTo: mobileRedirect,
+          authScreenLaunchMode: LaunchMode.externalApplication,
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _isGoogleLoggingIn = false);
@@ -286,18 +292,10 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       String errorMessage = e.toString();
       if (errorMessage.contains('OAuth state mismatch')) {
         errorMessage = 'Authentication session expired. Please try again.';
-      } else if (errorMessage.contains('localhost') ||
-          errorMessage.contains('127.0.0.1')) {
-        errorMessage =
-        'Please add your correct Redirect URL in Supabase (no localhost on production).';
       } else if (errorMessage.contains('CANCELLED')) {
         errorMessage = 'Login was cancelled';
       } else if (errorMessage.contains('PlatformException')) {
-        errorMessage =
-        'Unable to launch authentication. Please try again.';
-      } else if (errorMessage.contains('404')) {
-        errorMessage =
-        'OAuth callback URL not found. Check your Supabase Redirect URL.';
+        errorMessage = 'Unable to launch authentication. Please try again.';
       }
 
       _showMessage('Google login failed: $errorMessage', isError: true);
@@ -310,7 +308,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     Navigator.push(
       context,
       PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => const PhoneLoginScreen(),
+        pageBuilder: (context, animation, secondaryAnimation) =>
+        const PhoneLoginScreen(),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return SlideTransition(
             position: Tween<Offset>(
@@ -336,7 +335,9 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         content: Row(
           children: [
             Icon(
-              isError ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
+              isError
+                  ? Icons.error_outline_rounded
+                  : Icons.check_circle_outline_rounded,
               color: Colors.white,
               size: 22,
             ),
@@ -372,17 +373,26 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     _rotationController.dispose();
     _floatController.dispose();
     _linkSubscription?.cancel();
+    _authSubscription?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isInitializing) {
+      return Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(
+            color: kPrimaryColor,
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       body: Stack(
         children: [
-          // 3D Background with floating elements
           _build3DBackground(),
-
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -410,41 +420,38 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                         child: Transform(
                           alignment: Alignment.center,
                           transform: Matrix4.identity()
-                            ..setEntry(3, 2, 0.001) // Perspective
-                            ..rotateX(0.05) // Slight 3D tilt
+                            ..setEntry(3, 2, 0.001)
+                            ..rotateX(0.05)
                             ..rotateY(-0.02),
                           child: Container(
                             constraints: BoxConstraints(
                               maxWidth: 450,
-                              minHeight: MediaQuery.of(context).size.height * 0.75,
+                              minHeight:
+                              MediaQuery.of(context).size.height * 0.75,
                             ),
                             padding: const EdgeInsets.all(40),
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(32),
                               boxShadow: [
-                                // Primary 3D shadow (bottom-right)
                                 BoxShadow(
                                   color: kPrimaryColor.withOpacity(0.25),
                                   blurRadius: 60,
                                   spreadRadius: 8,
                                   offset: const Offset(15, 25),
                                 ),
-                                // Secondary depth shadow
                                 BoxShadow(
                                   color: Colors.black.withOpacity(0.15),
                                   blurRadius: 40,
                                   spreadRadius: 2,
                                   offset: const Offset(8, 15),
                                 ),
-                                // Ambient shadow
                                 BoxShadow(
                                   color: Colors.black.withOpacity(0.08),
                                   blurRadius: 80,
                                   spreadRadius: 0,
                                   offset: const Offset(0, 30),
                                 ),
-                                // Inner highlight (top-left)
                                 BoxShadow(
                                   color: Colors.white.withOpacity(0.8),
                                   blurRadius: 20,
@@ -456,23 +463,14 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                // Premium Welcome Section (no logo)
                                 _buildWelcomeSection(),
                                 const SizedBox(height: 60),
-
-                                // Google Login Button
                                 _buildGoogleLoginButton(),
                                 const SizedBox(height: 20),
-
-                                // OR Divider
                                 _buildORDivider(),
                                 const SizedBox(height: 20),
-
-                                // Phone Login Button
                                 _buildPhoneLoginButton(),
                                 const SizedBox(height: 50),
-
-                                // Premium Footer
                                 _buildPremiumFooter(),
                               ],
                             ),
@@ -494,12 +492,11 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     return AnimatedBuilder(
       animation: Listenable.merge([_rotationAnimation, _floatAnimation]),
       builder: (context, child) {
-        return Container(
+        return SizedBox(
           width: double.infinity,
           height: double.infinity,
           child: Stack(
             children: [
-              // Floating geometric shapes
               Positioned(
                 top: 100 + (_floatAnimation.value * 20),
                 left: 50,
@@ -527,7 +524,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                   ),
                 ),
               ),
-
               Positioned(
                 top: 200 + (_floatAnimation.value * -15),
                 right: 30,
@@ -555,7 +551,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                   ),
                 ),
               ),
-
               Positioned(
                 bottom: 150 + (_floatAnimation.value * 25),
                 left: 30,
@@ -590,7 +585,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     );
   }
 
-  // ADD THIS inside _LoginScreenState (above _buildWelcomeSection)
   Widget _gradientHeadline(
       String text, {
         required double size,
@@ -657,19 +651,16 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     );
   }
 
-
-  // REPLACE your existing _buildWelcomeSection with this
   Widget _buildWelcomeSection() {
     return LayoutBuilder(
       builder: (context, constraints) {
         final w = constraints.maxWidth;
         final smallSize = w < 360 ? 22.0 : (w < 420 ? 26.0 : 30.0);
-        final bigSize   = w < 360 ? 34.0 : (w < 420 ? 40.0 : 46.0);
+        final bigSize = w < 360 ? 34.0 : (w < 420 ? 40.0 : 46.0);
 
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Headline with slight 3D tilt
             Transform(
               alignment: Alignment.center,
               transform: Matrix4.identity()
@@ -693,11 +684,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                 ],
               ),
             ),
-
-            // ↓ Small gap before subtitle
             const SizedBox(height: 8),
-
-            // Subtitle
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8.0),
               child: Text(
@@ -720,8 +707,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                 softWrap: true,
               ),
             ),
-
-            // ↓ Final spacing before the next widget (Google button)
             const SizedBox(height: 16),
           ],
         );
@@ -729,16 +714,11 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     );
   }
 
-
-
-
-
-
   Widget _buildGoogleLoginButton() {
     return Transform(
       alignment: Alignment.center,
       transform: Matrix4.identity()
-        ..setEntry(3, 2, 0.001) // Perspective
+        ..setEntry(3, 2, 0.001)
         ..rotateX(0.02)
         ..rotateY(-0.01),
       child: Container(
@@ -759,19 +739,16 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
             width: 1.5,
           ),
           boxShadow: [
-            // Main 3D shadow
             BoxShadow(
               color: Colors.grey.withOpacity(0.25),
               blurRadius: 25,
               offset: const Offset(6, 12),
             ),
-            // Depth shadow
             BoxShadow(
               color: Colors.grey.withOpacity(0.15),
               blurRadius: 45,
               offset: const Offset(12, 25),
             ),
-            // Ambient shadow
             BoxShadow(
               color: Colors.black.withOpacity(0.1),
               blurRadius: 30,
@@ -822,7 +799,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                   : Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Enhanced 3D Google logo container
                   Transform(
                     alignment: Alignment.center,
                     transform: Matrix4.identity()
@@ -857,7 +833,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                                 width: 20,
                                 height: 20,
                                 fit: BoxFit.contain,
-                                errorBuilder: (context, error, stackTrace) {
+                                errorBuilder:
+                                    (context, error, stackTrace) {
                                   return _buildGoogleLogoFallback();
                                 },
                               );
@@ -898,7 +875,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     );
   }
 
-  // Enhanced Google logo fallback with 3D effect
   Widget _buildGoogleLogoFallback() {
     return Transform(
       alignment: Alignment.center,
@@ -956,7 +932,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       await rootBundle.load('assets/images/google_logo.png');
       return true;
     } catch (e) {
-      print('❌ Google logo image not found: $e');
       return false;
     }
   }
@@ -1039,7 +1014,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     return Transform(
       alignment: Alignment.center,
       transform: Matrix4.identity()
-        ..setEntry(3, 2, 0.001) // Perspective
+        ..setEntry(3, 2, 0.001)
         ..rotateX(0.02)
         ..rotateY(0.01),
       child: Container(
@@ -1060,19 +1035,16 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
             width: 1.5,
           ),
           boxShadow: [
-            // Main 3D shadow
             BoxShadow(
               color: kPrimaryColor.withOpacity(0.25),
               blurRadius: 25,
               offset: const Offset(6, 12),
             ),
-            // Depth shadow
             BoxShadow(
               color: kPrimaryColor.withOpacity(0.15),
               blurRadius: 45,
               offset: const Offset(12, 25),
             ),
-            // Ambient shadow
             BoxShadow(
               color: Colors.black.withOpacity(0.1),
               blurRadius: 30,
@@ -1173,7 +1145,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
             ),
           ),
           const SizedBox(height: 24),
-
           Transform(
             alignment: Alignment.center,
             transform: Matrix4.identity()
@@ -1199,7 +1170,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
             ),
           ),
           const SizedBox(height: 16),
-
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -1222,8 +1192,11 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         transform: Matrix4.identity()
           ..setEntry(3, 2, 0.002)
           ..rotateX(0.1)
-          ..rotateY(icon == Icons.security_rounded ? -0.1 :
-          icon == Icons.flash_on_rounded ? 0.0 : 0.1),
+          ..rotateY(icon == Icons.security_rounded
+              ? -0.1
+              : icon == Icons.flash_on_rounded
+              ? 0.0
+              : 0.1),
         child: Column(
           children: [
             Container(

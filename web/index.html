@@ -11,7 +11,7 @@
   <title>Dobify</title>
   <link rel="manifest" href="manifest.json">
 
-  <!-- ✅ Use your new Dobify logo (transparent background recommended) -->
+  <!-- ✅ App icon -->
   <link rel="icon" type="image/png" href="icons/dobify_logo.png">
 
   <!-- Google Maps (deferred) -->
@@ -26,10 +26,10 @@
     }
   </style>
 
-  <!-- 🔇 Hard-mute browser console + errors -->
+  <!-- 🔊 Leave console ON so web checkout errors are visible -->
   <script>
     (function () {
-      const SILENCE = true; // flip to false if you want logs back
+      const SILENCE = false; // keep false to see errors while integrating payments
       if (!SILENCE) return;
 
       const noop = function () {};
@@ -37,7 +37,6 @@
       ["log","info","debug","warn","error","trace","group","groupCollapsed","groupEnd"]
         .forEach(k => { try { c[k] = noop; } catch (_) {} });
 
-      // swallow uncaught errors & unhandled promise rejections
       window.addEventListener("error", e => {
         e.preventDefault(); e.stopImmediatePropagation(); return false;
       }, true);
@@ -80,6 +79,51 @@
       document.body.style.background = "transparent";
     }
   </script>
+
+  <!-- ✅ Razorpay Checkout (Web) + tiny JS bridge -->
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script>
+    window.openRazorpay = function(optionsJson) {
+      console.log('🌐 openRazorpay called');
+      console.log('Options received:', optionsJson);
+
+      try {
+        if (!window.Razorpay) {
+          console.error('❌ Razorpay SDK not loaded');
+          if (window.razorpayError) window.razorpayError('Razorpay SDK not loaded');
+          return;
+        }
+
+        // Parse options - handle both string and object
+        let options;
+        if (typeof optionsJson === 'string') {
+          // If it's a string, we need to use eval to parse functions properly
+          options = eval('(' + optionsJson + ')');
+        } else {
+          options = optionsJson;
+        }
+
+        console.log('✅ Parsed options:', options);
+
+        // Create and open Razorpay
+        const rzp = new Razorpay(options);
+        console.log('✅ Razorpay instance created');
+
+        rzp.open();
+        console.log('✅ Razorpay modal opened');
+
+      } catch (e) {
+        console.error('❌ openRazorpay error:', e);
+        if (window.razorpayError) {
+          window.razorpayError(e.toString());
+        } else {
+          alert('Payment init error: ' + e);
+        }
+      }
+    };
+
+    console.log('✅ Razorpay bridge initialized');
+  </script>
 </head>
 <body>
 <picture id="splash">
@@ -88,8 +132,7 @@
   <img class="center" aria-hidden="true" src="splash/img/light-1x.png" alt="">
 </picture>
 
-<!-- ✅ Updated splash to use Dobify logo -->
-
+<!-- ✅ Flutter bootstrap -->
 <script src="flutter_bootstrap.js" defer></script>
 </body>
 </html>

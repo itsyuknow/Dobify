@@ -264,74 +264,238 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
   }
 
 
+  String _money(double v) => '₹${v.toStringAsFixed(2)}';
 
-
-
-  void _showInfoDialog(String title, String content) {
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) {
-        return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Colors.white, Colors.blue.shade50],
-              ),
+  Widget _popoverBubble({
+    required BuildContext context,
+    required String title,
+    String? description,
+    required List<Widget> rows,
+    Widget? footer,
+  }) {
+    // 🔽 Bubble with pointer bottom-right
+    return Stack(
+      alignment: Alignment.bottomRight,
+      children: [
+        // pointer bottom-right
+        Positioned(
+          bottom: 4,
+          right: 20,
+          child: Transform.rotate(
+            angle: 45 * 3.14159 / 180, // 45° upward arrow
+            child: Container(
+              width: 14,
+              height: 14,
+              color: const Color(0xFF1F1F1F),
             ),
+          ),
+        ),
+
+        // main bubble body
+        Container(
+          margin: const EdgeInsets.only(bottom: 10, right: 8),
+          width: MediaQuery.of(context).size.width * 0.86,
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1F1F1F),
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.35),
+                blurRadius: 24,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          child: DefaultTextStyle(
+            style: const TextStyle(color: Colors.white, fontSize: 13),
             child: Column(
-              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: kPrimaryColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(Icons.info_outline, color: kPrimaryColor, size: 18),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        title,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 16,
-                          color: Colors.black87,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  content,
-                  style: const TextStyle(fontSize: 13.5, color: Colors.black87, height: 1.35),
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('OK'),
+                Text(title,
+                    style: const TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w700)),
+                if (description != null && description.trim().isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    description,
+                    style: TextStyle(
+                        color: Colors.white.withOpacity(0.85), height: 1.25),
                   ),
-                ),
+                ],
+                const SizedBox(height: 10),
+                ...rows,
+                if (footer != null) ...[
+                  const SizedBox(height: 10),
+                  const Divider(color: Colors.white24, height: 20, thickness: 1),
+                  footer,
+                ],
               ],
             ),
           ),
+        ),
+      ],
+    );
+  }
+
+
+  Widget _rowLr(String l, String r, {bool bold = false, bool muted = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Text(
+              l,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: muted ? Colors.white70 : Colors.white,
+                fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+                fontSize: 13,
+              ),
+            ),
+          ),
+          Text(
+            r,
+            style: TextStyle(
+              color: muted ? Colors.white70 : Colors.white,
+              fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPopover(Widget child) {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: '',
+      transitionDuration: const Duration(milliseconds: 130),
+      pageBuilder: (_, __, ___) => const SizedBox.shrink(),
+      transitionBuilder: (_, a, __, ___) {
+        return Opacity(
+          opacity: a.value,
+          child: Center(child: child),
         );
       },
     );
   }
 
+
+
+  void _showInfoDialog(String title, String content) {
+    // Fallback simple text pop if someone calls it directly elsewhere
+    _showPopover(
+      _popoverBubble(
+        context: context,
+        title: title,
+        description: content,
+        rows: const [],
+      ),
+    );
+  }
+
+
+  void _showMinimumCartFeePopover(Map<String, double> billing) {
+    final note = _billingNotes['minimum_cart_fee'];
+    final base  = billing['minimumCartFee'] ?? 0;
+    final gst   = billing['taxOnMinCart'] ?? 0;
+    final total = base + gst;
+
+    _showPopover(
+      _popoverBubble(
+        context: context,
+        title: 'Minimum Cart Fee Breakdown',
+        description: note?['content'],
+        rows: [
+          _rowLr('Fee before tax', _money(base), muted: true),
+          _rowLr('GST @ ${serviceTaxPercent.toStringAsFixed(0)}%', _money(gst), muted: true),
+        ],
+        footer: _rowLr('Total (applied)', _money(total), bold: true),
+      ),
+    );
+  }
+
+  void _showPlatformFeePopover(Map<String, double> billing) {
+    final note = _billingNotes['platform_fee'];
+    final base  = billing['platformFee'] ?? 0;
+    final gst   = billing['taxOnPlatform'] ?? 0;
+    final total = base + gst;
+
+    _showPopover(
+      _popoverBubble(
+        context: context,
+        title: 'Platform Fee Breakdown',
+        description: note?['content'],
+        rows: [
+          _rowLr('Fee before tax', _money(base), muted: true),
+          _rowLr('GST @ ${serviceTaxPercent.toStringAsFixed(0)}%', _money(gst), muted: true),
+        ],
+        footer: _rowLr('Total (applied)', _money(total), bold: true),
+      ),
+    );
+  }
+
+  void _showServiceTaxesPopover(Map<String, double> billing) {
+    final note = _billingNotes['service_tax'];
+    final ds        = billing['discountedSubtotal'] ?? 0;
+    final tItems    = billing['taxOnItems'] ?? 0;
+    final tMinCart  = billing['taxOnMinCart'] ?? 0;
+    final tPlatform = billing['taxOnPlatform'] ?? 0;
+    final tDelivery = billing['taxOnDelivery'] ?? 0;
+    final total     = billing['serviceTax'] ?? 0;
+
+    _showPopover(
+      _popoverBubble(
+        context: context,
+        title: 'Tax & Charges',
+        description: note?['content'],
+        rows: [
+          _rowLr('Items tax @ ${serviceTaxPercent.toStringAsFixed(0)}% (on ₹${ds.toStringAsFixed(2)})', _money(tItems), muted: true),
+          _rowLr('GST on Minimum Cart Fee @ ${serviceTaxPercent.toStringAsFixed(0)}%', _money(tMinCart), muted: true),
+          _rowLr('GST on Platform Fee @ ${serviceTaxPercent.toStringAsFixed(0)}%', _money(tPlatform), muted: true),
+          _rowLr('GST on Delivery @ ${deliveryGstPercent.toStringAsFixed(0)}%', _money(tDelivery), muted: true),
+        ],
+        footer: _rowLr('Total Taxes & Charges', _money(total), bold: true),
+      ),
+    );
+  }
+
+  void _showDeliveryFeePopover(Map<String, double> billing) {
+    final isStandard = selectedDeliveryType == 'Standard';
+    final infoKey = isStandard ? 'delivery_standard' : 'delivery_express';
+    final note = _billingNotes[infoKey] ?? _billingNotes['delivery_standard_free'];
+
+    final fee      = billing['deliveryFee'] ?? 0;
+    final gst      = billing['taxOnDelivery'] ?? 0;
+    final total    = fee + gst;
+    final ds       = billing['discountedSubtotal'] ?? 0;
+    final qualifiesFreeStandard = isStandard && (ds >= freeStandardThreshold);
+
+    final rows = <Widget>[
+      if (isStandard && qualifiesFreeStandard)
+        _rowLr('Standard Delivery — Free (≥ ₹${freeStandardThreshold.toStringAsFixed(0)})', _money(0), muted: true)
+      else
+        _rowLr('${isStandard ? 'Standard' : 'Express'} fee (before tax)', _money(fee), muted: true),
+      _rowLr('GST @ ${deliveryGstPercent.toStringAsFixed(0)}%', _money(gst), muted: true),
+    ];
+
+    _showPopover(
+      _popoverBubble(
+        context: context,
+        title: 'Delivery Partner Fee Breakup',
+        description: note?['content'],
+        rows: rows,
+        footer: _rowLr('Total (applied)', _money(total), bold: true),
+      ),
+    );
+  }
 
 
 
@@ -564,7 +728,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     // 3) Subtotal AFTER discount
     final double discountedSubtotal = itemSubtotal - discountApplied;
 
-    // 4) Minimum cart fee ✅ based on DISCOUNTED subtotal
+    // 4) Minimum cart fee based on DISCOUNTED subtotal
     final double minCartFeeApplied =
     discountedSubtotal < minimumCartFee ? (minimumCartFee - discountedSubtotal) : 0.0;
 
@@ -575,28 +739,38 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
         ? (qualifiesFreeStandard ? 0.0 : standardDeliveryFee)
         : expressDeliveryFee;
 
-    // 6) Service Taxes = items GST + delivery GST
-    final double serviceTaxItems    = (discountedSubtotal * serviceTaxPercent) / 100.0;
-    final double serviceTaxDelivery = deliveryFee > 0 ? (deliveryFee * deliveryGstPercent) / 100.0 : 0.0;
-    final double serviceTax         = serviceTaxItems + serviceTaxDelivery;
+    // 6) TAXES
+    //    • Item tax on discounted items
+    //    • PLUS tax on Minimum Cart Fee
+    //    • PLUS tax on Platform Fee
+    //    • PLUS GST on Delivery (separate %)
+    final double taxOnItems     = (discountedSubtotal * serviceTaxPercent) / 100.0;
+    final double taxOnMinCart   = (minCartFeeApplied * serviceTaxPercent) / 100.0;
+    final double taxOnPlatform  = (platformFee * serviceTaxPercent) / 100.0;
+    final double taxOnDelivery  = deliveryFee > 0 ? (deliveryFee * deliveryGstPercent) / 100.0 : 0.0;
+
+    final double serviceTax = taxOnItems + taxOnMinCart + taxOnPlatform + taxOnDelivery;
 
     // 7) Total
     double totalAmount = discountedSubtotal + minCartFeeApplied + platformFee + deliveryFee + serviceTax;
     if (totalAmount < 0) totalAmount = 0;
 
     return {
-      'subtotal'       : itemSubtotal,
-      'discount'       : discountApplied,
-      'minimumCartFee' : minCartFeeApplied,
-      'platformFee'    : platformFee,
-      'deliveryFee'    : deliveryFee,
-      'serviceTax'     : serviceTax,
-      'totalAmount'    : totalAmount,
+      'subtotal'           : itemSubtotal,
+      'discount'           : discountApplied,
+      'discountedSubtotal' : discountedSubtotal,
+      'minimumCartFee'     : minCartFeeApplied,
+      'platformFee'        : platformFee,
+      'deliveryFee'        : deliveryFee,
+      // individual tax parts (for popovers)
+      'taxOnItems'         : taxOnItems,
+      'taxOnMinCart'       : taxOnMinCart,
+      'taxOnPlatform'      : taxOnPlatform,
+      'taxOnDelivery'      : taxOnDelivery,
+      'serviceTax'         : serviceTax,
+      'totalAmount'        : totalAmount,
     };
   }
-
-
-
 
 
 
@@ -1546,26 +1720,43 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           InkWell(
-            onTap: clickable
-                ? () {
-              final note = _billingNotes[infoKey]!;
-              _showInfoDialog(
-                overrideTitle ?? (note['title'] ?? label),
-                note['content'] ?? '',
-              );
-            }
-                : null,
+            onTap: () {
+              // We need current billing numbers for accurate breakdowns
+              final billing = _calculateBilling();
+
+              if (infoKey == 'minimum_cart_fee') {
+                _showMinimumCartFeePopover(billing);
+                return;
+              }
+              if (infoKey == 'platform_fee') {
+                _showPlatformFeePopover(billing);
+                return;
+              }
+              if (infoKey == 'service_tax') {
+                _showServiceTaxesPopover(billing);
+                return;
+              }
+              if (infoKey == 'delivery_standard' || infoKey == 'delivery_express' || infoKey == 'delivery_standard_free') {
+                _showDeliveryFeePopover(billing);
+                return;
+              }
+
+              // Fallback to generic if no special popover is defined
+              final note = infoKey != null ? _billingNotes[infoKey] : null;
+              _showInfoDialog(overrideTitle ?? (note?['title'] ?? label), note?['content'] ?? '');
+            },
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(label, style: labelStyle),
-                if (clickable) ...[
+                if (infoKey != null && (_billingNotes[infoKey] != null)) ...[
                   const SizedBox(width: 4),
                   Icon(Icons.info_outline, size: 14, color: color ?? Colors.black54),
                 ],
               ],
             ),
           ),
+
           customValue != null
               ? Text(customValue, style: valueStyle)
               : Text('₹${amount.toStringAsFixed(2)}', style: valueStyle),

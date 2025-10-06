@@ -1454,6 +1454,7 @@ class _OrdersScreenState extends State<OrdersScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Header
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -1492,14 +1493,14 @@ class _OrdersScreenState extends State<OrdersScreen>
                   ],
                 ),
               ),
+
+              // List
               Flexible(
                 child: ListView.separated(
                   shrinkWrap: true,
                   itemCount: _searchSuggestions.length,
-                  separatorBuilder: (context, index) => Divider(
-                    height: 1,
-                    color: Colors.grey.shade200,
-                  ),
+                  separatorBuilder: (context, index) =>
+                      Divider(height: 1, color: Colors.grey.shade200),
                   itemBuilder: (context, index) {
                     final product = _searchSuggestions[index];
                     final productName = product['product_name'] as String;
@@ -1513,7 +1514,9 @@ class _OrdersScreenState extends State<OrdersScreen>
                       child: Container(
                         padding: const EdgeInsets.all(12),
                         child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center, // ⬅️ centers vertically
                           children: [
+                            // Thumbnail
                             Container(
                               width: 40,
                               height: 40,
@@ -1536,9 +1539,12 @@ class _OrdersScreenState extends State<OrdersScreen>
                               ),
                             ),
                             const SizedBox(width: 12),
+
+                            // Title + chip (no price here anymore)
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Text(
                                     productName,
@@ -1551,43 +1557,49 @@ class _OrdersScreenState extends State<OrdersScreen>
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                   const SizedBox(height: 2),
-                                  Row(
-                                    children: [
-                                      if (categoryName.isNotEmpty)
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: kPrimaryColor.withOpacity(0.1),
-                                            borderRadius: BorderRadius.circular(10),
-                                          ),
-                                          child: Text(
-                                            categoryName,
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.w500,
-                                              color: kPrimaryColor,
-                                            ),
-                                          ),
-                                        ),
-                                      const Spacer(),
-                                      Text(
-                                        'For ₹$price',
+                                  if (categoryName.isNotEmpty)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: kPrimaryColor.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Text(
+                                        categoryName,
                                         style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w500,
                                           color: kPrimaryColor,
                                         ),
                                       ),
-                                    ],
-                                  ),
+                                    ),
                                 ],
                               ),
                             ),
+
                             const SizedBox(width: 8),
-                            Icon(
-                              Icons.arrow_forward_ios,
-                              size: 14,
-                              color: Colors.grey.shade400,
+
+                            // Price + chevron on the RIGHT, centered
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Text(
+                                  'For ₹$price',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: kPrimaryColor,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Icon(
+                                  Icons.arrow_forward_ios,
+                                  size: 14,
+                                  color: Colors.grey.shade400,
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -1602,6 +1614,7 @@ class _OrdersScreenState extends State<OrdersScreen>
       ),
     );
   }
+
 
   Widget _buildContent() {
     final products = _getFilteredProducts();

@@ -2271,7 +2271,6 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
   }
 
 
-// AND UPDATE YOUR _buildTextField METHOD:
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
@@ -2281,7 +2280,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
     String? Function(String?)? validator,
     void Function(String)? onChanged,
     int? maxLength,
-    List<TextInputFormatter>? inputFormatters, // <--- NEW
+    List<TextInputFormatter>? inputFormatters,
   }) {
     return TextFormField(
       controller: controller,
@@ -2289,15 +2288,18 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
       validator: validator,
       onChanged: onChanged,
       maxLength: maxLength,
-      inputFormatters: inputFormatters, // <--- NEW
+      inputFormatters: inputFormatters,
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
+        // ⬇️ CHANGED: show icon first, then "+91"
         prefixIcon: icon == Icons.phone_outlined
             ? Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(width: 12),
+            Icon(icon, color: Colors.grey.shade600),
+            const SizedBox(width: 6),
             Text(
               '+91 ',
               style: TextStyle(
@@ -2306,7 +2308,6 @@ class _AddAddressScreenState extends State<AddAddressScreen> with TickerProvider
                 fontWeight: FontWeight.w500,
               ),
             ),
-            Icon(icon, color: Colors.grey.shade600),
           ],
         )
             : Icon(icon),

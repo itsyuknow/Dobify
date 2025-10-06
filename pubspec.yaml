@@ -54,6 +54,10 @@ dependencies:
   supabase_flutter: ^2.9.1
   flutter_dotenv: ^5.2.1
 
+  syncfusion_flutter_pdf: ^31.1.19
+  number_to_words_english: ^2.0.2
+
+
   # ✅ Image & file support
   image_picker: ^1.0.4
   path: ^1.9.0
