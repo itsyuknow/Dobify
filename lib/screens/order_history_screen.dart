@@ -14,9 +14,11 @@ import 'package:open_filex/open_filex.dart';
 import 'package:file_saver/file_saver.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'order_screen.dart'; // 👈 adjust path if needed
-
+import 'package:flutter/services.dart' show rootBundle;
 import 'dart:io' show Platform, File;
 import 'dart:typed_data';
+import 'package:flutter/services.dart' show rootBundle, ByteData;
+
 
 
 
@@ -3608,7 +3610,6 @@ class _OrderDetailsSheet extends StatelessWidget {
     );
   }
 
-  // ✅ NEW: Simple download function that works on all devices
   Future<void> _downloadInvoice(BuildContext context) async {
     showDialog(
       context: context,
@@ -3625,13 +3626,72 @@ class _OrderDetailsSheet extends StatelessWidget {
     );
 
     try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) {
+        throw Exception('User not authenticated');
+      }
+
       final orderId = (order['id'] ?? order['order_code'] ?? 'unknown').toString();
+      final invoiceNumber = 'INV-$orderId';
       final fileName = 'Invoice_Order_$orderId.pdf';
 
       // 1) Build PDF
       final Uint8List pdfBytes = await _buildInvoicePdfBytes(order);
 
-      // 2) Save
+      // 2) Upload to Supabase Storage
+      final String storagePath = '$userId/$fileName';
+
+      try {
+        // Check if file already exists
+        final existingFiles = await Supabase.instance.client
+            .storage
+            .from('invoices')
+            .list(path: userId);
+
+        final fileExists = existingFiles.any((file) => file.name == fileName);
+
+        if (fileExists) {
+          // Delete old file before uploading new one
+          await Supabase.instance.client
+              .storage
+              .from('invoices')
+              .remove(['$storagePath']);
+        }
+
+        // Upload new file
+        await Supabase.instance.client
+            .storage
+            .from('invoices')
+            .uploadBinary(
+          storagePath,
+          pdfBytes,
+          fileOptions: const FileOptions(
+            contentType: 'application/pdf',
+            upsert: true,
+          ),
+        );
+
+        // Get file size
+        final fileSize = pdfBytes.length;
+
+        // 3) Save invoice record to database
+        await Supabase.instance.client.from('invoice_records').upsert({
+          'order_id': orderId,
+          'user_id': userId,
+          'invoice_number': invoiceNumber,
+          'file_path': storagePath,
+          'file_size': fileSize,
+          'generated_at': DateTime.now().toIso8601String(),
+          'updated_at': DateTime.now().toIso8601String(),
+        }, onConflict: 'order_id');
+
+        debugPrint('✅ Invoice uploaded to Supabase: $storagePath');
+      } catch (storageError) {
+        debugPrint('⚠️ Storage upload failed: $storageError');
+        // Continue with local save even if upload fails
+      }
+
+      // 4) Save locally for user access
       String savedPath = '';
 
       if (kIsWeb) {
@@ -3667,9 +3727,8 @@ class _OrderDetailsSheet extends StatelessWidget {
 
       if (Navigator.canPop(context)) Navigator.of(context).pop();
 
-      // 3) Auto-open (mobile/desktop only)
+      // 5) Auto-open (mobile/desktop only)
       if (!kIsWeb) {
-        // Some Android ROMs return empty from FileSaver; if so, write a temp copy to open.
         String openPath = savedPath;
         if (openPath.isEmpty) {
           final tempDir = await getTemporaryDirectory();
@@ -3680,12 +3739,11 @@ class _OrderDetailsSheet extends StatelessWidget {
 
         final result = await OpenFilex.open(openPath);
         if (result.type != ResultType.done) {
-          // Optional: show a hint if no PDF app is installed
           _showErrorSnackbar(context, 'Could not open PDF. Please install a PDF viewer.');
         }
       }
 
-      // 4) Success toast
+      // 6) Success toast
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
@@ -3703,8 +3761,7 @@ class _OrderDetailsSheet extends StatelessWidget {
       );
     } catch (e, st) {
       if (Navigator.canPop(context)) Navigator.of(context).pop();
-      // ignore: avoid_print
-      print('❌ Invoice generation error: $e\n$st');
+      debugPrint('❌ Invoice generation error: $e\n$st');
       _showErrorSnackbar(context, 'Failed to generate invoice. Please try again.');
     }
   }
@@ -3712,7 +3769,7 @@ class _OrderDetailsSheet extends StatelessWidget {
 
 
   Future<Uint8List> _buildInvoicePdfBytes(Map<String, dynamic> order) async {
-    // Safe helpers
+    // ---- Safe helpers ----
     String _text(dynamic v) => (v == null || v.toString() == 'null') ? '' : v.toString();
     num _num(dynamic v) {
       if (v == null) return 0;
@@ -3725,14 +3782,22 @@ class _OrderDetailsSheet extends StatelessWidget {
       return <String, dynamic>{};
     }
     List<Map<String, dynamic>> _listOfMaps(dynamic v) {
-      if (v is List) {
-        return v.map((e) => _map(e)).toList();
-      }
+      if (v is List) return v.map((e) => _map(e)).toList();
       return <Map<String, dynamic>>[];
     }
 
     final pdf = pw.Document();
 
+    // ---- Logo (safe load) ----
+    pw.ImageProvider? logoImage;
+    try {
+      final logoData = await rootBundle.load('assets/images/dobify_inv_logo.jpg');
+      logoImage = pw.MemoryImage(logoData.buffer.asUint8List());
+    } catch (_) {
+      logoImage = null;
+    }
+
+    // ---- Inputs from order ----
     final billingList = _listOfMaps(order['order_billing_details']);
     final billing = billingList.isNotEmpty ? billingList.first : <String, dynamic>{};
 
@@ -3742,146 +3807,511 @@ class _OrderDetailsSheet extends StatelessWidget {
 
     final items = _listOfMaps(order['order_items']);
 
-    String money(num v, {bool neg = false}) => (neg ? '-₹' : '₹') + v.toStringAsFixed(2);
-
-    // Compute subtotal from items if billing subtotal missing
-    num subtotal = 0;
-    for (final it in items) {
-      subtotal += _num(it['total_price']);
-    }
-
     final createdAt = _text(order['created_at']);
     final orderId = _text(order['id'] ?? order['order_code']);
-    final status = _text(order['order_status']);
     final paymentMethod = _text(order['payment_method']).toUpperCase();
 
-    // Totals (prefer billing when present)
-    final minCart = _num(billing['minimum_cart_fee']);
-    final platformFee = _num(billing['platform_fee']);
-    final serviceTax = _num(billing['service_tax']);
-    final deliveryFee = _num(billing['delivery_fee']);
-    final discount = _num(billing['discount_amount']);
-    final billedSubtotal = _num(billing['subtotal']);
-    if (billedSubtotal > 0) subtotal = billedSubtotal;
-    final totalAmount = _num(billing['total_amount']) > 0 ? _num(billing['total_amount']) : subtotal;
+    // Dynamic % (fallbacks)
+    final double serviceTaxPercent =
+    (_num(billing['service_tax_percent'])).toDouble() > 0
+        ? (_num(billing['service_tax_percent'])).toDouble()
+        : 18.0;
+    final double deliveryGstPercent =
+    (_num(billing['delivery_gst_percent'])).toDouble() > 0
+        ? (_num(billing['delivery_gst_percent'])).toDouble()
+        : 18.0;
+
+    // Charges are **pre-GST bases**
+    final double minCartBase   = (_num(billing['minimum_cart_fee'])).toDouble();
+    final double platformBase  = (_num(billing['platform_fee'])).toDouble();
+    final double deliveryBase  = (_num(billing['delivery_fee'])).toDouble();
+    final double discount      = (_num(billing['discount_amount'])).toDouble();
+
+    // Items base subtotal
+    double itemsBaseSubtotal = 0;
+    for (final it in items) {
+      itemsBaseSubtotal += (_num(it['total_price'])).toDouble();
+    }
+    final billedSubtotal = (_num(billing['subtotal'])).toDouble();
+    if (billedSubtotal > 0) itemsBaseSubtotal = billedSubtotal;
+
+    // Total amount (if provided)
+    final billedTotalOpt = (_num(billing['total_amount'])).toDouble();
+    final bool hasBilledTotal = billedTotalOpt > 0;
+
+    String _formatDate(String isoDate) {
+      if (isoDate.isEmpty) return '';
+      try {
+        final dt = DateTime.parse(isoDate);
+        return '${dt.day.toString().padLeft(2, '0')}-${dt.month.toString().padLeft(2, '0')}-${dt.year}';
+      } catch (_) {
+        return isoDate;
+      }
+    }
+    final invoiceDate = _formatDate(createdAt);
+
+    // **Generate a new Invoice No (not equal to Order Id)**
+    String _genInvoiceNo() {
+      final now = DateTime.tryParse(createdAt) ?? DateTime.now();
+      final y = now.year.toString();
+      final m = now.month.toString().padLeft(2, '0');
+      final d = now.day.toString().padLeft(2, '0');
+      final base = _text(orderId).replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
+      final suffix = base.isEmpty
+          ? (now.millisecondsSinceEpoch.toRadixString(36).toUpperCase())
+          : base.substring(0, base.length.clamp(0, 6)).toUpperCase();
+      return 'INV-$y$m$d-$suffix';
+    }
+    final invoiceNo = _text(billing['invoice_no']).isNotEmpty
+        ? _text(billing['invoice_no'])
+        : _genInvoiceNo();
+
+    // ---- Table helpers ----
+    pw.Widget buildCell(String text,
+        {bool bold = false, pw.TextAlign align = pw.TextAlign.center}) {
+      return pw.Padding(
+        padding: pw.EdgeInsets.all(4),
+        child: pw.Text(
+          text,
+          maxLines: 1,
+          style: pw.TextStyle(
+            fontSize: 8,
+            fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+          ),
+          textAlign: align,
+        ),
+      );
+    }
+
+    // Totals for last row
+    double qtySum = 0;
+    double taxableSum = 0; // bases
+    double cgstSum = 0;
+    double sgstSum = 0;
+    double grandTotal = 0;
+
+    // Recipient & phone (unchanged)
+    final recipientName = _text(address['recipient_name']).isEmpty
+        ? 'Customer'
+        : _text(address['recipient_name']);
+    final recipientPhone = _text(address['phone']).isNotEmpty
+        ? _text(address['phone'])
+        : (_text(address['phone_number']).isNotEmpty
+        ? _text(address['phone_number'])
+        : (_text(address['mobile']).isNotEmpty
+        ? _text(address['mobile'])
+        : _text(address['contact'])));
+
+    // Column widths
+    final colW = <int, pw.TableColumnWidth>{
+      0: pw.FixedColumnWidth(30),
+      1: pw.FlexColumnWidth(3),
+      2: pw.FixedColumnWidth(45),
+      3: pw.FixedColumnWidth(40),
+      4: pw.FixedColumnWidth(30),
+      5: pw.FixedColumnWidth(30),
+      6: pw.FixedColumnWidth(40),
+      7: pw.FixedColumnWidth(55),
+      8: pw.FixedColumnWidth(35),
+      9: pw.FixedColumnWidth(40),
+      10: pw.FixedColumnWidth(35),
+      11: pw.FixedColumnWidth(40),
+      12: pw.FixedColumnWidth(54),
+    };
 
     pdf.addPage(
-      pw.MultiPage(
+      pw.Page(
         pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(24),
-        build: (ctx) => [
-          // Header
-          pw.Column(
+        margin: pw.EdgeInsets.all(20),
+        build: (ctx) {
+          return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
+              // Header
               pw.Center(
-                child: pw.Text(
-                  'TAX INVOICE',
-                  style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
+                child: pw.Container(
+                  padding: pw.EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                  decoration: pw.BoxDecoration(border: pw.Border.all(width: 1)),
+                  child: pw.Text('Tax Invoice',
+                      style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
                 ),
               ),
-              pw.SizedBox(height: 8),
-              pw.Text('Order ID: $orderId'),
-              pw.Text('Order Date: ${createdAt.isEmpty ? '-' : createdAt}'),
-              pw.Text('Status: ${status.isEmpty ? '-' : status}'),
-              pw.Text('Payment: ${paymentMethod.isEmpty ? '-' : paymentMethod}'),
-            ],
-          ),
-          pw.SizedBox(height: 16),
+              pw.SizedBox(height: 10),
 
-          // Address
-          pw.Text('Bill To', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
-          pw.SizedBox(height: 4),
-          if (_text(address['recipient_name']).isNotEmpty)
-            pw.Text(_text(address['recipient_name']), style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-          if (_text(address['address_line_1']).isNotEmpty) pw.Text(_text(address['address_line_1'])),
-          if (_text(address['city']).isNotEmpty || _text(address['state']).isNotEmpty || _text(address['pincode']).isNotEmpty)
-            pw.Text(
-              '${_text(address['city'])}${_text(address['city']).isNotEmpty && _text(address['state']).isNotEmpty ? ', ' : ''}${_text(address['state'])}'
-                  '${_text(address['pincode']).isNotEmpty ? ' - ${_text(address['pincode'])}' : ''}',
-            ),
-          pw.SizedBox(height: 12),
-
-          // Items Table
-          pw.Table(
-            border: pw.TableBorder.all(width: 0.5),
-            columnWidths: {
-              0: const pw.FlexColumnWidth(4),
-              1: const pw.FlexColumnWidth(1),
-              2: const pw.FlexColumnWidth(2),
-            },
-            children: [
-              pw.TableRow(
-                decoration: const pw.BoxDecoration(color: PdfColors.grey300),
+              // Company / Order
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Padding(
-                    padding: const pw.EdgeInsets.all(6),
-                    child: pw.Text('Item', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                  pw.Expanded(
+                    flex: 3,
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text('Invoice From',
+                            style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                        pw.SizedBox(height: 4),
+                        pw.Text('LEOWORKS PRIVATE LIMITED',
+                            style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                        pw.Text('Ground Floor, Plot No-362, Damana Road,', style: pw.TextStyle(fontSize: 8)),
+                        pw.Text('Chandrasekharpur, Bhubaneswar-751024', style: pw.TextStyle(fontSize: 8)),
+                        pw.Text('Khordha, Odisha', style: pw.TextStyle(fontSize: 8)),
+                        pw.SizedBox(height: 4),
+                        pw.Text('Email ID: info@dobify.in', style: pw.TextStyle(fontSize: 8)),
+                        pw.Text('PIN Code: 751016', style: pw.TextStyle(fontSize: 8)),
+                        pw.Text('GSTIN: 21AAGCL4609M1ZH', style: pw.TextStyle(fontSize: 8)),
+                        pw.Text('CIN: U62011OD2025PTC050462', style: pw.TextStyle(fontSize: 8)),
+                        pw.Text('PAN: AAGCL4609M', style: pw.TextStyle(fontSize: 8)),
+                        pw.Text('TAN: BBNL01690D', style: pw.TextStyle(fontSize: 8)),
+                      ],
+                    ),
                   ),
-                  pw.Padding(
-                    padding: const pw.EdgeInsets.all(6),
-                    child: pw.Text('Qty', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                  ),
-                  pw.Padding(
-                    padding: const pw.EdgeInsets.all(6),
-                    child: pw.Text('Total', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                  pw.Expanded(
+                    flex: 2,
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.end,
+                      children: [
+                        if (logoImage != null)
+                          pw.Container(width: 80, height: 80, child: pw.Image(logoImage!, fit: pw.BoxFit.contain)),
+                        pw.SizedBox(height: 8),
+                        pw.Text('Order Id: $orderId', style: pw.TextStyle(fontSize: 8)),
+                        pw.Text('Invoice No: $invoiceNo', style: pw.TextStyle(fontSize: 8)),
+                        pw.Text('Invoice Date: $invoiceDate', style: pw.TextStyle(fontSize: 8)),
+                        pw.Text('Place of Supply: Odisha', style: pw.TextStyle(fontSize: 8)),
+                        pw.Text('State Code: 21', style: pw.TextStyle(fontSize: 8)),
+                      ],
+                    ),
                   ),
                 ],
               ),
-              ...items.map((it) {
-                final prod = _map(it['products']);
-                final String name = _text(
-                  _text(prod['name']).isNotEmpty ? prod['name'] : it['product_name'],
-                );
-                final int qty = _num(it['quantity']).toInt();
-                final num total = _num(it['total_price']);
 
-                return pw.TableRow(
+              pw.SizedBox(height: 10),
+
+              // Invoice To
+              pw.Container(
+                padding: pw.EdgeInsets.all(8),
+                decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.5)),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(name.isEmpty ? 'Item' : name)),
-                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(qty.toString())),
-                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(money(total))),
+                    pw.Text('Invoice To',
+                        style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                    pw.SizedBox(height: 4),
+                    pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        pw.Expanded(
+                          child: pw.Text(
+                            recipientName,
+                            maxLines: 1,
+                            style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
+                          ),
+                        ),
+                        if (recipientPhone.isNotEmpty)
+                          pw.Text('Ph: $recipientPhone', style: pw.TextStyle(fontSize: 8)),
+                      ],
+                    ),
+                    if (_text(address['address_line_1']).isNotEmpty)
+                      pw.Text(_text(address['address_line_1']), style: pw.TextStyle(fontSize: 8)),
+                    if (_text(address['city']).isNotEmpty ||
+                        _text(address['state']).isNotEmpty ||
+                        _text(address['pincode']).isNotEmpty)
+                      pw.Text(
+                        '${_text(address['city'])}'
+                            '${_text(address['city']).isNotEmpty && _text(address['state']).isNotEmpty ? ', ' : ''}'
+                            '${_text(address['state'])}'
+                            '${_text(address['pincode']).isNotEmpty ? ' - ${_text(address['pincode'])}' : ''}',
+                        style: pw.TextStyle(fontSize: 8),
+                      ),
+                    pw.SizedBox(height: 4),
+                    pw.Row(
+                      children: [
+                        pw.Text('Category: B2C', style: pw.TextStyle(fontSize: 8)),
+                        pw.SizedBox(width: 20),
+                        pw.Text('Reverse Charges Applicable: No', style: pw.TextStyle(fontSize: 8)),
+                      ],
+                    ),
+                    pw.Text('Transaction Type: $paymentMethod', style: pw.TextStyle(fontSize: 8)),
                   ],
-                );
-              }),
-            ],
-          ),
+                ),
+              ),
 
-          pw.SizedBox(height: 12),
+              pw.SizedBox(height: 10),
 
-          // Summary
-          pw.Align(
-            alignment: pw.Alignment.centerRight,
-            child: pw.Container(
-              width: 260,
-              child: pw.Column(
+              // Items Table
+              pw.Table(
+                border: pw.TableBorder.all(width: 0.5),
+                columnWidths: colW,
                 children: [
-                  _sumRow('Subtotal', money(subtotal)),
-                  if (minCart > 0) _sumRow('Minimum Cart Fee', money(minCart)),
-                  if (platformFee > 0) _sumRow('Platform Fee', money(platformFee)),
-                  if (serviceTax > 0) _sumRow('Service Tax', money(serviceTax)),
-                  if (deliveryFee > 0) _sumRow('Delivery Fee', money(deliveryFee)),
-                  if (discount > 0) _sumRow('Discount', money(discount, neg: true)),
-                  pw.Divider(),
-                  _sumRow('Total Amount', money(totalAmount), bold: true),
+                  // Header
+                  pw.TableRow(
+                    decoration: pw.BoxDecoration(color: PdfColors.grey300),
+                    children: [
+                      buildCell('Sr. No.', bold: true),
+                      buildCell('Item Description', bold: true),
+                      buildCell('HSN/SAC', bold: true),
+                      buildCell('Unit Price', bold: true),
+                      buildCell('Qty.', bold: true),
+                      buildCell('UQC', bold: true),
+                      buildCell('Discount (INR)', bold: true), // ← updated label
+                      buildCell('Taxable Amount (INR)', bold: true), // ← kept label
+                      buildCell('CGST (%)', bold: true),
+                      buildCell('CGST (INR)', bold: true),
+                      buildCell('SGST (%)', bold: true),
+                      buildCell('SGST (INR)', bold: true),
+                      buildCell('Total (INR)', bold: true),
+                    ],
+                  ),
+
+                  // Item rows (BASE -> add GST on top)
+                  ...items.asMap().entries.map((entry) {
+                    final idx = entry.key + 1;
+                    final it = entry.value;
+                    final prod = _map(it['products']);
+                    final name = _text(prod['name']).isNotEmpty ? _text(prod['name']) : _text(it['product_name']);
+                    final qty = (_num(it['quantity'])).toDouble();
+                    final unitPrice = (_num(it['product_price'])).toDouble();
+                    final base = (_num(it['total_price'])).toDouble();
+                    final cg = base * (serviceTaxPercent / 2) / 100.0;
+                    final sg = base * (serviceTaxPercent / 2) / 100.0;
+                    final rowTotal = base + cg + sg;
+
+                    qtySum += qty;
+                    taxableSum += base;
+                    cgstSum += cg;
+                    sgstSum += sg;
+                    grandTotal += rowTotal;
+
+                    return pw.TableRow(
+                      children: [
+                        buildCell('$idx'),
+                        buildCell(name.isEmpty ? 'Item' : name),
+                        buildCell('9997'),
+                        buildCell(unitPrice.toStringAsFixed(2)),
+                        buildCell(qty.toStringAsFixed(0)),
+                        buildCell('NOS'),
+                        buildCell('0'),
+                        buildCell(base.toStringAsFixed(2)),
+                        buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'), // ← add %
+                        buildCell('${cg.toStringAsFixed(2)} INR'), // ← add INR
+                        buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'), // ← add %
+                        buildCell('${sg.toStringAsFixed(2)} INR'), // ← add INR
+                        buildCell(rowTotal.toStringAsFixed(2)),
+                      ],
+                    );
+                  }),
+
+                  // Platform Fee
+                  if (platformBase > 0)
+                    (() {
+                      final cg = platformBase * (serviceTaxPercent / 2) / 100.0;
+                      final sg = platformBase * (serviceTaxPercent / 2) / 100.0;
+                      final total = platformBase + cg + sg;
+
+                      taxableSum += platformBase;
+                      cgstSum += cg;
+                      sgstSum += sg;
+                      grandTotal += total;
+
+                      return pw.TableRow(
+                        children: [
+                          buildCell('${items.length + 1}'),
+                          buildCell('Platform Fee'),
+                          buildCell('9997'),
+                          buildCell(platformBase.toStringAsFixed(2)),
+                          buildCell('1.00'),
+                          buildCell('OTH'),
+                          buildCell('0'),
+                          buildCell(platformBase.toStringAsFixed(2)),
+                          buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
+                          buildCell('${cg.toStringAsFixed(2)} INR'),
+                          buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
+                          buildCell('${sg.toStringAsFixed(2)} INR'),
+                          buildCell(total.toStringAsFixed(2)),
+                        ],
+                      );
+                    }()),
+
+                  // Minimum Cart Fee
+                  if (minCartBase > 0)
+                    (() {
+                      final cg = minCartBase * (serviceTaxPercent / 2) / 100.0;
+                      final sg = minCartBase * (serviceTaxPercent / 2) / 100.0;
+                      final total = minCartBase + cg + sg;
+
+                      taxableSum += minCartBase;
+                      cgstSum += cg;
+                      sgstSum += sg;
+                      grandTotal += total;
+
+                      final sr = items.length + (platformBase > 0 ? 2 : 1);
+                      return pw.TableRow(
+                        children: [
+                          buildCell('$sr'),
+                          buildCell('Minimum Cart Fee'),
+                          buildCell('9997'),
+                          buildCell(minCartBase.toStringAsFixed(2)),
+                          buildCell('1.00'),
+                          buildCell('OTH'),
+                          buildCell('0'),
+                          buildCell(minCartBase.toStringAsFixed(2)),
+                          buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
+                          buildCell('${cg.toStringAsFixed(2)} INR'),
+                          buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
+                          buildCell('${sg.toStringAsFixed(2)} INR'),
+                          buildCell(total.toStringAsFixed(2)),
+                        ],
+                      );
+                    }()),
+
+                  // Delivery Fee
+                  if (deliveryBase > 0)
+                    (() {
+                      final cg = deliveryBase * (deliveryGstPercent / 2) / 100.0;
+                      final sg = deliveryBase * (deliveryGstPercent / 2) / 100.0;
+                      final total = deliveryBase + cg + sg;
+
+                      taxableSum += deliveryBase;
+                      cgstSum += cg;
+                      sgstSum += sg;
+                      grandTotal += total;
+
+                      final sr = items.length +
+                          (platformBase > 0 ? 1 : 0) +
+                          (minCartBase > 0 ? 1 : 0) +
+                          1;
+                      return pw.TableRow(
+                        children: [
+                          buildCell('$sr'),
+                          buildCell('Delivery Fee'),
+                          buildCell('996813'),
+                          buildCell(deliveryBase.toStringAsFixed(2)),
+                          buildCell('1.00'),
+                          buildCell('OTH'),
+                          buildCell('0'),
+                          buildCell(deliveryBase.toStringAsFixed(2)),
+                          buildCell('${(deliveryGstPercent / 2).toStringAsFixed(2)}%'),
+                          buildCell('${cg.toStringAsFixed(2)} INR'),
+                          buildCell('${(deliveryGstPercent / 2).toStringAsFixed(2)}%'),
+                          buildCell('${sg.toStringAsFixed(2)} INR'),
+                          buildCell(total.toStringAsFixed(2)),
+                        ],
+                      );
+                    }()),
+
+                  // TOTAL ROW
+                  pw.TableRow(
+                    decoration: pw.BoxDecoration(color: PdfColors.grey200),
+                    children: [
+                      buildCell('Total', bold: true),
+                      buildCell('', bold: true),
+                      buildCell('', bold: true),
+                      buildCell('', bold: true),
+                      buildCell(qtySum.toStringAsFixed(0), bold: true),
+                      buildCell('', bold: true),
+                      buildCell(discount > 0 ? discount.toStringAsFixed(2) : '0', bold: true),
+                      buildCell(taxableSum.toStringAsFixed(2), bold: true),
+                      buildCell('', bold: true),
+                      buildCell('${cgstSum.toStringAsFixed(2)} INR', bold: true), // ← add INR
+                      buildCell('', bold: true),
+                      buildCell('${sgstSum.toStringAsFixed(2)} INR', bold: true), // ← add INR
+                      buildCell((hasBilledTotal ? billedTotalOpt : grandTotal).toStringAsFixed(2),
+                          bold: true),
+                    ],
+                  ),
                 ],
               ),
-            ),
-          ),
 
-          if (_text(billing['applied_coupon_code']).isNotEmpty) ...[
-            pw.SizedBox(height: 8),
-            pw.Text('Coupon Applied: ${_text(billing['applied_coupon_code'])}'),
-          ],
+              pw.SizedBox(height: 8),
 
-          pw.SizedBox(height: 24),
-          pw.Center(child: pw.Text('Thank you for your order!')),
-        ],
+              if (_text(billing['applied_coupon_code']).isNotEmpty)
+                pw.Text('Coupon Applied: ${_text(billing['applied_coupon_code'])}',
+                    style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+
+              pw.SizedBox(height: 4),
+              pw.Text('Amount in Words:',
+                  style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+              pw.Text(
+                'Rupees ${(hasBilledTotal ? billedTotalOpt : grandTotal).toStringAsFixed(2)} Only',
+                style: pw.TextStyle(fontSize: 9),
+              ),
+
+              pw.SizedBox(height: 10),
+
+              // Footer
+              pw.Container(
+                padding: pw.EdgeInsets.all(8),
+                decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.5)),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text('For Dobify',
+                        style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                    pw.Text('A trade of Leoworks Private Limited', style: pw.TextStyle(fontSize: 8)),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      'Registered Office: Ground Floor, Plot No-362, Damana Road, Chandrasekharpur, Bhubaneswar-751024, Khordha, Odisha',
+                      style: pw.TextStyle(fontSize: 7),
+                    ),
+                    pw.Text(
+                      'Email: info@dobify.in | Contact: +91 7326019870 | Website: www.dobify.in',
+                      style: pw.TextStyle(fontSize: 7),
+                    ),
+                    pw.SizedBox(height: 8),
+                    pw.Align(
+                      alignment: pw.Alignment.centerRight,
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.end,
+                        children: [
+                          pw.Text('Digitally Signed by', style: pw.TextStyle(fontSize: 8)),
+                          pw.Text('Leoworks Private Limited.',
+                              style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+                          pw.Text(invoiceDate, style: pw.TextStyle(fontSize: 8)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              pw.SizedBox(height: 8),
+
+              // Notes & T&C
+              pw.Text('Note:', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+              pw.Text(
+                'This is a digitally signed computer-generated invoice and does not require a signature. All transactions are subject to the terms and conditions of Dobify.',
+                style: pw.TextStyle(fontSize: 7),
+              ),
+              pw.SizedBox(height: 6),
+              pw.Text('Terms & Conditions:', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+              pw.Text(
+                '1. For any issues, contact Dobify chat support or email info@dobify.in',
+                style: pw.TextStyle(fontSize: 7),
+              ),
+              pw.Text(
+                '2. Dobify never asks for sensitive banking details (CVV, account number, UPI PIN, passwords).',
+                style: pw.TextStyle(fontSize: 7),
+              ),
+              pw.Text('3. Services are provided by Dobify, a trade of Leoworks Private Limited.',
+                  style: pw.TextStyle(fontSize: 7)),
+              pw.Text(
+                '4. Refunds/cancellations are processed as per Dobify policy.',
+                style: pw.TextStyle(fontSize: 7),
+              ),
+              pw.Text('5. Delays/issues beyond control are not our responsibility.',
+                  style: pw.TextStyle(fontSize: 7)),
+              pw.Text('6. Jurisdiction: Bhubaneswar, Odisha.', style: pw.TextStyle(fontSize: 7)),
+            ],
+          );
+        },
       ),
     );
 
-    return pdf.save();
+    return await pdf.save();
   }
+
+
+
+
 
   pw.Widget _sumRow(String label, String value, {bool bold = false}) {
     final style = pw.TextStyle(fontSize: 10, fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal);
