@@ -1699,13 +1699,13 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
         String? overrideTitle,
         String? customValue,
       }) {
+    // Only clickable if an info note exists for this key
     final bool clickable = infoKey != null && (_billingNotes[infoKey] != null);
 
     final TextStyle labelStyle = TextStyle(
       fontSize: isTotal ? 14 : 12,
       fontWeight: isTotal ? FontWeight.bold : FontWeight.w500,
       color: color ?? Colors.black87,
-      // 🔴 Removed underline completely
     );
 
     final TextStyle valueStyle = TextStyle(
@@ -1720,7 +1720,10 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           InkWell(
+            // ⛔️ If not clickable (e.g., Discount row), do nothing on tap
             onTap: () {
+              if (!clickable) return;
+
               // We need current billing numbers for accurate breakdowns
               final billing = _calculateBilling();
 
@@ -1736,20 +1739,25 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                 _showServiceTaxesPopover(billing);
                 return;
               }
-              if (infoKey == 'delivery_standard' || infoKey == 'delivery_express' || infoKey == 'delivery_standard_free') {
+              if (infoKey == 'delivery_standard' ||
+                  infoKey == 'delivery_express' ||
+                  infoKey == 'delivery_standard_free') {
                 _showDeliveryFeePopover(billing);
                 return;
               }
 
-              // Fallback to generic if no special popover is defined
-              final note = infoKey != null ? _billingNotes[infoKey] : null;
+              // Generic fallback (only if clickable == true)
+              final note = _billingNotes[infoKey!];
               _showInfoDialog(overrideTitle ?? (note?['title'] ?? label), note?['content'] ?? '');
             },
+            // Remove ripple when not clickable
+            splashColor: clickable ? null : Colors.transparent,
+            highlightColor: clickable ? null : Colors.transparent,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(label, style: labelStyle),
-                if (infoKey != null && (_billingNotes[infoKey] != null)) ...[
+                Text(overrideTitle ?? label, style: labelStyle),
+                if (clickable) ...[
                   const SizedBox(width: 4),
                   Icon(Icons.info_outline, size: 14, color: color ?? Colors.black54),
                 ],
@@ -1764,6 +1772,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
       ),
     );
   }
+
 
 
 

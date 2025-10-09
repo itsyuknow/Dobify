@@ -3183,6 +3183,49 @@ class _OrderDetailsSheet extends StatelessWidget {
     required this.onGenerateInvoice,
   });
 
+
+  String _composeFullAddress(Map<String, dynamic>? a) {
+    if (a == null) return 'N/A';
+
+    bool _has(v) => v != null && v.toString().trim().isNotEmpty && v.toString() != 'null';
+    String _join(List parts, [String sep = ', ']) =>
+        parts.where(_has).map((e) => e.toString().trim()).join(sep);
+
+    // Try to capture as much as possible without duplicates
+    final line1 = _join([
+      a['house_no'] ?? a['plot_no'],
+      a['building'],
+      a['apartment'],
+      a['floor'],
+      a['address_line_1'],
+      a['street'],
+      a['area'],
+      a['locality'],
+    ]);
+
+    // Optional mid line for landmark / address_line_2 if present
+    final line2 = _join([
+      a['landmark'],
+      a['address_line_2'],
+    ]);
+
+    final cityState = _join([
+      a['city'],
+      a['state'],
+    ], ', ');
+
+    final pin = _has(a['pincode']) ? ' - ${a['pincode']}' : '';
+
+    // Build the final multiline string (skip empty lines)
+    final parts = <String>[];
+    if (_has(line1)) parts.add(line1);
+    if (_has(line2)) parts.add(line2);
+    if (_has(cityState) || _has(pin)) parts.add('$cityState$pin');
+
+    return parts.isEmpty ? 'N/A' : parts.join('\n');
+  }
+
+
   @override
   Widget build(BuildContext context) {
     final orderItems = order['order_items'] as List<dynamic>? ?? [];
@@ -3489,8 +3532,7 @@ class _OrderDetailsSheet extends StatelessWidget {
 
                   // Delivery Address
                   if (addressInfo != null) ...[
-                    _buildSectionHeader('Delivery Address', Icons.location_on,
-                        isSmallScreen),
+                    _buildSectionHeader('Delivery Address', Icons.location_on, isSmallScreen),
                     const SizedBox(height: 12),
                     Container(
                       padding: const EdgeInsets.all(16),
@@ -3515,29 +3557,58 @@ class _OrderDetailsSheet extends StatelessWidget {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  addressInfo['recipient_name'] ?? 'N/A',
+                                  (addressInfo['recipient_name'] ?? 'N/A').toString(),
                                   style: TextStyle(
                                     fontWeight: FontWeight.w700,
                                     fontSize: isSmallScreen ? 14 : 16,
                                   ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             ],
                           ),
                           const SizedBox(height: 8),
+
+                          // ✅ FULL ADDRESS (multi-line; auto builds from available fields)
                           Text(
-                            '${addressInfo['address_line_1'] ?? ''}\n${addressInfo['city'] ?? ''}, ${addressInfo['state'] ?? ''} - ${addressInfo['pincode'] ?? ''}',
+                            _composeFullAddress(
+                              (addressInfo is Map) ? Map<String, dynamic>.from(addressInfo) : null,
+                            ),
                             style: TextStyle(
                               color: Colors.grey.shade700,
                               fontSize: isSmallScreen ? 12 : 14,
                               height: 1.4,
                             ),
                           ),
+
+                          // (Optional) show phone if present
+                          if ((addressInfo['phone'] ?? addressInfo['phone_number'] ?? addressInfo['mobile']) != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8.0),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.call, size: isSmallScreen ? 14 : 16, color: kPrimaryColor),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    (addressInfo['phone'] ??
+                                        addressInfo['phone_number'] ??
+                                        addressInfo['mobile']).toString(),
+                                    style: TextStyle(
+                                      color: Colors.grey.shade800,
+                                      fontSize: isSmallScreen ? 12 : 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                         ],
                       ),
                     ),
                     const SizedBox(height: 24),
                   ],
+
 
                   // ✅ NEW: Order Timeline with Slot Details
                   _buildSectionHeader(
@@ -3850,35 +3921,32 @@ class _OrderDetailsSheet extends StatelessWidget {
     }
     final invoiceDate = _formatDate(createdAt);
 
-    // **Generate a new Invoice No (not equal to Order Id)**
+    // **Generate Invoice No with serial number format - only numbers**
     String _genInvoiceNo() {
       final now = DateTime.tryParse(createdAt) ?? DateTime.now();
       final y = now.year.toString();
       final m = now.month.toString().padLeft(2, '0');
       final d = now.day.toString().padLeft(2, '0');
-      final base = _text(orderId).replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
-      final suffix = base.isEmpty
-          ? (now.millisecondsSinceEpoch.toRadixString(36).toUpperCase())
-          : base.substring(0, base.length.clamp(0, 6)).toUpperCase();
-      return 'INV-$y$m$d-$suffix';
+      final h = now.hour.toString().padLeft(2, '0');
+      final min = now.minute.toString().padLeft(2, '0');
+      final s = now.second.toString().padLeft(2, '0');
+      return '$y$m$d$h$min$s';
     }
     final invoiceNo = _text(billing['invoice_no']).isNotEmpty
         ? _text(billing['invoice_no'])
         : _genInvoiceNo();
 
-    // ---- Function to convert number to words ----
+    // ---- Number to words (shortened for brevity) ----
     String _numberToWords(double amount) {
       final ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
       final teens = ['ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
       final tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
       final scales = ['', 'thousand', 'lakh', 'crore'];
-
       String convertBelow1000(int num) {
         if (num == 0) return '';
         String result = '';
         final hundreds = num ~/ 100;
         final remainder = num % 100;
-
         if (hundreds > 0) result += '${ones[hundreds]} hundred ';
         if (remainder >= 20) {
           result += '${tens[remainder ~/ 10]} ';
@@ -3890,17 +3958,13 @@ class _OrderDetailsSheet extends StatelessWidget {
         }
         return result.trim();
       }
-
       final rupees = amount.toInt();
       final paise = ((amount - rupees) * 100).toInt();
-
       if (rupees == 0 && paise == 0) return 'Zero';
-
       String result = '';
       int scaleIndex = 0;
       int num = rupees;
       final parts = [];
-
       while (num > 0) {
         if (num % 1000 > 0) {
           parts.insert(0, '${convertBelow1000(num % 1000)} ${scales[scaleIndex]}');
@@ -3908,32 +3972,31 @@ class _OrderDetailsSheet extends StatelessWidget {
         num ~/= 1000;
         scaleIndex++;
       }
-
       result = parts.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
-
       if (paise > 0) {
         result += ' and ${convertBelow1000(paise)} paise';
       }
-
       return result.replaceAll(RegExp(r'\s+'), ' ').trim();
     }
 
     // ---- Table helpers ----
-    pw.Widget buildCell(String text,
-        {bool bold = false, pw.TextAlign align = pw.TextAlign.center}) {
+    pw.Widget buildCell(String text, {bool bold = false, pw.TextAlign align = pw.TextAlign.center}) {
       return pw.Padding(
         padding: pw.EdgeInsets.all(4),
         child: pw.Text(
           text,
-          maxLines: 2,
+          maxLines: 3, // allow an extra line so "(INR)" never gets cut off
+          textAlign: align,
           style: pw.TextStyle(
             fontSize: 8,
             fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
           ),
-          textAlign: align,
         ),
       );
     }
+
+
+
 
     // Totals for last row
     double qtySum = 0;
@@ -3943,7 +4006,7 @@ class _OrderDetailsSheet extends StatelessWidget {
     double grandTotal = 0;
     double discountSum = 0;
 
-    // Recipient & phone (unchanged)
+    // Recipient & phone
     final recipientName = _text(address['recipient_name']).isEmpty
         ? 'Customer'
         : _text(address['recipient_name']);
@@ -3958,13 +4021,13 @@ class _OrderDetailsSheet extends StatelessWidget {
     // Column widths
     final colW = <int, pw.TableColumnWidth>{
       0: pw.FixedColumnWidth(30),
-      1: pw.FlexColumnWidth(3),
+      1: pw.FlexColumnWidth(5),
       2: pw.FixedColumnWidth(45),
-      3: pw.FixedColumnWidth(40),
+      3: pw.FixedColumnWidth(48),
       4: pw.FixedColumnWidth(30),
       5: pw.FixedColumnWidth(30),
-      6: pw.FixedColumnWidth(40),
-      7: pw.FixedColumnWidth(55),
+      6: pw.FixedColumnWidth(45),
+      7: pw.FixedColumnWidth(52),
       8: pw.FixedColumnWidth(35),
       9: pw.FixedColumnWidth(40),
       10: pw.FixedColumnWidth(35),
@@ -3977,6 +4040,22 @@ class _OrderDetailsSheet extends StatelessWidget {
         pageFormat: PdfPageFormat.a4,
         margin: pw.EdgeInsets.all(20),
         build: (ctx) {
+          // Uniform header cell builder (same font size, taller row)
+          pw.Widget headerCell(String text) => pw.Container(
+            padding: pw.EdgeInsets.fromLTRB(4, 6, 4, 6),
+            alignment: pw.Alignment.center,
+            constraints: pw.BoxConstraints(minHeight: 26),
+            child: pw.Text(
+              text,
+              maxLines: 3,
+              textAlign: pw.TextAlign.center,
+              style: pw.TextStyle(
+                fontSize: 8, // same for all headers
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+          );
+
           return pw.Container(
             decoration: pw.BoxDecoration(
               border: pw.Border.all(width: 2, color: PdfColors.black),
@@ -3990,8 +4069,10 @@ class _OrderDetailsSheet extends StatelessWidget {
                   child: pw.Container(
                     padding: pw.EdgeInsets.symmetric(vertical: 8, horizontal: 16),
                     decoration: pw.BoxDecoration(border: pw.Border.all(width: 1)),
-                    child: pw.Text('Tax Invoice',
-                        style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+                    child: pw.Text(
+                      'Tax Invoice',
+                      style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
+                    ),
                   ),
                 ),
                 pw.SizedBox(height: 10),
@@ -4100,27 +4181,27 @@ class _OrderDetailsSheet extends StatelessWidget {
                   border: pw.TableBorder.all(width: 0.5),
                   columnWidths: colW,
                   children: [
-                    // Header - WITH ALL HEADERS COMPLETE
+                    // Header
                     pw.TableRow(
                       decoration: pw.BoxDecoration(color: PdfColors.grey300),
                       children: [
-                        buildCell('Sr. No.', bold: true),
-                        buildCell('Item Description', bold: true),
-                        buildCell('HSN/SAC', bold: true),
-                        buildCell('Unit Price', bold: true),
-                        buildCell('Qty.', bold: true),
-                        buildCell('UQC', bold: true),
-                        buildCell('Discount\n(INR)', bold: true),
-                        buildCell('Taxable\nAmount\n(INR)', bold: true),
-                        buildCell('CGST\n(%)', bold: true),
-                        buildCell('CGST\n(INR)', bold: true),
-                        buildCell('SGST\n(%)', bold: true),
-                        buildCell('SGST\n(INR)', bold: true),
-                        buildCell('Total (INR)', bold: true),
+                        headerCell('Sr. No.'),
+                        headerCell('Items'),      // exactly 2 lines
+                        headerCell('HSN/SAC'),
+                        headerCell('Unit Price (INR)'),
+                        headerCell('Qty.'),
+                        headerCell('UQC'),
+                        headerCell('Discount (INR)'),
+                        headerCell('Taxable Amount\n(INR)'),  // shows (INR)
+                        headerCell('CGST\n(%)'),
+                        headerCell('CGST\n(INR)'),
+                        headerCell('SGST\n(%)'),
+                        headerCell('SGST\n(INR)'),
+                        headerCell('Total (INR)'),
                       ],
                     ),
 
-                    // Item rows - USING SERVICE PRICE & PROPORTIONAL DISCOUNT
+                    // Item rows
                     ...items.asMap().entries.map((entry) {
                       final idx = entry.key + 1;
                       final it = entry.value;
@@ -4129,15 +4210,10 @@ class _OrderDetailsSheet extends StatelessWidget {
                       final qty = (_num(it['quantity'])).toDouble();
                       final base = (_num(it['total_price'])).toDouble();
 
-                      // Calculate service_price from total_price / quantity
                       final unitPrice = qty > 0 ? (base / qty) : 0.0;
-
-                      // Calculate proportional discount based on item's share of subtotal
                       final itemDiscount = itemsBaseSubtotal > 0
                           ? (base / itemsBaseSubtotal) * totalDiscount
                           : 0.0;
-
-                      // Apply discount BEFORE calculating GST
                       final taxableAfterDiscount = base - itemDiscount;
 
                       final cg = taxableAfterDiscount * (serviceTaxPercent / 2) / 100.0;
@@ -4354,22 +4430,22 @@ class _OrderDetailsSheet extends StatelessWidget {
                 pw.SizedBox(height: 6),
                 pw.Text('Terms & Conditions:', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
                 pw.Text(
-                  '1. For any issues, contact Dobify chat support or email info@dobify.in',
+                  '1. If you have any issues or queries regarding your order, please contact our customer chat support through the Dobify platform or email us at info@dobify.in',
                   style: pw.TextStyle(fontSize: 7),
                 ),
                 pw.Text(
-                  '2. Dobify never asks for sensitive banking details (CVV, account number, UPI PIN, passwords).',
+                  '2. For your safety, please note that Dobify never asks for sensitive banking details such as CVV, account number, UPI PIN, or passwords through any support channel. Do not share these details with anyone over any medium.',
                   style: pw.TextStyle(fontSize: 7),
                 ),
-                pw.Text('3. Services are provided by Dobify, a trade of Leoworks Private Limited.',
+                pw.Text('3. All services are provided by Dobify, a trade of Leoworks Private Limited.',
                     style: pw.TextStyle(fontSize: 7)),
                 pw.Text(
-                  '4. Refunds/cancellations are processed as per Dobify policy.',
+                  '4. Refunds or cancellations, if applicable, will be processed as per Dobify\'s refund and cancellation policy.',
                   style: pw.TextStyle(fontSize: 7),
                 ),
-                pw.Text('5. Delays/issues beyond control are not our responsibility.',
+                pw.Text('5. Dobify shall not be held responsible for delays or issues arising from factors beyond its control.',
                     style: pw.TextStyle(fontSize: 7)),
-                pw.Text('6. Jurisdiction: Bhubaneswar, Odisha.', style: pw.TextStyle(fontSize: 7)),
+                pw.Text('6. Any disputes shall be subject to the jurisdiction of Bhubaneswar, Odisha.', style: pw.TextStyle(fontSize: 7)),
               ],
             ),
           );
@@ -4377,8 +4453,10 @@ class _OrderDetailsSheet extends StatelessWidget {
       ),
     );
 
+
     return await pdf.save();
   }
+
 
 
 
