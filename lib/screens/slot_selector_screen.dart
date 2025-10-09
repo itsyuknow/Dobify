@@ -1197,36 +1197,47 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
       const razorpayKeyId = 'rzp_live_RP0aiJW4EQDXKd';
 
       if (kIsWeb) {
-        // WEB FLOW
-        print('Setting up web payment callbacks');
+        // WEB FLOW - Setup callbacks BEFORE opening Razorpay
+        print('🌐 Setting up web payment callbacks');
 
-        // Setup callbacks FIRST
         setupWebCallbacks(
           onSuccess: (paymentId) {
-            print('Payment ID: $paymentId');
+            print('✅ Web Payment Success: $paymentId');
+            // Keep processing state
+            if (mounted) {
+              setState(() => _isProcessingPayment = true);
+            }
             _processOrderCompletion(paymentId: paymentId);
           },
           onDismiss: () {
-            setState(() => _isProcessingPayment = false);
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Payment cancelled'),
-                backgroundColor: Colors.red,
-              ),
-            );
+            print('❌ Payment dismissed by user');
+            if (mounted) {
+              setState(() => _isProcessingPayment = false);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Payment cancelled'),
+                  backgroundColor: Colors.orange,
+                  duration: Duration(seconds: 3),
+                ),
+              );
+            }
           },
           onError: (error) {
-            setState(() => _isProcessingPayment = false);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Payment error: $error'),
-                backgroundColor: Colors.red,
-              ),
-            );
+            print('❌ Payment error: $error');
+            if (mounted) {
+              setState(() => _isProcessingPayment = false);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Payment failed: $error'),
+                  backgroundColor: Colors.red,
+                  duration: Duration(seconds: 4),
+                ),
+              );
+            }
           },
         );
 
-        // Create options map with handler references
+        // Create options WITHOUT handler string references
         final options = {
           'key': razorpayKeyId,
           'amount': payablePaise,
@@ -1242,11 +1253,9 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
           'theme': {
             'color': '#${kPrimaryColor.value.toRadixString(16).substring(2)}',
           },
-          'handler': 'razorpaySuccessHandler',
-          'modal': {'ondismiss': 'razorpayDismissHandler'},
         };
 
-        print('Opening Razorpay with key: $razorpayKeyId');
+        print('🚀 Opening Razorpay Web with order: $orderId');
         openRazorpayWeb(options);
 
       } else {
@@ -1275,15 +1284,18 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
 
     } catch (e, stackTrace) {
       setState(() => _isProcessingPayment = false);
-      debugPrint('Payment initialization error: $e');
+      debugPrint('❌ Payment initialization error: $e');
       debugPrint('Stack trace: $stackTrace');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Payment failed: ${e.toString().replaceAll('Exception: ', '')}'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 5),
-        ),
-      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Payment failed: ${e.toString().replaceAll('Exception: ', '')}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
     }
   }
 

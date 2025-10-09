@@ -3825,7 +3825,7 @@ class _OrderDetailsSheet extends StatelessWidget {
     final double minCartBase   = (_num(billing['minimum_cart_fee'])).toDouble();
     final double platformBase  = (_num(billing['platform_fee'])).toDouble();
     final double deliveryBase  = (_num(billing['delivery_fee'])).toDouble();
-    final double discount      = (_num(billing['discount_amount'])).toDouble();
+    final double totalDiscount = (_num(billing['discount_amount'])).toDouble();
 
     // Items base subtotal
     double itemsBaseSubtotal = 0;
@@ -3866,6 +3866,58 @@ class _OrderDetailsSheet extends StatelessWidget {
         ? _text(billing['invoice_no'])
         : _genInvoiceNo();
 
+    // ---- Function to convert number to words ----
+    String _numberToWords(double amount) {
+      final ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+      final teens = ['ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+      final tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+      final scales = ['', 'thousand', 'lakh', 'crore'];
+
+      String convertBelow1000(int num) {
+        if (num == 0) return '';
+        String result = '';
+        final hundreds = num ~/ 100;
+        final remainder = num % 100;
+
+        if (hundreds > 0) result += '${ones[hundreds]} hundred ';
+        if (remainder >= 20) {
+          result += '${tens[remainder ~/ 10]} ';
+          if (remainder % 10 > 0) result += '${ones[remainder % 10]} ';
+        } else if (remainder >= 10) {
+          result += '${teens[remainder - 10]} ';
+        } else if (remainder > 0) {
+          result += '${ones[remainder]} ';
+        }
+        return result.trim();
+      }
+
+      final rupees = amount.toInt();
+      final paise = ((amount - rupees) * 100).toInt();
+
+      if (rupees == 0 && paise == 0) return 'Zero';
+
+      String result = '';
+      int scaleIndex = 0;
+      int num = rupees;
+      final parts = [];
+
+      while (num > 0) {
+        if (num % 1000 > 0) {
+          parts.insert(0, '${convertBelow1000(num % 1000)} ${scales[scaleIndex]}');
+        }
+        num ~/= 1000;
+        scaleIndex++;
+      }
+
+      result = parts.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+
+      if (paise > 0) {
+        result += ' and ${convertBelow1000(paise)} paise';
+      }
+
+      return result.replaceAll(RegExp(r'\s+'), ' ').trim();
+    }
+
     // ---- Table helpers ----
     pw.Widget buildCell(String text,
         {bool bold = false, pw.TextAlign align = pw.TextAlign.center}) {
@@ -3873,7 +3925,7 @@ class _OrderDetailsSheet extends StatelessWidget {
         padding: pw.EdgeInsets.all(4),
         child: pw.Text(
           text,
-          maxLines: 1,
+          maxLines: 2,
           style: pw.TextStyle(
             fontSize: 8,
             fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
@@ -3889,6 +3941,7 @@ class _OrderDetailsSheet extends StatelessWidget {
     double cgstSum = 0;
     double sgstSum = 0;
     double grandTotal = 0;
+    double discountSum = 0;
 
     // Recipient & phone (unchanged)
     final recipientName = _text(address['recipient_name']).isEmpty
@@ -3924,383 +3977,401 @@ class _OrderDetailsSheet extends StatelessWidget {
         pageFormat: PdfPageFormat.a4,
         margin: pw.EdgeInsets.all(20),
         build: (ctx) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              // Header
-              pw.Center(
-                child: pw.Container(
-                  padding: pw.EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                  decoration: pw.BoxDecoration(border: pw.Border.all(width: 1)),
-                  child: pw.Text('Tax Invoice',
-                      style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+          return pw.Container(
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(width: 2, color: PdfColors.black),
+            ),
+            padding: pw.EdgeInsets.all(12),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                // Header
+                pw.Center(
+                  child: pw.Container(
+                    padding: pw.EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                    decoration: pw.BoxDecoration(border: pw.Border.all(width: 1)),
+                    child: pw.Text('Tax Invoice',
+                        style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+                  ),
                 ),
-              ),
-              pw.SizedBox(height: 10),
+                pw.SizedBox(height: 10),
 
-              // Company / Order
-              pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Expanded(
-                    flex: 3,
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: [
-                        pw.Text('Invoice From',
-                            style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
-                        pw.SizedBox(height: 4),
-                        pw.Text('LEOWORKS PRIVATE LIMITED',
-                            style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
-                        pw.Text('Ground Floor, Plot No-362, Damana Road,', style: pw.TextStyle(fontSize: 8)),
-                        pw.Text('Chandrasekharpur, Bhubaneswar-751024', style: pw.TextStyle(fontSize: 8)),
-                        pw.Text('Khordha, Odisha', style: pw.TextStyle(fontSize: 8)),
-                        pw.SizedBox(height: 4),
-                        pw.Text('Email ID: info@dobify.in', style: pw.TextStyle(fontSize: 8)),
-                        pw.Text('PIN Code: 751016', style: pw.TextStyle(fontSize: 8)),
-                        pw.Text('GSTIN: 21AAGCL4609M1ZH', style: pw.TextStyle(fontSize: 8)),
-                        pw.Text('CIN: U62011OD2025PTC050462', style: pw.TextStyle(fontSize: 8)),
-                        pw.Text('PAN: AAGCL4609M', style: pw.TextStyle(fontSize: 8)),
-                        pw.Text('TAN: BBNL01690D', style: pw.TextStyle(fontSize: 8)),
-                      ],
-                    ),
-                  ),
-                  pw.Expanded(
-                    flex: 2,
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.end,
-                      children: [
-                        if (logoImage != null)
-                          pw.Container(width: 80, height: 80, child: pw.Image(logoImage!, fit: pw.BoxFit.contain)),
-                        pw.SizedBox(height: 8),
-                        pw.Text('Order Id: $orderId', style: pw.TextStyle(fontSize: 8)),
-                        pw.Text('Invoice No: $invoiceNo', style: pw.TextStyle(fontSize: 8)),
-                        pw.Text('Invoice Date: $invoiceDate', style: pw.TextStyle(fontSize: 8)),
-                        pw.Text('Place of Supply: Odisha', style: pw.TextStyle(fontSize: 8)),
-                        pw.Text('State Code: 21', style: pw.TextStyle(fontSize: 8)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-
-              pw.SizedBox(height: 10),
-
-              // Invoice To
-              pw.Container(
-                padding: pw.EdgeInsets.all(8),
-                decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.5)),
-                child: pw.Column(
+                // Company / Order
+                pw.Row(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text('Invoice To',
-                        style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
-                    pw.SizedBox(height: 4),
-                    pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                      children: [
-                        pw.Expanded(
-                          child: pw.Text(
-                            recipientName,
-                            maxLines: 1,
-                            style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
-                          ),
-                        ),
-                        if (recipientPhone.isNotEmpty)
-                          pw.Text('Ph: $recipientPhone', style: pw.TextStyle(fontSize: 8)),
-                      ],
-                    ),
-                    if (_text(address['address_line_1']).isNotEmpty)
-                      pw.Text(_text(address['address_line_1']), style: pw.TextStyle(fontSize: 8)),
-                    if (_text(address['city']).isNotEmpty ||
-                        _text(address['state']).isNotEmpty ||
-                        _text(address['pincode']).isNotEmpty)
-                      pw.Text(
-                        '${_text(address['city'])}'
-                            '${_text(address['city']).isNotEmpty && _text(address['state']).isNotEmpty ? ', ' : ''}'
-                            '${_text(address['state'])}'
-                            '${_text(address['pincode']).isNotEmpty ? ' - ${_text(address['pincode'])}' : ''}',
-                        style: pw.TextStyle(fontSize: 8),
+                    pw.Expanded(
+                      flex: 3,
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('Invoice From',
+                              style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                          pw.SizedBox(height: 4),
+                          pw.Text('LEOWORKS PRIVATE LIMITED',
+                              style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                          pw.Text('Ground Floor, Plot No-362, Damana Road,', style: pw.TextStyle(fontSize: 8)),
+                          pw.Text('Chandrasekharpur, Bhubaneswar-751024', style: pw.TextStyle(fontSize: 8)),
+                          pw.Text('Khordha, Odisha', style: pw.TextStyle(fontSize: 8)),
+                          pw.SizedBox(height: 4),
+                          pw.Text('Email ID: info@dobify.in', style: pw.TextStyle(fontSize: 8)),
+                          pw.Text('PIN Code: 751016', style: pw.TextStyle(fontSize: 8)),
+                          pw.Text('GSTIN: 21AAGCL4609M1ZH', style: pw.TextStyle(fontSize: 8)),
+                          pw.Text('CIN: U62011OD2025PTC050462', style: pw.TextStyle(fontSize: 8)),
+                          pw.Text('PAN: AAGCL4609M', style: pw.TextStyle(fontSize: 8)),
+                          pw.Text('TAN: BBNL01690D', style: pw.TextStyle(fontSize: 8)),
+                        ],
                       ),
-                    pw.SizedBox(height: 4),
-                    pw.Row(
-                      children: [
-                        pw.Text('Category: B2C', style: pw.TextStyle(fontSize: 8)),
-                        pw.SizedBox(width: 20),
-                        pw.Text('Reverse Charges Applicable: No', style: pw.TextStyle(fontSize: 8)),
-                      ],
                     ),
-                    pw.Text('Transaction Type: $paymentMethod', style: pw.TextStyle(fontSize: 8)),
-                  ],
-                ),
-              ),
-
-              pw.SizedBox(height: 10),
-
-              // Items Table
-              pw.Table(
-                border: pw.TableBorder.all(width: 0.5),
-                columnWidths: colW,
-                children: [
-                  // Header
-                  pw.TableRow(
-                    decoration: pw.BoxDecoration(color: PdfColors.grey300),
-                    children: [
-                      buildCell('Sr. No.', bold: true),
-                      buildCell('Item Description', bold: true),
-                      buildCell('HSN/SAC', bold: true),
-                      buildCell('Unit Price', bold: true),
-                      buildCell('Qty.', bold: true),
-                      buildCell('UQC', bold: true),
-                      buildCell('Discount (INR)', bold: true), // ← updated label
-                      buildCell('Taxable Amount (INR)', bold: true), // ← kept label
-                      buildCell('CGST (%)', bold: true),
-                      buildCell('CGST (INR)', bold: true),
-                      buildCell('SGST (%)', bold: true),
-                      buildCell('SGST (INR)', bold: true),
-                      buildCell('Total (INR)', bold: true),
-                    ],
-                  ),
-
-                  // Item rows (BASE -> add GST on top)
-                  ...items.asMap().entries.map((entry) {
-                    final idx = entry.key + 1;
-                    final it = entry.value;
-                    final prod = _map(it['products']);
-                    final name = _text(prod['name']).isNotEmpty ? _text(prod['name']) : _text(it['product_name']);
-                    final qty = (_num(it['quantity'])).toDouble();
-                    final unitPrice = (_num(it['product_price'])).toDouble();
-                    final base = (_num(it['total_price'])).toDouble();
-                    final cg = base * (serviceTaxPercent / 2) / 100.0;
-                    final sg = base * (serviceTaxPercent / 2) / 100.0;
-                    final rowTotal = base + cg + sg;
-
-                    qtySum += qty;
-                    taxableSum += base;
-                    cgstSum += cg;
-                    sgstSum += sg;
-                    grandTotal += rowTotal;
-
-                    return pw.TableRow(
-                      children: [
-                        buildCell('$idx'),
-                        buildCell(name.isEmpty ? 'Item' : name),
-                        buildCell('9997'),
-                        buildCell(unitPrice.toStringAsFixed(2)),
-                        buildCell(qty.toStringAsFixed(0)),
-                        buildCell('NOS'),
-                        buildCell('0'),
-                        buildCell(base.toStringAsFixed(2)),
-                        buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'), // ← add %
-                        buildCell('${cg.toStringAsFixed(2)} INR'), // ← add INR
-                        buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'), // ← add %
-                        buildCell('${sg.toStringAsFixed(2)} INR'), // ← add INR
-                        buildCell(rowTotal.toStringAsFixed(2)),
-                      ],
-                    );
-                  }),
-
-                  // Platform Fee
-                  if (platformBase > 0)
-                    (() {
-                      final cg = platformBase * (serviceTaxPercent / 2) / 100.0;
-                      final sg = platformBase * (serviceTaxPercent / 2) / 100.0;
-                      final total = platformBase + cg + sg;
-
-                      taxableSum += platformBase;
-                      cgstSum += cg;
-                      sgstSum += sg;
-                      grandTotal += total;
-
-                      return pw.TableRow(
-                        children: [
-                          buildCell('${items.length + 1}'),
-                          buildCell('Platform Fee'),
-                          buildCell('9997'),
-                          buildCell(platformBase.toStringAsFixed(2)),
-                          buildCell('1.00'),
-                          buildCell('OTH'),
-                          buildCell('0'),
-                          buildCell(platformBase.toStringAsFixed(2)),
-                          buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
-                          buildCell('${cg.toStringAsFixed(2)} INR'),
-                          buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
-                          buildCell('${sg.toStringAsFixed(2)} INR'),
-                          buildCell(total.toStringAsFixed(2)),
-                        ],
-                      );
-                    }()),
-
-                  // Minimum Cart Fee
-                  if (minCartBase > 0)
-                    (() {
-                      final cg = minCartBase * (serviceTaxPercent / 2) / 100.0;
-                      final sg = minCartBase * (serviceTaxPercent / 2) / 100.0;
-                      final total = minCartBase + cg + sg;
-
-                      taxableSum += minCartBase;
-                      cgstSum += cg;
-                      sgstSum += sg;
-                      grandTotal += total;
-
-                      final sr = items.length + (platformBase > 0 ? 2 : 1);
-                      return pw.TableRow(
-                        children: [
-                          buildCell('$sr'),
-                          buildCell('Minimum Cart Fee'),
-                          buildCell('9997'),
-                          buildCell(minCartBase.toStringAsFixed(2)),
-                          buildCell('1.00'),
-                          buildCell('OTH'),
-                          buildCell('0'),
-                          buildCell(minCartBase.toStringAsFixed(2)),
-                          buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
-                          buildCell('${cg.toStringAsFixed(2)} INR'),
-                          buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
-                          buildCell('${sg.toStringAsFixed(2)} INR'),
-                          buildCell(total.toStringAsFixed(2)),
-                        ],
-                      );
-                    }()),
-
-                  // Delivery Fee
-                  if (deliveryBase > 0)
-                    (() {
-                      final cg = deliveryBase * (deliveryGstPercent / 2) / 100.0;
-                      final sg = deliveryBase * (deliveryGstPercent / 2) / 100.0;
-                      final total = deliveryBase + cg + sg;
-
-                      taxableSum += deliveryBase;
-                      cgstSum += cg;
-                      sgstSum += sg;
-                      grandTotal += total;
-
-                      final sr = items.length +
-                          (platformBase > 0 ? 1 : 0) +
-                          (minCartBase > 0 ? 1 : 0) +
-                          1;
-                      return pw.TableRow(
-                        children: [
-                          buildCell('$sr'),
-                          buildCell('Delivery Fee'),
-                          buildCell('996813'),
-                          buildCell(deliveryBase.toStringAsFixed(2)),
-                          buildCell('1.00'),
-                          buildCell('OTH'),
-                          buildCell('0'),
-                          buildCell(deliveryBase.toStringAsFixed(2)),
-                          buildCell('${(deliveryGstPercent / 2).toStringAsFixed(2)}%'),
-                          buildCell('${cg.toStringAsFixed(2)} INR'),
-                          buildCell('${(deliveryGstPercent / 2).toStringAsFixed(2)}%'),
-                          buildCell('${sg.toStringAsFixed(2)} INR'),
-                          buildCell(total.toStringAsFixed(2)),
-                        ],
-                      );
-                    }()),
-
-                  // TOTAL ROW
-                  pw.TableRow(
-                    decoration: pw.BoxDecoration(color: PdfColors.grey200),
-                    children: [
-                      buildCell('Total', bold: true),
-                      buildCell('', bold: true),
-                      buildCell('', bold: true),
-                      buildCell('', bold: true),
-                      buildCell(qtySum.toStringAsFixed(0), bold: true),
-                      buildCell('', bold: true),
-                      buildCell(discount > 0 ? discount.toStringAsFixed(2) : '0', bold: true),
-                      buildCell(taxableSum.toStringAsFixed(2), bold: true),
-                      buildCell('', bold: true),
-                      buildCell('${cgstSum.toStringAsFixed(2)} INR', bold: true), // ← add INR
-                      buildCell('', bold: true),
-                      buildCell('${sgstSum.toStringAsFixed(2)} INR', bold: true), // ← add INR
-                      buildCell((hasBilledTotal ? billedTotalOpt : grandTotal).toStringAsFixed(2),
-                          bold: true),
-                    ],
-                  ),
-                ],
-              ),
-
-              pw.SizedBox(height: 8),
-
-              if (_text(billing['applied_coupon_code']).isNotEmpty)
-                pw.Text('Coupon Applied: ${_text(billing['applied_coupon_code'])}',
-                    style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
-
-              pw.SizedBox(height: 4),
-              pw.Text('Amount in Words:',
-                  style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
-              pw.Text(
-                'Rupees ${(hasBilledTotal ? billedTotalOpt : grandTotal).toStringAsFixed(2)} Only',
-                style: pw.TextStyle(fontSize: 9),
-              ),
-
-              pw.SizedBox(height: 10),
-
-              // Footer
-              pw.Container(
-                padding: pw.EdgeInsets.all(8),
-                decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.5)),
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text('For Dobify',
-                        style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
-                    pw.Text('A trade of Leoworks Private Limited', style: pw.TextStyle(fontSize: 8)),
-                    pw.SizedBox(height: 4),
-                    pw.Text(
-                      'Registered Office: Ground Floor, Plot No-362, Damana Road, Chandrasekharpur, Bhubaneswar-751024, Khordha, Odisha',
-                      style: pw.TextStyle(fontSize: 7),
-                    ),
-                    pw.Text(
-                      'Email: info@dobify.in | Contact: +91 7326019870 | Website: www.dobify.in',
-                      style: pw.TextStyle(fontSize: 7),
-                    ),
-                    pw.SizedBox(height: 8),
-                    pw.Align(
-                      alignment: pw.Alignment.centerRight,
+                    pw.Expanded(
+                      flex: 2,
                       child: pw.Column(
                         crossAxisAlignment: pw.CrossAxisAlignment.end,
                         children: [
-                          pw.Text('Digitally Signed by', style: pw.TextStyle(fontSize: 8)),
-                          pw.Text('Leoworks Private Limited.',
-                              style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
-                          pw.Text(invoiceDate, style: pw.TextStyle(fontSize: 8)),
+                          if (logoImage != null)
+                            pw.Container(width: 80, height: 80, child: pw.Image(logoImage!, fit: pw.BoxFit.contain)),
+                          pw.SizedBox(height: 8),
+                          pw.Text('Order Id: $orderId', style: pw.TextStyle(fontSize: 8)),
+                          pw.Text('Invoice No: $invoiceNo', style: pw.TextStyle(fontSize: 8)),
+                          pw.Text('Invoice Date: $invoiceDate', style: pw.TextStyle(fontSize: 8)),
+                          pw.Text('Place of Supply: Odisha', style: pw.TextStyle(fontSize: 8)),
+                          pw.Text('State Code: 21', style: pw.TextStyle(fontSize: 8)),
                         ],
                       ),
                     ),
                   ],
                 ),
-              ),
 
-              pw.SizedBox(height: 8),
+                pw.SizedBox(height: 10),
 
-              // Notes & T&C
-              pw.Text('Note:', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
-              pw.Text(
-                'This is a digitally signed computer-generated invoice and does not require a signature. All transactions are subject to the terms and conditions of Dobify.',
-                style: pw.TextStyle(fontSize: 7),
-              ),
-              pw.SizedBox(height: 6),
-              pw.Text('Terms & Conditions:', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
-              pw.Text(
-                '1. For any issues, contact Dobify chat support or email info@dobify.in',
-                style: pw.TextStyle(fontSize: 7),
-              ),
-              pw.Text(
-                '2. Dobify never asks for sensitive banking details (CVV, account number, UPI PIN, passwords).',
-                style: pw.TextStyle(fontSize: 7),
-              ),
-              pw.Text('3. Services are provided by Dobify, a trade of Leoworks Private Limited.',
-                  style: pw.TextStyle(fontSize: 7)),
-              pw.Text(
-                '4. Refunds/cancellations are processed as per Dobify policy.',
-                style: pw.TextStyle(fontSize: 7),
-              ),
-              pw.Text('5. Delays/issues beyond control are not our responsibility.',
-                  style: pw.TextStyle(fontSize: 7)),
-              pw.Text('6. Jurisdiction: Bhubaneswar, Odisha.', style: pw.TextStyle(fontSize: 7)),
-            ],
+                // Invoice To - FULL ADDRESS DISPLAY
+                pw.Container(
+                  padding: pw.EdgeInsets.all(8),
+                  decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.5)),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text('Invoice To',
+                          style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                      pw.SizedBox(height: 4),
+                      pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                        children: [
+                          pw.Expanded(
+                            child: pw.Text(
+                              recipientName,
+                              maxLines: 2,
+                              style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
+                            ),
+                          ),
+                          if (recipientPhone.isNotEmpty)
+                            pw.Text('Ph: $recipientPhone', style: pw.TextStyle(fontSize: 8)),
+                        ],
+                      ),
+                      if (_text(address['address_line_1']).isNotEmpty)
+                        pw.Text(_text(address['address_line_1']), style: pw.TextStyle(fontSize: 8), maxLines: 2),
+                      if (_text(address['address_line_2']).isNotEmpty)
+                        pw.Text(_text(address['address_line_2']), style: pw.TextStyle(fontSize: 8), maxLines: 2),
+                      pw.Text(
+                        '${_text(address['city']).isNotEmpty ? _text(address['city']) : ''}'
+                            '${_text(address['city']).isNotEmpty && _text(address['state']).isNotEmpty ? ', ' : ''}'
+                            '${_text(address['state']).isNotEmpty ? _text(address['state']) : ''}'
+                            '${_text(address['pincode']).isNotEmpty ? ' - ${_text(address['pincode'])}' : ''}',
+                        style: pw.TextStyle(fontSize: 8),
+                        maxLines: 2,
+                      ),
+                      pw.SizedBox(height: 4),
+                      pw.Row(
+                        children: [
+                          pw.Text('Category: B2C', style: pw.TextStyle(fontSize: 8)),
+                          pw.SizedBox(width: 20),
+                          pw.Text('Reverse Charges Applicable: No', style: pw.TextStyle(fontSize: 8)),
+                        ],
+                      ),
+                      pw.Text('Transaction Type: $paymentMethod', style: pw.TextStyle(fontSize: 8)),
+                    ],
+                  ),
+                ),
+
+                pw.SizedBox(height: 10),
+
+                // Items Table
+                pw.Table(
+                  border: pw.TableBorder.all(width: 0.5),
+                  columnWidths: colW,
+                  children: [
+                    // Header - WITH ALL HEADERS COMPLETE
+                    pw.TableRow(
+                      decoration: pw.BoxDecoration(color: PdfColors.grey300),
+                      children: [
+                        buildCell('Sr. No.', bold: true),
+                        buildCell('Item Description', bold: true),
+                        buildCell('HSN/SAC', bold: true),
+                        buildCell('Unit Price', bold: true),
+                        buildCell('Qty.', bold: true),
+                        buildCell('UQC', bold: true),
+                        buildCell('Discount\n(INR)', bold: true),
+                        buildCell('Taxable\nAmount\n(INR)', bold: true),
+                        buildCell('CGST\n(%)', bold: true),
+                        buildCell('CGST\n(INR)', bold: true),
+                        buildCell('SGST\n(%)', bold: true),
+                        buildCell('SGST\n(INR)', bold: true),
+                        buildCell('Total (INR)', bold: true),
+                      ],
+                    ),
+
+                    // Item rows - USING SERVICE PRICE & PROPORTIONAL DISCOUNT
+                    ...items.asMap().entries.map((entry) {
+                      final idx = entry.key + 1;
+                      final it = entry.value;
+                      final prod = _map(it['products']);
+                      final name = _text(prod['name']).isNotEmpty ? _text(prod['name']) : _text(it['product_name']);
+                      final qty = (_num(it['quantity'])).toDouble();
+                      final base = (_num(it['total_price'])).toDouble();
+
+                      // Calculate service_price from total_price / quantity
+                      final unitPrice = qty > 0 ? (base / qty) : 0.0;
+
+                      // Calculate proportional discount based on item's share of subtotal
+                      final itemDiscount = itemsBaseSubtotal > 0
+                          ? (base / itemsBaseSubtotal) * totalDiscount
+                          : 0.0;
+
+                      // Apply discount BEFORE calculating GST
+                      final taxableAfterDiscount = base - itemDiscount;
+
+                      final cg = taxableAfterDiscount * (serviceTaxPercent / 2) / 100.0;
+                      final sg = taxableAfterDiscount * (serviceTaxPercent / 2) / 100.0;
+                      final rowTotal = taxableAfterDiscount + cg + sg;
+
+                      qtySum += qty;
+                      taxableSum += taxableAfterDiscount;
+                      cgstSum += cg;
+                      sgstSum += sg;
+                      grandTotal += rowTotal;
+                      discountSum += itemDiscount;
+
+                      return pw.TableRow(
+                        children: [
+                          buildCell('$idx'),
+                          buildCell(name.isEmpty ? 'Item' : name),
+                          buildCell('9997'),
+                          buildCell(unitPrice.toStringAsFixed(2)),
+                          buildCell(qty.toStringAsFixed(0)),
+                          buildCell('NOS'),
+                          buildCell(itemDiscount.toStringAsFixed(2)),
+                          buildCell(taxableAfterDiscount.toStringAsFixed(2)),
+                          buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
+                          buildCell('${cg.toStringAsFixed(2)}'),
+                          buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
+                          buildCell('${sg.toStringAsFixed(2)}'),
+                          buildCell(rowTotal.toStringAsFixed(2)),
+                        ],
+                      );
+                    }),
+
+                    // Platform Fee
+                    if (platformBase > 0)
+                      (() {
+                        final cg = platformBase * (serviceTaxPercent / 2) / 100.0;
+                        final sg = platformBase * (serviceTaxPercent / 2) / 100.0;
+                        final total = platformBase + cg + sg;
+
+                        taxableSum += platformBase;
+                        cgstSum += cg;
+                        sgstSum += sg;
+                        grandTotal += total;
+
+                        return pw.TableRow(
+                          children: [
+                            buildCell('${items.length + 1}'),
+                            buildCell('Platform Fee'),
+                            buildCell('9997'),
+                            buildCell(platformBase.toStringAsFixed(2)),
+                            buildCell('1.00'),
+                            buildCell('OTH'),
+                            buildCell('0'),
+                            buildCell(platformBase.toStringAsFixed(2)),
+                            buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
+                            buildCell('${cg.toStringAsFixed(2)}'),
+                            buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
+                            buildCell('${sg.toStringAsFixed(2)}'),
+                            buildCell(total.toStringAsFixed(2)),
+                          ],
+                        );
+                      }()),
+
+                    // Minimum Cart Fee
+                    if (minCartBase > 0)
+                      (() {
+                        final cg = minCartBase * (serviceTaxPercent / 2) / 100.0;
+                        final sg = minCartBase * (serviceTaxPercent / 2) / 100.0;
+                        final total = minCartBase + cg + sg;
+
+                        taxableSum += minCartBase;
+                        cgstSum += cg;
+                        sgstSum += sg;
+                        grandTotal += total;
+
+                        final sr = items.length + (platformBase > 0 ? 2 : 1);
+                        return pw.TableRow(
+                          children: [
+                            buildCell('$sr'),
+                            buildCell('Minimum Cart Fee'),
+                            buildCell('9997'),
+                            buildCell(minCartBase.toStringAsFixed(2)),
+                            buildCell('1.00'),
+                            buildCell('OTH'),
+                            buildCell('0'),
+                            buildCell(minCartBase.toStringAsFixed(2)),
+                            buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
+                            buildCell('${cg.toStringAsFixed(2)}'),
+                            buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
+                            buildCell('${sg.toStringAsFixed(2)}'),
+                            buildCell(total.toStringAsFixed(2)),
+                          ],
+                        );
+                      }()),
+
+                    // Delivery Fee
+                    if (deliveryBase > 0)
+                      (() {
+                        final cg = deliveryBase * (deliveryGstPercent / 2) / 100.0;
+                        final sg = deliveryBase * (deliveryGstPercent / 2) / 100.0;
+                        final total = deliveryBase + cg + sg;
+
+                        taxableSum += deliveryBase;
+                        cgstSum += cg;
+                        sgstSum += sg;
+                        grandTotal += total;
+
+                        final sr = items.length +
+                            (platformBase > 0 ? 1 : 0) +
+                            (minCartBase > 0 ? 1 : 0) +
+                            1;
+                        return pw.TableRow(
+                          children: [
+                            buildCell('$sr'),
+                            buildCell('Delivery Fee'),
+                            buildCell('996813'),
+                            buildCell(deliveryBase.toStringAsFixed(2)),
+                            buildCell('1.00'),
+                            buildCell('OTH'),
+                            buildCell('0'),
+                            buildCell(deliveryBase.toStringAsFixed(2)),
+                            buildCell('${(deliveryGstPercent / 2).toStringAsFixed(2)}%'),
+                            buildCell('${cg.toStringAsFixed(2)}'),
+                            buildCell('${(deliveryGstPercent / 2).toStringAsFixed(2)}%'),
+                            buildCell('${sg.toStringAsFixed(2)}'),
+                            buildCell(total.toStringAsFixed(2)),
+                          ],
+                        );
+                      }()),
+
+                    // TOTAL ROW
+                    pw.TableRow(
+                      decoration: pw.BoxDecoration(color: PdfColors.grey200),
+                      children: [
+                        buildCell('Total', bold: true),
+                        buildCell('', bold: true),
+                        buildCell('', bold: true),
+                        buildCell('', bold: true),
+                        buildCell(qtySum.toStringAsFixed(0), bold: true),
+                        buildCell('', bold: true),
+                        buildCell(discountSum.toStringAsFixed(2), bold: true),
+                        buildCell(taxableSum.toStringAsFixed(2), bold: true),
+                        buildCell('', bold: true),
+                        buildCell('${cgstSum.toStringAsFixed(2)}', bold: true),
+                        buildCell('', bold: true),
+                        buildCell('${sgstSum.toStringAsFixed(2)}', bold: true),
+                        buildCell((hasBilledTotal ? billedTotalOpt : grandTotal).toStringAsFixed(2),
+                            bold: true),
+                      ],
+                    ),
+                  ],
+                ),
+
+                pw.SizedBox(height: 8),
+
+                if (_text(billing['applied_coupon_code']).isNotEmpty)
+                  pw.Text('Coupon Applied: ${_text(billing['applied_coupon_code'])}',
+                      style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+
+                pw.SizedBox(height: 4),
+                pw.Text('Amount in Words:',
+                    style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                pw.Text(
+                  'Rupees ${_numberToWords(hasBilledTotal ? billedTotalOpt : grandTotal)} only',
+                  style: pw.TextStyle(fontSize: 9),
+                ),
+
+                pw.SizedBox(height: 10),
+
+                // Footer
+                pw.Container(
+                  padding: pw.EdgeInsets.all(8),
+                  decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.5)),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text('For Dobify',
+                          style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                      pw.Text('A trade of Leoworks Private Limited', style: pw.TextStyle(fontSize: 8)),
+                      pw.SizedBox(height: 4),
+                      pw.Text(
+                        'Registered Office: Ground Floor, Plot No-362, Damana Road, Chandrasekharpur, Bhubaneswar-751024, Khordha, Odisha',
+                        style: pw.TextStyle(fontSize: 7),
+                      ),
+                      pw.Text(
+                        'Email: info@dobify.in | Contact: +91 7326019870 | Website: www.dobify.in',
+                        style: pw.TextStyle(fontSize: 7),
+                      ),
+                      pw.SizedBox(height: 8),
+                      pw.Align(
+                        alignment: pw.Alignment.centerRight,
+                        child: pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.end,
+                          children: [
+                            pw.Text('Digitally Signed by', style: pw.TextStyle(fontSize: 8)),
+                            pw.Text('Leoworks Private Limited.',
+                                style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+                            pw.Text(invoiceDate, style: pw.TextStyle(fontSize: 8)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                pw.SizedBox(height: 8),
+
+                // Notes & T&C
+                pw.Text('Note:', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+                pw.Text(
+                  'This is a digitally signed computer-generated invoice and does not require a signature. All transactions are subject to the terms and conditions of Dobify.',
+                  style: pw.TextStyle(fontSize: 7),
+                ),
+                pw.SizedBox(height: 6),
+                pw.Text('Terms & Conditions:', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+                pw.Text(
+                  '1. For any issues, contact Dobify chat support or email info@dobify.in',
+                  style: pw.TextStyle(fontSize: 7),
+                ),
+                pw.Text(
+                  '2. Dobify never asks for sensitive banking details (CVV, account number, UPI PIN, passwords).',
+                  style: pw.TextStyle(fontSize: 7),
+                ),
+                pw.Text('3. Services are provided by Dobify, a trade of Leoworks Private Limited.',
+                    style: pw.TextStyle(fontSize: 7)),
+                pw.Text(
+                  '4. Refunds/cancellations are processed as per Dobify policy.',
+                  style: pw.TextStyle(fontSize: 7),
+                ),
+                pw.Text('5. Delays/issues beyond control are not our responsibility.',
+                    style: pw.TextStyle(fontSize: 7)),
+                pw.Text('6. Jurisdiction: Bhubaneswar, Odisha.', style: pw.TextStyle(fontSize: 7)),
+              ],
+            ),
           );
         },
       ),
