@@ -89,10 +89,35 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
   String _formatPhone(String? raw) {
     if (raw == null || raw.trim().isEmpty) return '';
     final p = raw.trim();
-    if (p.startsWith('+')) return p; // already formatted
-    // if it's a 10-digit Indian number, show +91
+    if (p.startsWith('+')) return p;
     if (RegExp(r'^\d{10}$').hasMatch(p)) return '+91 $p';
-    return p; // fallback
+    return p;
+  }
+
+// ✅ ADD THIS NEW METHOD HERE:
+  String _formatCompleteAddress(Map<String, dynamic> address) {
+    final parts = <String>[];
+
+    // Add address line 1
+    if ((address['address_line_1'] ?? '').toString().trim().isNotEmpty) {
+      parts.add(address['address_line_1'].toString().trim());
+    }
+
+    // Add address line 2
+    if ((address['address_line_2'] ?? '').toString().trim().isNotEmpty) {
+      parts.add(address['address_line_2'].toString().trim());
+    }
+
+    // Add landmark
+    if ((address['landmark'] ?? '').toString().trim().isNotEmpty) {
+      parts.add('Near ${address['landmark'].toString().trim()}');
+    }
+
+    // Add city, state, pincode
+    final cityStatePincode = '${address['city']}, ${address['state']} - ${address['pincode']}';
+    parts.add(cityStatePincode);
+
+    return parts.join(', ');
   }
 
 
@@ -1332,7 +1357,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
         'delivery_date': selectedDeliveryDate.toIso8601String().split('T')[0],
         'delivery_slot_id': selectedDeliverySlot!['id'],
         'delivery_type': isExpressDelivery ? 'express' : 'standard',
-        'delivery_address': selectedAddress!['address_line_1'],
+        'delivery_address': _formatCompleteAddress(selectedAddress!),
         'address_details': selectedAddress,
         'applied_coupon_code': widget.appliedCouponCode,
         'discount_amount': widget.discount,
@@ -2436,7 +2461,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
             ),
             SizedBox(height: 8),
 
-            // 👇 Complete address
+
             Text(
               selectedAddress!['address_line_1'] ?? '',
               style: TextStyle(
@@ -2445,17 +2470,36 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
               ),
             ),
             if ((selectedAddress!['address_line_2'] ?? '').toString().trim().isNotEmpty)
-              Text(
-                selectedAddress!['address_line_2'],
-                style: TextStyle(fontSize: isSmallScreen ? 12 : 14),
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  selectedAddress!['address_line_2'],
+                  style: TextStyle(fontSize: isSmallScreen ? 12 : 14),
+                ),
               ),
-            Text(
-              '${selectedAddress!['city']}, ${selectedAddress!['state']} - ${selectedAddress!['pincode']}',
-              style: TextStyle(
-                color: Colors.black54,
-                fontSize: isSmallScreen ? 11 : 13,
+            if ((selectedAddress!['landmark'] ?? '').toString().trim().isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  'Near ${selectedAddress!['landmark']}',
+                  style: TextStyle(
+                    fontSize: isSmallScreen ? 11 : 13,
+                    color: Colors.black54,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '${selectedAddress!['city']}, ${selectedAddress!['state']} - ${selectedAddress!['pincode']}',
+                style: TextStyle(
+                  color: Colors.black54,
+                  fontSize: isSmallScreen ? 11 : 13,
+                ),
               ),
             ),
+
 
             // 👇 Availability line
             if (isLoadingServiceAvailability)
