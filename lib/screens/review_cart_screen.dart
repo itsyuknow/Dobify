@@ -685,30 +685,120 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
     }
   }
 
-  void _removeCoupon() {
+  void _removeCoupon({String? reason}) {
     setState(() {
       _appliedCouponCode = null;
       discount = 0.0;
     });
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Row(
-            children: [
-              Icon(Icons.info, color: Colors.white),
-              SizedBox(width: 8),
-              Text('Coupon removed'),
-            ],
-          ),
-          backgroundColor: Colors.orange.shade600,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          margin: const EdgeInsets.all(16),
+    if (!mounted) return;
+
+    final msg = reason ?? 'Coupon removed';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.info, color: Colors.white),
+            const SizedBox(width: 8),
+            Expanded(child: Text(msg)),
+          ],
         ),
-      );
+        backgroundColor: Colors.orange.shade600,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
+  Future<Map<String, dynamic>?> _fetchCouponByCode(String code) async {
+    try {
+      final coupon = await supabase
+          .from('coupons')
+          .select()
+          .eq('code', code.toUpperCase())
+          .eq('is_active', true)
+          .maybeSingle();
+      if (coupon == null) return null;
+      return Map<String, dynamic>.from(coupon);
+    } catch (e) {
+      debugPrint('fetchCoupon error: $e');
+      return null;
     }
   }
+
+
+  Future<void> _revalidateAppliedCoupon() async {
+    if (_appliedCouponCode == null) return;
+
+    // Current (pre-discount) subtotal of items
+    final double itemSubtotal = _cartItems.fold(0.0, (sum, item) {
+      return sum + (item['total_price']?.toDouble() ?? 0.0);
+    });
+
+    // If nothing in cart, remove immediately
+    if (itemSubtotal <= 0) {
+      _removeCoupon(reason: 'Coupon removed as cart is empty');
+      return;
+    }
+
+    // Load latest coupon row and validate key constraints that can change
+    final coupon = await _fetchCouponByCode(_appliedCouponCode!);
+    if (coupon == null) {
+      _removeCoupon(reason: 'Coupon no longer available');
+      return;
+    }
+
+    // Expiry check
+    if (coupon['expiry_date'] != null) {
+      try {
+        final expiry = DateTime.parse(coupon['expiry_date'].toString());
+        if (DateTime.now().isAfter(expiry)) {
+          _removeCoupon(reason: 'Coupon expired');
+          return;
+        }
+      } catch (_) {/* ignore parse issues */}
+    }
+
+    // Global usage limit check (optional but safe)
+    if (coupon['usage_limit'] != null && coupon['usage_count'] != null) {
+      final used = (coupon['usage_count'] as num).toInt();
+      final limit = (coupon['usage_limit'] as num).toInt();
+      if (used >= limit) {
+        _removeCoupon(reason: 'Coupon usage limit exceeded');
+        return;
+      }
+    }
+
+    // Minimum order value check (this is your main issue)
+    final double? minOrder = (coupon['minimum_order_value'] as num?)
+        ?.toDouble();
+    if (minOrder != null && itemSubtotal < minOrder) {
+      _removeCoupon(
+        reason: 'Coupon removed: order below minimum of ₹${minOrder.toStringAsFixed(0)}',
+      );
+      return;
+    }
+
+    // If still valid, optionally clamp discount again (keeps UI consistent)
+    // (No need to update here; your _calculateBilling already clamps. Kept for safety.)
+    setState(() {
+      final String type = (coupon['discount_type'] ?? '').toString();
+      final double value = (coupon['discount_value'] as num?)?.toDouble() ?? 0.0;
+      double newDiscount = 0.0;
+      if (type == 'percentage') {
+        newDiscount = itemSubtotal * value / 100.0;
+        final double? maxDisc =
+        (coupon['max_discount_amount'] as num?)?.toDouble();
+        if (maxDisc != null && newDiscount > maxDisc) newDiscount = maxDisc;
+      } else {
+        newDiscount = value;
+      }
+      // Don’t let discount exceed the current subtotal
+      discount = newDiscount.clamp(0.0, itemSubtotal);
+    });
+  }
+
 
   double _calculateSubtotal() {
     return _cartItems.fold(0.0, (sum, item) {
@@ -791,6 +881,158 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
       _updatingItems.add(key);
     });
 
+    // ---- local helper to revalidate currently applied coupon against new cart ----
+    Future<void> _revalidateAppliedCouponInline() async {
+      if (_appliedCouponCode == null) return;
+
+      // Current (pre-discount) subtotal using local state
+      final double itemSubtotal = _cartItems.fold(0.0, (sum, it) {
+        return sum + (it['total_price']?.toDouble() ?? 0.0);
+      });
+
+      // If nothing in cart, remove immediately
+      if (itemSubtotal <= 0) {
+        setState(() {
+          _appliedCouponCode = null;
+          discount = 0.0;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Coupon removed as cart is empty'),
+              backgroundColor: Colors.orange.shade600,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              margin: const EdgeInsets.all(16),
+            ),
+          );
+        }
+        return;
+      }
+
+      // Fetch latest coupon row
+      Map<String, dynamic>? coupon;
+      try {
+        final resp = await supabase
+            .from('coupons')
+            .select()
+            .eq('code', _appliedCouponCode!.toUpperCase())
+            .eq('is_active', true)
+            .maybeSingle();
+        if (resp != null) {
+          coupon = Map<String, dynamic>.from(resp);
+        }
+      } catch (e) {
+        debugPrint('Coupon fetch error: $e');
+      }
+
+      // If coupon not found/active anymore
+      if (coupon == null) {
+        setState(() {
+          _appliedCouponCode = null;
+          discount = 0.0;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Coupon removed: no longer available'),
+              backgroundColor: Colors.orange.shade600,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              margin: const EdgeInsets.all(16),
+            ),
+          );
+        }
+        return;
+      }
+
+      // Expiry check
+      if (coupon['expiry_date'] != null) {
+        try {
+          final expiry = DateTime.parse(coupon['expiry_date'].toString());
+          if (DateTime.now().isAfter(expiry)) {
+            setState(() {
+              _appliedCouponCode = null;
+              discount = 0.0;
+            });
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Text('Coupon removed: expired'),
+                  backgroundColor: Colors.orange.shade600,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  margin: const EdgeInsets.all(16),
+                ),
+              );
+            }
+            return;
+          }
+        } catch (_) { /* ignore parse errors */ }
+      }
+
+      // Global usage limit (optional but safe)
+      if (coupon['usage_limit'] != null && coupon['usage_count'] != null) {
+        final used = (coupon['usage_count'] as num).toInt();
+        final limit = (coupon['usage_limit'] as num).toInt();
+        if (used >= limit) {
+          setState(() {
+            _appliedCouponCode = null;
+            discount = 0.0;
+          });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('Coupon removed: usage limit exceeded'),
+                backgroundColor: Colors.orange.shade600,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                margin: const EdgeInsets.all(16),
+              ),
+            );
+          }
+          return;
+        }
+      }
+
+      // Minimum order value check — main case from your screenshots
+      final double? minOrder = (coupon['minimum_order_value'] as num?)?.toDouble();
+      if (minOrder != null && itemSubtotal < minOrder) {
+        setState(() {
+          _appliedCouponCode = null;
+          discount = 0.0;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Coupon removed: order below minimum of ₹${minOrder.toStringAsFixed(0)}'),
+              backgroundColor: Colors.orange.shade600,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              margin: const EdgeInsets.all(16),
+            ),
+          );
+        }
+        return;
+      }
+
+      // Still valid → recompute/clamp discount to current subtotal for consistency
+      final String type = (coupon['discount_type'] ?? '').toString();
+      final double value = (coupon['discount_value'] as num?)?.toDouble() ?? 0.0;
+      double newDiscount = 0.0;
+      if (type == 'percentage') {
+        newDiscount = itemSubtotal * value / 100.0;
+        final double? maxDisc = (coupon['max_discount_amount'] as num?)?.toDouble();
+        if (maxDisc != null && newDiscount > maxDisc) newDiscount = maxDisc;
+      } else {
+        newDiscount = value;
+      }
+      setState(() {
+        discount = newDiscount.clamp(0.0, itemSubtotal);
+      });
+    }
+    // ---------------------------------------------------------------------------
+
     try {
       final int currentQuantity = (item['product_quantity'] ?? 0).toInt();
       final int newQty = currentQuantity + delta;
@@ -827,6 +1069,10 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
             return cartItem;
           }).toList();
         });
+
+        // ✅ Revalidate coupon after quantity change
+        await _revalidateAppliedCouponInline();
+
       } else {
         // Delete the row when quantity drops to 0
         await supabase
@@ -848,6 +1094,9 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
             return isSame;
           });
         });
+
+        // ✅ Revalidate coupon after removal of a row
+        await _revalidateAppliedCouponInline();
       }
     } catch (e) {
       debugPrint("Error updating quantity: $e");
@@ -856,6 +1105,9 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
           SnackBar(
             content: Text('Error updating cart: ${e.toString()}'),
             backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            margin: const EdgeInsets.all(16),
           ),
         );
       }
@@ -869,6 +1121,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
       }
     }
   }
+
 
 
   @override

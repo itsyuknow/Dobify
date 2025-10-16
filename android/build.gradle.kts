@@ -1,7 +1,7 @@
 // ✅ Modern plugins block
 plugins {
     id("com.google.gms.google-services") version "4.4.0" apply false
-    id("org.jetbrains.kotlin.android") version "2.1.0" apply false  // ✅ Updated to Kotlin 2.1.0
+    id("org.jetbrains.kotlin.android") version "2.1.0" apply false  //#YuKNOW
 }
 
 allprojects {

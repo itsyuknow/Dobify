@@ -44,7 +44,6 @@ android {
         }
     }
 
-    // ✅ FIXED PACKAGING OPTIONS - KOTLIN SYNTAX
     packaging {
         resources {
             pickFirsts.addAll(listOf(
@@ -56,7 +55,7 @@ android {
         }
     }
 }
-
+//#YuKNOW
 dependencies {
     // Core dependencies
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
