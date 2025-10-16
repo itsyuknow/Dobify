@@ -645,6 +645,48 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
     }
   }
 
+
+
+  String _buildFullAddress(Map<String, dynamic> a) {
+    String v(dynamic x) => (x ?? '').toString().trim();
+    String pick(List<String> keys) {
+      for (final k in keys) {
+        final s = v(a[k]);
+        if (s.isNotEmpty) return s;
+      }
+      return '';
+    }
+
+    // Common key aliases so it works with your data structure
+    final name     = pick(['contact_name','name','full_name','recipient_name']);
+    final phone    = pick(['phone','phone_number','mobile','contact']);
+    final line1    = pick(['address_line_1','line1','address1','street']);
+    final line2    = pick(['address_line_2','line2','address2','area2']);
+    final landmark = pick(['landmark','nearby','near','reference']);
+    final area     = pick(['area','locality','sublocality']);
+    final city     = pick(['city','district','town']);
+    final state    = pick(['state','state_name']);
+    final pincode  = pick(['pincode','zip','postal_code']);
+
+    final lines = <String>[
+      // Name & Phone always on top (if they exist)
+      [name, phone].where((s) => s.isNotEmpty).join(' • '),
+
+      // Address lines
+      [line1, line2].where((s) => s.isNotEmpty).join(', '),
+
+      // Landmark/area (optional)
+      [landmark, area].where((s) => s.isNotEmpty).join(', '),
+
+      // City/State/Pincode
+      [city, state, pincode].where((s) => s.isNotEmpty).join(', '),
+    ].where((s) => s.trim().isNotEmpty).toList();
+
+    return lines.join('\n');
+  }
+
+
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -1139,8 +1181,9 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen>
           _buildScheduleRow(
             Icons.location_on,
             'Address',
-            '${widget.selectedAddress['address_line_1']}, ${widget.selectedAddress['city']} - ${widget.selectedAddress['pincode']}',
+            _buildFullAddress(widget.selectedAddress),
           ),
+
         ],
       ),
     );
