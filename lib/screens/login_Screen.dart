@@ -34,6 +34,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   bool _isGoogleLoggingIn = false;
   bool _navigatedAfterLogin = false;
   bool _isInitializing = true;
+  bool _isHandlingWebCallback = false; // NEW: Track web callback handling
 
   late AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSubscription;
@@ -43,11 +44,36 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   void initState() {
     super.initState();
     _initializeAnimations();
-    _checkExistingSession();
+    _handleWebOAuthCallback(); // NEW: Handle web OAuth first
     _setupAuthListener();
     if (!kIsWeb) {
       _initDeepLinks();
     }
+  }
+
+  // NEW: Handle web OAuth callback
+  Future<void> _handleWebOAuthCallback() async {
+    if (kIsWeb) {
+      final uri = Uri.base;
+
+      // Check if this is an OAuth callback (has access_token or code in URL)
+      if (uri.fragment.contains('access_token') ||
+          uri.queryParameters.containsKey('code')) {
+        print('🌐 Web OAuth callback detected in URL');
+        setState(() {
+          _isHandlingWebCallback = true;
+          _isGoogleLoggingIn = true;
+        });
+
+        // Let Supabase handle the callback
+        // The auth listener will catch the signedIn event
+        await Future.delayed(const Duration(milliseconds: 500));
+        return;
+      }
+    }
+
+    // If not a callback, proceed with normal session check
+    await _checkExistingSession();
   }
 
   Future<void> _checkExistingSession() async {
@@ -231,6 +257,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         if (mounted && !_navigatedAfterLogin) {
           setState(() {
             _isGoogleLoggingIn = false;
+            _isHandlingWebCallback = false; // Reset callback flag
           });
 
           HapticFeedback.lightImpact();
@@ -250,6 +277,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           setState(() {
             _isGoogleLoggingIn = false;
             _navigatedAfterLogin = false;
+            _isHandlingWebCallback = false;
           });
         }
       }
@@ -265,16 +293,20 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       const String mobileRedirect = 'com.yuknow.ironly://oauth-callback';
 
       if (kIsWeb) {
-        // For web, use current origin
+        // For web, use current origin without trailing slash for cleaner URL
         final currentUrl = Uri.base;
-        final webRedirect = '${currentUrl.origin}/';
+        final webRedirect = '${currentUrl.origin}${currentUrl.path}';
 
         debugPrint('🔐 Web redirect URL: $webRedirect');
 
         await supabase.auth.signInWithOAuth(
           OAuthProvider.google,
           redirectTo: webRedirect,
+          authScreenLaunchMode: LaunchMode.platformDefault,
         );
+
+        // Don't set loading to false here on web - let the callback handle it
+        // The page will reload and auth listener will catch the session
       } else {
         // For mobile
         debugPrint('🔐 Mobile redirect URL: $mobileRedirect');
@@ -287,7 +319,10 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isGoogleLoggingIn = false);
+      setState(() {
+        _isGoogleLoggingIn = false;
+        _isHandlingWebCallback = false;
+      });
 
       String errorMessage = e.toString();
       if (errorMessage.contains('OAuth state mismatch')) {
@@ -379,11 +414,28 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
 
   @override
   Widget build(BuildContext context) {
-    if (_isInitializing) {
+    // Show loading during initialization or web callback handling
+    if (_isInitializing || _isHandlingWebCallback) {
       return Scaffold(
         body: Center(
-          child: CircularProgressIndicator(
-            color: kPrimaryColor,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(
+                color: kPrimaryColor,
+              ),
+              if (_isHandlingWebCallback) ...[
+                const SizedBox(height: 20),
+                Text(
+                  'Completing sign in...',
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
       );

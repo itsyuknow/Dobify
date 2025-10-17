@@ -79,7 +79,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
 
     _devTapCount++;
 
-    if (_devTapCount >= 20) {
+    if (_devTapCount >= 8) {
       _devTapCount = 0;
       _firstTapMs = 0;
       _showDevUnlockDialog();
