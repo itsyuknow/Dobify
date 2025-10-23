@@ -21,7 +21,7 @@ android {
 
     defaultConfig {
         applicationId = "com.yuknow.ironly"
-        minSdk = 23  // Updated to 23 to fix Firebase Auth minSdkVersion error
+        minSdk = flutter.minSdkVersion  // Updated to 23 to fix Firebase Auth minSdkVersion error
         targetSdk = flutter.targetSdkVersion.toInt()
         versionCode = flutter.versionCode.toInt()
         versionName = flutter.versionName
