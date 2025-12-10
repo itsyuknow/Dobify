@@ -3840,7 +3840,6 @@ class _OrderDetailsSheet extends StatelessWidget {
 
 
   Future<Uint8List> _buildInvoicePdfBytes(Map<String, dynamic> order) async {
-    // ---- Safe helpers ----
     String _text(dynamic v) => (v == null || v.toString() == 'null') ? '' : v.toString();
     num _num(dynamic v) {
       if (v == null) return 0;
@@ -3859,7 +3858,6 @@ class _OrderDetailsSheet extends StatelessWidget {
 
     final pdf = pw.Document();
 
-    // ---- Logo (safe load) ----
     pw.ImageProvider? logoImage;
     try {
       final logoData = await rootBundle.load('assets/images/dobify_inv_logo.jpg');
@@ -3868,37 +3866,27 @@ class _OrderDetailsSheet extends StatelessWidget {
       logoImage = null;
     }
 
-    // ---- Inputs from order ----
-    final billingList = _listOfMaps(order['order_billing_details']);
-    final billing = billingList.isNotEmpty ? billingList.first : <String, dynamic>{};
-
+    final billing = _map(order['billing_details']);
     final address = _map(order['address_info']).isNotEmpty
         ? _map(order['address_info'])
         : _map(order['address_details']);
-
     final items = _listOfMaps(order['order_items']);
-
     final createdAt = _text(order['created_at']);
     final orderId = _text(order['id'] ?? order['order_code']);
     final paymentMethod = _text(order['payment_method']).toUpperCase();
 
-    // Dynamic % (fallbacks)
-    final double serviceTaxPercent =
-    (_num(billing['service_tax_percent'])).toDouble() > 0
+    final double serviceTaxPercent = (_num(billing['service_tax_percent'])).toDouble() > 0
         ? (_num(billing['service_tax_percent'])).toDouble()
-        : 18.0;
-    final double deliveryGstPercent =
-    (_num(billing['delivery_gst_percent'])).toDouble() > 0
+        : 0.0; // Changed from 18.0 to 0.0
+    final double deliveryGstPercent = (_num(billing['delivery_gst_percent'])).toDouble() > 0
         ? (_num(billing['delivery_gst_percent'])).toDouble()
-        : 18.0;
+        : 0.0; // Changed from 18.0 to 0.0
 
-    // Charges are **pre-GST bases**
-    final double minCartBase   = (_num(billing['minimum_cart_fee'])).toDouble();
-    final double platformBase  = (_num(billing['platform_fee'])).toDouble();
-    final double deliveryBase  = (_num(billing['delivery_fee'])).toDouble();
+    final double minCartBase = (_num(billing['minimum_cart_fee'])).toDouble();
+    final double platformBase = (_num(billing['platform_fee'])).toDouble();
+    final double deliveryBase = (_num(billing['delivery_fee'])).toDouble();
     final double totalDiscount = (_num(billing['discount_amount'])).toDouble();
 
-    // Items base subtotal
     double itemsBaseSubtotal = 0;
     for (final it in items) {
       itemsBaseSubtotal += (_num(it['total_price'])).toDouble();
@@ -3906,7 +3894,6 @@ class _OrderDetailsSheet extends StatelessWidget {
     final billedSubtotal = (_num(billing['subtotal'])).toDouble();
     if (billedSubtotal > 0) itemsBaseSubtotal = billedSubtotal;
 
-    // Total amount (if provided)
     final billedTotalOpt = (_num(billing['total_amount'])).toDouble();
     final bool hasBilledTotal = billedTotalOpt > 0;
 
@@ -3921,7 +3908,6 @@ class _OrderDetailsSheet extends StatelessWidget {
     }
     final invoiceDate = _formatDate(createdAt);
 
-    // **Generate Invoice No with serial number format - only numbers**
     String _genInvoiceNo() {
       final now = DateTime.tryParse(createdAt) ?? DateTime.now();
       final y = now.year.toString();
@@ -3936,7 +3922,6 @@ class _OrderDetailsSheet extends StatelessWidget {
         ? _text(billing['invoice_no'])
         : _genInvoiceNo();
 
-    // ---- Number to words (shortened for brevity) ----
     String _numberToWords(double amount) {
       final ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
       final teens = ['ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
@@ -3979,13 +3964,12 @@ class _OrderDetailsSheet extends StatelessWidget {
       return result.replaceAll(RegExp(r'\s+'), ' ').trim();
     }
 
-    // ---- Table helpers ----
     pw.Widget buildCell(String text, {bool bold = false, pw.TextAlign align = pw.TextAlign.center}) {
       return pw.Padding(
         padding: pw.EdgeInsets.all(4),
         child: pw.Text(
           text,
-          maxLines: 3, // allow an extra line so "(INR)" never gets cut off
+          maxLines: 3,
           textAlign: align,
           style: pw.TextStyle(
             fontSize: 8,
@@ -3995,18 +3979,13 @@ class _OrderDetailsSheet extends StatelessWidget {
       );
     }
 
-
-
-
-    // Totals for last row
     double qtySum = 0;
-    double taxableSum = 0; // bases
+    double taxableSum = 0;
     double cgstSum = 0;
     double sgstSum = 0;
     double grandTotal = 0;
     double discountSum = 0;
 
-    // Recipient & phone
     final recipientName = _text(address['recipient_name']).isEmpty
         ? 'Customer'
         : _text(address['recipient_name']);
@@ -4018,7 +3997,6 @@ class _OrderDetailsSheet extends StatelessWidget {
         ? _text(address['mobile'])
         : _text(address['contact'])));
 
-    // Column widths
     final colW = <int, pw.TableColumnWidth>{
       0: pw.FixedColumnWidth(30),
       1: pw.FlexColumnWidth(5),
@@ -4040,7 +4018,6 @@ class _OrderDetailsSheet extends StatelessWidget {
         pageFormat: PdfPageFormat.a4,
         margin: pw.EdgeInsets.all(20),
         build: (ctx) {
-          // Uniform header cell builder (same font size, taller row)
           pw.Widget headerCell(String text) => pw.Container(
             padding: pw.EdgeInsets.fromLTRB(4, 6, 4, 6),
             alignment: pw.Alignment.center,
@@ -4050,7 +4027,7 @@ class _OrderDetailsSheet extends StatelessWidget {
               maxLines: 3,
               textAlign: pw.TextAlign.center,
               style: pw.TextStyle(
-                fontSize: 8, // same for all headers
+                fontSize: 8,
                 fontWeight: pw.FontWeight.bold,
               ),
             ),
@@ -4064,7 +4041,6 @@ class _OrderDetailsSheet extends StatelessWidget {
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                // Header
                 pw.Center(
                   child: pw.Container(
                     padding: pw.EdgeInsets.symmetric(vertical: 8, horizontal: 16),
@@ -4077,7 +4053,6 @@ class _OrderDetailsSheet extends StatelessWidget {
                 ),
                 pw.SizedBox(height: 10),
 
-                // Company / Order
                 pw.Row(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
@@ -4125,7 +4100,6 @@ class _OrderDetailsSheet extends StatelessWidget {
 
                 pw.SizedBox(height: 10),
 
-                // Invoice To - FULL ADDRESS DISPLAY
                 pw.Container(
                   padding: pw.EdgeInsets.all(8),
                   decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.5)),
@@ -4176,23 +4150,21 @@ class _OrderDetailsSheet extends StatelessWidget {
 
                 pw.SizedBox(height: 10),
 
-                // Items Table
                 pw.Table(
                   border: pw.TableBorder.all(width: 0.5),
                   columnWidths: colW,
                   children: [
-                    // Header
                     pw.TableRow(
                       decoration: pw.BoxDecoration(color: PdfColors.grey300),
                       children: [
                         headerCell('Sr. No.'),
-                        headerCell('Items'),      // exactly 2 lines
+                        headerCell('Items'),
                         headerCell('HSN/SAC'),
                         headerCell('Unit Price (INR)'),
                         headerCell('Qty.'),
                         headerCell('UQC'),
                         headerCell('Discount (INR)'),
-                        headerCell('Taxable Amount\n(INR)'),  // shows (INR)
+                        headerCell('Taxable Amount\n(INR)'),
                         headerCell('CGST\n(%)'),
                         headerCell('CGST\n(INR)'),
                         headerCell('SGST\n(%)'),
@@ -4201,7 +4173,6 @@ class _OrderDetailsSheet extends StatelessWidget {
                       ],
                     ),
 
-                    // Item rows
                     ...items.asMap().entries.map((entry) {
                       final idx = entry.key + 1;
                       final it = entry.value;
@@ -4216,8 +4187,9 @@ class _OrderDetailsSheet extends StatelessWidget {
                           : 0.0;
                       final taxableAfterDiscount = base - itemDiscount;
 
-                      final cg = taxableAfterDiscount * (serviceTaxPercent / 2) / 100.0;
-                      final sg = taxableAfterDiscount * (serviceTaxPercent / 2) / 100.0;
+                      // Calculate tax only if serviceTaxPercent > 0
+                      final cg = serviceTaxPercent > 0 ? (taxableAfterDiscount * (serviceTaxPercent / 2) / 100.0) : 0.0;
+                      final sg = serviceTaxPercent > 0 ? (taxableAfterDiscount * (serviceTaxPercent / 2) / 100.0) : 0.0;
                       final rowTotal = taxableAfterDiscount + cg + sg;
 
                       qtySum += qty;
@@ -4237,20 +4209,19 @@ class _OrderDetailsSheet extends StatelessWidget {
                           buildCell('NOS'),
                           buildCell(itemDiscount.toStringAsFixed(2)),
                           buildCell(taxableAfterDiscount.toStringAsFixed(2)),
-                          buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
-                          buildCell('${cg.toStringAsFixed(2)}'),
-                          buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
-                          buildCell('${sg.toStringAsFixed(2)}'),
+                          buildCell(serviceTaxPercent > 0 ? '${(serviceTaxPercent / 2).toStringAsFixed(2)}%' : '0%'),
+                          buildCell(cg.toStringAsFixed(2)),
+                          buildCell(serviceTaxPercent > 0 ? '${(serviceTaxPercent / 2).toStringAsFixed(2)}%' : '0%'),
+                          buildCell(sg.toStringAsFixed(2)),
                           buildCell(rowTotal.toStringAsFixed(2)),
                         ],
                       );
                     }),
 
-                    // Platform Fee
                     if (platformBase > 0)
                       (() {
-                        final cg = platformBase * (serviceTaxPercent / 2) / 100.0;
-                        final sg = platformBase * (serviceTaxPercent / 2) / 100.0;
+                        final cg = serviceTaxPercent > 0 ? (platformBase * (serviceTaxPercent / 2) / 100.0) : 0.0;
+                        final sg = serviceTaxPercent > 0 ? (platformBase * (serviceTaxPercent / 2) / 100.0) : 0.0;
                         final total = platformBase + cg + sg;
 
                         taxableSum += platformBase;
@@ -4264,24 +4235,23 @@ class _OrderDetailsSheet extends StatelessWidget {
                             buildCell('Platform Fee'),
                             buildCell('9997'),
                             buildCell(platformBase.toStringAsFixed(2)),
-                            buildCell('1.00'),
+                            buildCell('1'),
                             buildCell('OTH'),
                             buildCell('0'),
                             buildCell(platformBase.toStringAsFixed(2)),
-                            buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
-                            buildCell('${cg.toStringAsFixed(2)}'),
-                            buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
-                            buildCell('${sg.toStringAsFixed(2)}'),
+                            buildCell(serviceTaxPercent > 0 ? '${(serviceTaxPercent / 2).toStringAsFixed(2)}%' : '0%'),
+                            buildCell(cg.toStringAsFixed(2)),
+                            buildCell(serviceTaxPercent > 0 ? '${(serviceTaxPercent / 2).toStringAsFixed(2)}%' : '0%'),
+                            buildCell(sg.toStringAsFixed(2)),
                             buildCell(total.toStringAsFixed(2)),
                           ],
                         );
                       }()),
 
-                    // Minimum Cart Fee
                     if (minCartBase > 0)
                       (() {
-                        final cg = minCartBase * (serviceTaxPercent / 2) / 100.0;
-                        final sg = minCartBase * (serviceTaxPercent / 2) / 100.0;
+                        final cg = serviceTaxPercent > 0 ? (minCartBase * (serviceTaxPercent / 2) / 100.0) : 0.0;
+                        final sg = serviceTaxPercent > 0 ? (minCartBase * (serviceTaxPercent / 2) / 100.0) : 0.0;
                         final total = minCartBase + cg + sg;
 
                         taxableSum += minCartBase;
@@ -4300,20 +4270,19 @@ class _OrderDetailsSheet extends StatelessWidget {
                             buildCell('OTH'),
                             buildCell('0'),
                             buildCell(minCartBase.toStringAsFixed(2)),
-                            buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
-                            buildCell('${cg.toStringAsFixed(2)}'),
-                            buildCell('${(serviceTaxPercent / 2).toStringAsFixed(2)}%'),
-                            buildCell('${sg.toStringAsFixed(2)}'),
+                            buildCell(serviceTaxPercent > 0 ? '${(serviceTaxPercent / 2).toStringAsFixed(2)}%' : '0%'),
+                            buildCell(cg.toStringAsFixed(2)),
+                            buildCell(serviceTaxPercent > 0 ? '${(serviceTaxPercent / 2).toStringAsFixed(2)}%' : '0%'),
+                            buildCell(sg.toStringAsFixed(2)),
                             buildCell(total.toStringAsFixed(2)),
                           ],
                         );
                       }()),
 
-                    // Delivery Fee
                     if (deliveryBase > 0)
                       (() {
-                        final cg = deliveryBase * (deliveryGstPercent / 2) / 100.0;
-                        final sg = deliveryBase * (deliveryGstPercent / 2) / 100.0;
+                        final cg = deliveryGstPercent > 0 ? (deliveryBase * (deliveryGstPercent / 2) / 100.0) : 0.0;
+                        final sg = deliveryGstPercent > 0 ? (deliveryBase * (deliveryGstPercent / 2) / 100.0) : 0.0;
                         final total = deliveryBase + cg + sg;
 
                         taxableSum += deliveryBase;
@@ -4335,16 +4304,15 @@ class _OrderDetailsSheet extends StatelessWidget {
                             buildCell('OTH'),
                             buildCell('0'),
                             buildCell(deliveryBase.toStringAsFixed(2)),
-                            buildCell('${(deliveryGstPercent / 2).toStringAsFixed(2)}%'),
-                            buildCell('${cg.toStringAsFixed(2)}'),
-                            buildCell('${(deliveryGstPercent / 2).toStringAsFixed(2)}%'),
-                            buildCell('${sg.toStringAsFixed(2)}'),
+                            buildCell(deliveryGstPercent > 0 ? '${(deliveryGstPercent / 2).toStringAsFixed(2)}%' : '0%'),
+                            buildCell(cg.toStringAsFixed(2)),
+                            buildCell(deliveryGstPercent > 0 ? '${(deliveryGstPercent / 2).toStringAsFixed(2)}%' : '0%'),
+                            buildCell(sg.toStringAsFixed(2)),
                             buildCell(total.toStringAsFixed(2)),
                           ],
                         );
                       }()),
 
-                    // TOTAL ROW
                     pw.TableRow(
                       decoration: pw.BoxDecoration(color: PdfColors.grey200),
                       children: [
@@ -4357,9 +4325,9 @@ class _OrderDetailsSheet extends StatelessWidget {
                         buildCell(discountSum.toStringAsFixed(2), bold: true),
                         buildCell(taxableSum.toStringAsFixed(2), bold: true),
                         buildCell('', bold: true),
-                        buildCell('${cgstSum.toStringAsFixed(2)}', bold: true),
+                        buildCell(cgstSum.toStringAsFixed(2), bold: true),
                         buildCell('', bold: true),
-                        buildCell('${sgstSum.toStringAsFixed(2)}', bold: true),
+                        buildCell(sgstSum.toStringAsFixed(2), bold: true),
                         buildCell((hasBilledTotal ? billedTotalOpt : grandTotal).toStringAsFixed(2),
                             bold: true),
                       ],
@@ -4383,7 +4351,6 @@ class _OrderDetailsSheet extends StatelessWidget {
 
                 pw.SizedBox(height: 10),
 
-                // Footer
                 pw.Container(
                   padding: pw.EdgeInsets.all(8),
                   decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.5)),
@@ -4421,7 +4388,6 @@ class _OrderDetailsSheet extends StatelessWidget {
 
                 pw.SizedBox(height: 8),
 
-                // Notes & T&C
                 pw.Text('Note:', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
                 pw.Text(
                   'This is a digitally signed computer-generated invoice and does not require a signature. All transactions are subject to the terms and conditions of Dobify.',
@@ -4452,7 +4418,6 @@ class _OrderDetailsSheet extends StatelessWidget {
         },
       ),
     );
-
 
     return await pdf.save();
   }

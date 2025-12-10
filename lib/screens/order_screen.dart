@@ -442,12 +442,26 @@ class _OrdersScreenState extends State<OrdersScreen>
   }
 
   void _selectSearchSuggestion(Map<String, dynamic> product) {
-    _searchController.text = product['product_name'];
+    final categoryName = product['categories']?['name']?.toString() ?? 'All';
+    final productName = product['product_name']?.toString() ?? '';
+
+    _searchController.text = productName;
     setState(() {
-      _searchQuery = product['product_name'];
+      _searchQuery = productName;
       _showSearchSuggestions = false;
+      // Switch to the product's category
+      if (_categories.contains(categoryName)) {
+        _selectedCategory = categoryName;
+      } else {
+        _selectedCategory = 'All';
+      }
     });
     _searchFocusNode.unfocus();
+
+    // Center the selected category chip
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _centerSelectedCategoryByName(_selectedCategory);
+    });
   }
 
   void _clearSearch() {
