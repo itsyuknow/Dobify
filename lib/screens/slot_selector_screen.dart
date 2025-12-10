@@ -36,6 +36,24 @@ class SlotSelectorScreen extends StatefulWidget {
 class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProviderStateMixin {
   final supabase = Supabase.instance.client;
 
+
+
+  // Iron-only service IDs
+  static const Set<String> _ironOnlyServiceIds = {
+    'bdfd29d1-7af8-4578-a915-896e75d263a2', // Ironing (Steam)
+    'e1962f17-318d-491e-9fc5-989510d97e63', // Ironing (Regular)
+  };
+
+  bool _hasWashServices() {
+    for (final item in widget.cartItems) {
+      final serviceId = item['service_id']?.toString() ?? '';
+      if (serviceId.isNotEmpty && !_ironOnlyServiceIds.contains(serviceId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   bool isExpressDelivery = false;
   Map<String, dynamic>? selectedAddress;
   bool isServiceAvailable = true;
@@ -186,20 +204,70 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
   }
 
   void _initializeDates() {
-    // Pickup dates: 7 days from today
     pickupDates = List.generate(7, (index) => DateTime.now().add(Duration(days: index)));
 
-    // Delivery dates: Initially same as pickup, will be updated when pickup date is selected
-    deliveryDates = List.generate(7, (index) => selectedPickupDate.add(Duration(days: index)));
+    // Initialize delivery dates based on service type
+    final bool hasWash = _hasWashServices();
+    final int minDeliveryHours = isExpressDelivery ? 36 : (hasWash ? 48 : 0);
+
+    if (hasWash) {
+      // For wash services, start delivery dates from minimum required hours
+      deliveryDates = List.generate(7, (index) {
+        return DateTime.now().add(Duration(hours: minDeliveryHours + (index * 24)));
+      });
+    } else {
+      // For iron-only, use same-day delivery possibility
+      deliveryDates = List.generate(7, (index) => selectedPickupDate.add(Duration(days: index)));
+    }
   }
 
   void _updateDeliveryDates() {
-    // Delivery dates: 7 days starting from selected pickup date
-    deliveryDates = List.generate(7, (index) => selectedPickupDate.add(Duration(days: index)));
+    final bool hasWash = _hasWashServices();
 
-    // Ensure selected delivery date is not before pickup date
-    if (selectedDeliveryDate.isBefore(selectedPickupDate)) {
-      selectedDeliveryDate = selectedPickupDate;
+    if (hasWash) {
+      // For wash services: 48 hours Standard, 36 hours Express
+      final int minHours = isExpressDelivery ? 36 : 48;
+      final DateTime minDeliveryDate = selectedPickupDate.add(Duration(hours: minHours));
+
+      deliveryDates = List.generate(7, (index) {
+        return DateTime(
+          minDeliveryDate.year,
+          minDeliveryDate.month,
+          minDeliveryDate.day,
+        ).add(Duration(days: index));
+      });
+
+      selectedDeliveryDate = DateTime(
+        minDeliveryDate.year,
+        minDeliveryDate.month,
+        minDeliveryDate.day,
+      );
+    } else {
+      // For iron-only services
+      if (isExpressDelivery) {
+        // Express: Same day delivery possible (6 hours gap)
+        deliveryDates = List.generate(7, (index) => selectedPickupDate.add(Duration(days: index)));
+
+        if (selectedDeliveryDate.isBefore(selectedPickupDate)) {
+          selectedDeliveryDate = selectedPickupDate;
+        }
+      } else {
+        // Standard: Minimum 24 hours (next day)
+        final DateTime minDeliveryDate = selectedPickupDate.add(Duration(hours: 24));
+        deliveryDates = List.generate(7, (index) {
+          return DateTime(
+            minDeliveryDate.year,
+            minDeliveryDate.month,
+            minDeliveryDate.day,
+          ).add(Duration(days: index));
+        });
+
+        selectedDeliveryDate = DateTime(
+          minDeliveryDate.year,
+          minDeliveryDate.month,
+          minDeliveryDate.day,
+        );
+      }
     }
   }
 
@@ -964,44 +1032,107 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
 
     final pickupDate = selectedPickupDate;
     final deliveryDate = selectedDeliveryDate;
+    final bool hasWash = _hasWashServices();
 
-    // If delivery is on a different day, apply express/standard logic from morning slots
-    if (pickupDate.day != deliveryDate.day ||
-        pickupDate.month != deliveryDate.month ||
-        pickupDate.year != deliveryDate.year) {
+    // Get current time for today's filtering
+    final now = DateTime.now();
+    final isDeliveryToday = deliveryDate.day == now.day &&
+        deliveryDate.month == now.month &&
+        deliveryDate.year == now.year;
 
-      // For different day delivery, apply the skip logic from the beginning of the day
-      if (isExpressDelivery) {
-        // Express: start from first slot (8am-10am)
-        return allSlots;
-      } else {
-        // Standard: skip first slot, start from second slot (10am-12pm onwards)
-        return allSlots.skip(1).toList();
-      }
+    final pickupSlotStart = _parseTimeString(selectedPickupSlot!['start_time']);
+    final pickupDateTime = DateTime(
+      pickupDate.year,
+      pickupDate.month,
+      pickupDate.day,
+      pickupSlotStart.hour,
+      pickupSlotStart.minute,
+    );
+
+    // For wash services, use time-based filtering (48/36 hours)
+    if (hasWash) {
+      final int minHours = isExpressDelivery ? 36 : 48;
+      final minDeliveryDateTime = pickupDateTime.add(Duration(hours: minHours));
+
+      return allSlots.where((slot) {
+        final slotStart = _parseTimeString(slot['start_time']);
+        final slotDateTime = DateTime(
+          deliveryDate.year,
+          deliveryDate.month,
+          deliveryDate.day,
+          slotStart.hour,
+          slotStart.minute,
+        );
+
+        // Filter out slots that have already passed today
+        if (isDeliveryToday) {
+          final currentTime = TimeOfDay.now();
+          int currentMinutes = currentTime.hour * 60 + currentTime.minute;
+          int slotEndMinutes = _parseTimeString(slot['end_time']).hour * 60 + _parseTimeString(slot['end_time']).minute;
+
+          // Skip if slot has already ended
+          if (currentMinutes >= slotEndMinutes) return false;
+        }
+
+        return slotDateTime.isAfter(minDeliveryDateTime) ||
+            slotDateTime.isAtSameMomentAs(minDeliveryDateTime);
+      }).toList();
     }
 
-    // Same day delivery - apply filtering logic based on pickup slot
-    int pickupSlotIndex = -1;
-    for (int i = 0; i < allSlots.length; i++) {
-      if (allSlots[i]['start_time'] == selectedPickupSlot!['start_time'] &&
-          allSlots[i]['end_time'] == selectedPickupSlot!['end_time']) {
-        pickupSlotIndex = i;
-        break;
-      }
-    }
-
-    if (pickupSlotIndex == -1) return allSlots;
-
-    int startIndex;
+    // For iron-only services
     if (isExpressDelivery) {
-      // Express: show from next slot onwards
-      startIndex = pickupSlotIndex + 1;
-    } else {
-      // Standard: skip next slot, show from slot after that
-      startIndex = pickupSlotIndex + 2;
-    }
+      // Express iron: 6 hours minimum gap
+      final minDeliveryDateTime = pickupDateTime.add(Duration(hours: 6));
 
-    return allSlots.skip(startIndex).toList();
+      return allSlots.where((slot) {
+        final slotStart = _parseTimeString(slot['start_time']);
+        final slotDateTime = DateTime(
+          deliveryDate.year,
+          deliveryDate.month,
+          deliveryDate.day,
+          slotStart.hour,
+          slotStart.minute,
+        );
+
+        // Filter out slots that have already passed today
+        if (isDeliveryToday) {
+          final currentTime = TimeOfDay.now();
+          int currentMinutes = currentTime.hour * 60 + currentTime.minute;
+          int slotEndMinutes = _parseTimeString(slot['end_time']).hour * 60 + _parseTimeString(slot['end_time']).minute;
+
+          if (currentMinutes >= slotEndMinutes) return false;
+        }
+
+        return slotDateTime.isAfter(minDeliveryDateTime) ||
+            slotDateTime.isAtSameMomentAs(minDeliveryDateTime);
+      }).toList();
+    } else {
+      // Standard iron: 24 hours minimum gap
+      final minDeliveryDateTime = pickupDateTime.add(Duration(hours: 24));
+
+      return allSlots.where((slot) {
+        final slotStart = _parseTimeString(slot['start_time']);
+        final slotDateTime = DateTime(
+          deliveryDate.year,
+          deliveryDate.month,
+          deliveryDate.day,
+          slotStart.hour,
+          slotStart.minute,
+        );
+
+        // Filter out slots that have already passed today
+        if (isDeliveryToday) {
+          final currentTime = TimeOfDay.now();
+          int currentMinutes = currentTime.hour * 60 + currentTime.minute;
+          int slotEndMinutes = _parseTimeString(slot['end_time']).hour * 60 + _parseTimeString(slot['end_time']).minute;
+
+          if (currentMinutes >= slotEndMinutes) return false;
+        }
+
+        return slotDateTime.isAfter(minDeliveryDateTime) ||
+            slotDateTime.isAtSameMomentAs(minDeliveryDateTime);
+      }).toList();
+    }
   }
 
   bool _isPickupSlotAvailable(Map<String, dynamic> slot) {
@@ -1031,113 +1162,61 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
 
     final pickupDate = selectedPickupDate;
     final deliveryDate = selectedDeliveryDate;
+    final bool hasWash = _hasWashServices();
 
-    // Check if slot has passed (only for same day as today)
     final now = DateTime.now();
-    final isToday = deliveryDate.day == now.day &&
+    final isDeliveryToday = deliveryDate.day == now.day &&
         deliveryDate.month == now.month &&
         deliveryDate.year == now.year;
 
-    if (isToday) {
+    // Always check if slot time has passed today
+    if (isDeliveryToday) {
       final currentTime = TimeOfDay.now();
-      String timeString = slot['start_time'];
-      TimeOfDay slotTime = _parseTimeString(timeString);
+      final slotTime = _parseTimeString(slot['start_time']);
 
       if (slotTime.hour < currentTime.hour) return false;
       if (slotTime.hour == currentTime.hour && slotTime.minute < currentTime.minute) return false;
     }
 
-    // For Standard delivery ONLY - check specific skip case
-    if (!isExpressDelivery) {
-      String pickupStartTime = selectedPickupSlot!['start_time'];
-      String pickupEndTime = selectedPickupSlot!['end_time'];
+    final pickupSlotStart = _parseTimeString(selectedPickupSlot!['start_time']);
+    final pickupDateTime = DateTime(
+      pickupDate.year,
+      pickupDate.month,
+      pickupDate.day,
+      pickupSlotStart.hour,
+      pickupSlotStart.minute,
+    );
 
-      // ONLY skip 8AM-10AM slot if pickup was 8PM-10PM and delivery is exactly tomorrow
-      if (pickupStartTime == '20:00:00' && pickupEndTime == '22:00:00') {
-        DateTime tomorrow = pickupDate.add(Duration(days: 1));
-        if (deliveryDate.day == tomorrow.day &&
-            deliveryDate.month == tomorrow.month &&
-            deliveryDate.year == tomorrow.year) {
-          // Skip ONLY the 8AM-10AM slot
-          if (slot['start_time'] == '08:00:00' && slot['end_time'] == '10:00:00') {
-            return false;
-          }
-        }
-      }
+    final slotStart = _parseTimeString(slot['start_time']);
+    final slotDateTime = DateTime(
+      deliveryDate.year,
+      deliveryDate.month,
+      deliveryDate.day,
+      slotStart.hour,
+      slotStart.minute,
+    );
 
-      // For same day standard delivery, check if we should skip based on position
-      if (pickupDate.day == deliveryDate.day &&
-          pickupDate.month == deliveryDate.month &&
-          pickupDate.year == deliveryDate.year) {
+    // For wash services: 48 hours Standard, 36 hours Express
+    if (hasWash) {
+      final int minHours = isExpressDelivery ? 36 : 48;
+      final minDeliveryDateTime = pickupDateTime.add(Duration(hours: minHours));
 
-        // Get all slots for the day
-        List<Map<String, dynamic>> allDaySlots = _getAllDeliverySlots();
-
-        // Find pickup slot index
-        int pickupSlotIndex = -1;
-        for (int i = 0; i < allDaySlots.length; i++) {
-          if (allDaySlots[i]['start_time'] == selectedPickupSlot!['start_time'] &&
-              allDaySlots[i]['end_time'] == selectedPickupSlot!['end_time']) {
-            pickupSlotIndex = i;
-            break;
-          }
-        }
-
-        // Find current slot index
-        int currentSlotIndex = -1;
-        for (int i = 0; i < allDaySlots.length; i++) {
-          if (allDaySlots[i]['id'] == slot['id']) {
-            currentSlotIndex = i;
-            break;
-          }
-        }
-
-        // For same day standard, skip next 2 slots after pickup
-        if (pickupSlotIndex != -1 && currentSlotIndex != -1) {
-          if (currentSlotIndex <= pickupSlotIndex + 1) {
-            return false; // Skip this slot and the next one
-          }
-        }
-      }
-    } else {
-      // Express delivery - simpler logic
-      if (pickupDate.day == deliveryDate.day &&
-          pickupDate.month == deliveryDate.month &&
-          pickupDate.year == deliveryDate.year) {
-
-        // Get all slots for the day
-        List<Map<String, dynamic>> allDaySlots = _getAllDeliverySlots();
-
-        // Find pickup slot index
-        int pickupSlotIndex = -1;
-        for (int i = 0; i < allDaySlots.length; i++) {
-          if (allDaySlots[i]['start_time'] == selectedPickupSlot!['start_time'] &&
-              allDaySlots[i]['end_time'] == selectedPickupSlot!['end_time']) {
-            pickupSlotIndex = i;
-            break;
-          }
-        }
-
-        // Find current slot index
-        int currentSlotIndex = -1;
-        for (int i = 0; i < allDaySlots.length; i++) {
-          if (allDaySlots[i]['id'] == slot['id']) {
-            currentSlotIndex = i;
-            break;
-          }
-        }
-
-        // For same day express, skip only the pickup slot itself
-        if (pickupSlotIndex != -1 && currentSlotIndex != -1) {
-          if (currentSlotIndex <= pickupSlotIndex) {
-            return false; // Skip this slot
-          }
-        }
-      }
+      return slotDateTime.isAfter(minDeliveryDateTime) ||
+          slotDateTime.isAtSameMomentAs(minDeliveryDateTime);
     }
 
-    // All other cases - slot is available
-    return true;
+    // For iron-only services
+    if (isExpressDelivery) {
+      // Express iron: 6 hours minimum
+      final minDeliveryDateTime = pickupDateTime.add(Duration(hours: 6));
+      return slotDateTime.isAfter(minDeliveryDateTime) ||
+          slotDateTime.isAtSameMomentAs(minDeliveryDateTime);
+    } else {
+      // Standard iron: 24 hours minimum
+      final minDeliveryDateTime = pickupDateTime.add(Duration(hours: 24));
+      return slotDateTime.isAfter(minDeliveryDateTime) ||
+          slotDateTime.isAtSameMomentAs(minDeliveryDateTime);
+    }
   }
 
   bool _isSlotPassed(Map<String, dynamic> slot, DateTime selectedDate) {
@@ -1323,8 +1402,6 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
       }
     }
   }
-
-
 
 
   // Process order completion (both online and COD)
@@ -2670,9 +2747,13 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
             children: [
               Expanded(
                 child: Text(
-                  isExpressDelivery
-                      ? 'Faster Pick Up & Delivery Options'
-                      : 'Choose Express Delivery for Quicker service',
+                  _hasWashServices()
+                      ? (isExpressDelivery
+                      ? 'Wash services: 36 hours for Express'
+                      : 'Wash services: 48 hours for Standard')
+                      : (isExpressDelivery
+                      ? 'Iron-only: Same day (6 hours min)'
+                      : 'Iron-only: Next day (24 hours min)'),
                   style: TextStyle(
                     fontSize: isSmallScreen ? 10 : 12,
                     color: Colors.grey.shade600,

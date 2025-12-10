@@ -1270,6 +1270,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                     builder: (context) => ApplyCouponScreen(
                       subtotal: _calculateSubtotal(),
                       onCouponApplied: _onCouponApplied,
+                      cartItems: _cartItems,
                     ),
                   ),
                 );
@@ -1537,6 +1538,7 @@ class _ReviewCartScreenState extends State<ReviewCartScreen> with TickerProvider
                         builder: (context) => ApplyCouponScreen(
                           subtotal: _calculateSubtotal(),
                           onCouponApplied: _onCouponApplied,
+                          cartItems: _cartItems,
                         ),
                       ),
                     );

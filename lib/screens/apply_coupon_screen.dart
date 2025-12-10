@@ -4,11 +4,13 @@ import 'colors.dart'; // Replace with your actual theme import
 
 class ApplyCouponScreen extends StatefulWidget {
   final double subtotal;
+  final List<Map<String, dynamic>> cartItems; // ✅ NEW
   final Function(String couponCode, double discount) onCouponApplied;
 
   const ApplyCouponScreen({
     super.key,
     required this.subtotal,
+    required this.cartItems, // ✅ NEW
     required this.onCouponApplied,
   });
 
@@ -20,6 +22,34 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
     with TickerProviderStateMixin {
   final supabase = Supabase.instance.client;
   final TextEditingController _couponController = TextEditingController();
+
+  // ✅ NEW: Iron-only service IDs (UPDATE WITH YOUR ACTUAL SERVICE IDs)
+  static const Set<String> _ironOnlyServiceIds = {
+    'bdfd29d1-7af8-4578-a915-896e75d263a2', // Ironing (Steam)
+    'e1962f17-318d-491e-9fc5-989510d97e63', // Ironing (Regular)
+  };
+
+  // ✅ NEW: Check if cart has wash services
+  bool _hasWashServices() {
+    for (final item in widget.cartItems) {
+      final serviceId = item['service_id']?.toString() ?? '';
+      if (serviceId.isNotEmpty && !_ironOnlyServiceIds.contains(serviceId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // ✅ NEW: Check if cart has iron services
+  bool _hasIronServices() {
+    for (final item in widget.cartItems) {
+      final serviceId = item['service_id']?.toString() ?? '';
+      if (serviceId.isNotEmpty && _ironOnlyServiceIds.contains(serviceId)) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   List<Map<String, dynamic>> _coupons = [];
   List<Map<String, dynamic>> _topCoupons = [];
@@ -73,18 +103,37 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
           .eq('is_active', true)
           .order('created_at', ascending: false);
 
+      // ✅ NEW: Filter coupons based on cart services
+      final allCoupons = List<Map<String, dynamic>>.from(response);
+      final filteredCoupons = _filterCouponsByService(allCoupons);
+
       setState(() {
-        _coupons = List<Map<String, dynamic>>.from(response);
+        _coupons = filteredCoupons;
         _topCoupons =
             _coupons.where((coupon) => coupon['is_featured'] == true).toList();
         _isLoading = false;
       });
     } catch (e) {
       debugPrint("Error loading coupons: $e");
-      setState(() {
-        _isLoading = false;
-      });
+      setState(() => _isLoading = false);
     }
+  }
+
+  // ✅ NEW: Filter coupons based on service type
+  List<Map<String, dynamic>> _filterCouponsByService(
+      List<Map<String, dynamic>> coupons) {
+    final hasWash = _hasWashServices();
+    final hasIron = _hasIronServices();
+
+    return coupons.where((coupon) {
+      final appliesTo = coupon['applies_to_services']?.toString() ?? 'both';
+
+      if (appliesTo == 'both') return true;
+      if (appliesTo == 'wash' && hasWash) return true;
+      if (appliesTo == 'iron' && hasIron && !hasWash) return true;
+
+      return false;
+    }).toList();
   }
 
   Future<void> _applyCoupon(String couponCode) async {
@@ -110,13 +159,24 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
 
       final coupon = couponResponse;
 
-      // ✅ Validate (per-user limit check still works by reading existing confirmed usages)
+      // ✅ NEW: Check if coupon applies to current cart services
+      if (!_isCouponApplicableToCart(coupon)) {
+        final appliesTo = coupon['applies_to_services']?.toString() ?? 'both';
+        if (appliesTo == 'iron') {
+          _showErrorSnackBar('This coupon is only valid for ironing services');
+        } else if (appliesTo == 'wash') {
+          _showErrorSnackBar('This coupon is only valid for wash services');
+        }
+        setState(() => _isApplying = false);
+        return;
+      }
+
+      // Validate other conditions
       final isValid = await _isCouponValid(coupon);
       if (!isValid) {
         setState(() => _isApplying = false);
         return;
       }
-
 
       final double discount = _calculateDiscount(coupon);
 
@@ -131,6 +191,20 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
     }
   }
 
+  // ✅ NEW: Check if coupon is applicable to cart
+  bool _isCouponApplicableToCart(Map<String, dynamic> coupon) {
+    final appliesTo = coupon['applies_to_services']?.toString() ?? 'both';
+
+    if (appliesTo == 'both') return true;
+
+    final hasWash = _hasWashServices();
+    final hasIron = _hasIronServices();
+
+    if (appliesTo == 'wash' && hasWash) return true;
+    if (appliesTo == 'iron' && hasIron && !hasWash) return true;
+
+    return false;
+  }
 
   // ✅ Now async to allow Supabase check for per-user limit
   Future<bool> _isCouponValid(Map<String, dynamic> coupon) async {
@@ -147,8 +221,7 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
 
     // Minimum order
     if (coupon['minimum_order_value'] != null) {
-      final minOrderValue =
-      (coupon['minimum_order_value'] as num).toDouble();
+      final minOrderValue = (coupon['minimum_order_value'] as num).toDouble();
       if (widget.subtotal < minOrderValue) {
         _showErrorSnackBar(
             'Minimum order value of ₹${minOrderValue.toStringAsFixed(0)} required');
@@ -184,28 +257,6 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
     return true;
   }
 
-  // Tag colors from DB tag
-  List<Color> _getTagColorsFromDB(String tag) {
-    switch (tag.toUpperCase()) {
-      case 'NEW':
-        return [Colors.green.shade600, Colors.green.shade500];
-      case 'EXCLUSIVE':
-        return [Colors.purple.shade600, Colors.purple.shade500];
-      case 'LIMITED':
-        return [Colors.red.shade600, Colors.red.shade500];
-      case 'MEGA DEAL':
-        return [Colors.orange.shade600, Colors.orange.shade500];
-      case 'HOT':
-        return [Colors.pink.shade600, Colors.pink.shade500];
-      case 'POPULAR':
-        return [Colors.blue.shade600, Colors.blue.shade500];
-      case 'TRENDING':
-        return [Colors.teal.shade600, Colors.teal.shade500];
-      default:
-        return [Colors.grey.shade600, Colors.grey.shade500];
-    }
-  }
-
   double _calculateDiscount(Map<String, dynamic> coupon) {
     double discount = 0.0;
 
@@ -213,8 +264,7 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
       discount = (widget.subtotal * (coupon['discount_value'] as num)) / 100.0;
 
       if (coupon['max_discount_amount'] != null) {
-        final maxDiscount =
-        (coupon['max_discount_amount'] as num).toDouble();
+        final maxDiscount = (coupon['max_discount_amount'] as num).toDouble();
         if (discount > maxDiscount) discount = maxDiscount;
       }
     } else if (coupon['discount_type'] == 'fixed') {
@@ -241,6 +291,28 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
         margin: const EdgeInsets.all(16),
       ),
     );
+  }
+
+  // Tag colors from DB tag
+  List<Color> _getTagColorsFromDB(String tag) {
+    switch (tag.toUpperCase()) {
+      case 'NEW':
+        return [Colors.green.shade600, Colors.green.shade500];
+      case 'EXCLUSIVE':
+        return [Colors.purple.shade600, Colors.purple.shade500];
+      case 'LIMITED':
+        return [Colors.red.shade600, Colors.red.shade500];
+      case 'MEGA DEAL':
+        return [Colors.orange.shade600, Colors.orange.shade500];
+      case 'HOT':
+        return [Colors.pink.shade600, Colors.pink.shade500];
+      case 'POPULAR':
+        return [Colors.blue.shade600, Colors.blue.shade500];
+      case 'TRENDING':
+        return [Colors.teal.shade600, Colors.teal.shade500];
+      default:
+        return [Colors.grey.shade600, Colors.grey.shade500];
+    }
   }
 
   @override
@@ -315,7 +387,8 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: kPrimaryColor.withOpacity(0.2)),
+                        border:
+                        Border.all(color: kPrimaryColor.withOpacity(0.2)),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withOpacity(0.05),
@@ -382,27 +455,26 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
                         ],
                       ),
                     ),
-
                     const SizedBox(height: 20),
-
                     if (_topCoupons.isNotEmpty) ...[
-                      _buildSectionHeader('⭐ Featured Coupons', Icons.star_rounded),
+                      _buildSectionHeader('⭐ Featured Coupons',
+                          Icons.star_rounded),
                       const SizedBox(height: 12),
                       ...(_topCoupons
                           .map((coupon) => _buildCompactCouponCard(coupon, true))),
                       const SizedBox(height: 20),
                     ],
-
-                    if (_coupons.where((c) => c['is_featured'] != true).isNotEmpty)
-                      ...[
-                        _buildSectionHeader(
-                            '🎟️ More Coupons', Icons.local_offer_rounded),
-                        const SizedBox(height: 12),
-                        ...(_coupons
-                            .where((c) => c['is_featured'] != true)
-                            .map((coupon) =>
-                            _buildCompactCouponCard(coupon, false))),
-                      ],
+                    if (_coupons
+                        .where((c) => c['is_featured'] != true)
+                        .isNotEmpty) ...[
+                      _buildSectionHeader(
+                          '🎟️ More Coupons', Icons.local_offer_rounded),
+                      const SizedBox(height: 12),
+                      ...(_coupons
+                          .where((c) => c['is_featured'] != true)
+                          .map((coupon) =>
+                          _buildCompactCouponCard(coupon, false))),
+                    ],
                   ],
                 ),
               ),
@@ -464,7 +536,8 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isEligible ? accentColor.withOpacity(0.3) : Colors.grey.shade200,
+            color:
+            isEligible ? accentColor.withOpacity(0.3) : Colors.grey.shade200,
             width: 1,
           ),
           boxShadow: [
@@ -636,10 +709,12 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
   }
 
   bool _isCouponEligible(Map<String, dynamic> coupon) {
+    // ✅ NEW: Check service applicability
+    if (!_isCouponApplicableToCart(coupon)) return false;
+
     // minimum order
     if (coupon['minimum_order_value'] != null) {
-      final minOrderValue =
-      (coupon['minimum_order_value'] as num).toDouble();
+      final minOrderValue = (coupon['minimum_order_value'] as num).toDouble();
       if (widget.subtotal < minOrderValue) return false;
     }
 
@@ -658,7 +733,6 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
 
     return true;
   }
-
 
   // ===== Details Dialog (NO per-user rows) =====
   Future<void> _showCouponDetailsDialog(Map<String, dynamic> coupon) async {
@@ -684,13 +758,16 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
         : null;
 
     final String? tag = coupon['tag']?.toString();
+    final String appliesTo =
+        coupon['applies_to_services']?.toString() ?? 'both'; // ✅ NEW
 
     showDialog(
       context: context,
       barrierDismissible: true,
       builder: (ctx) {
         return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -730,8 +807,8 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
                     ),
                     if (tag != null && tag.isNotEmpty)
                       Container(
-                        padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: kPrimaryColor.withOpacity(0.12),
                           borderRadius: BorderRadius.circular(8),
@@ -766,9 +843,20 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
                       : '₹${value.toStringAsFixed(0)}',
                 ),
                 if (maxDiscount != null)
-                  _detailRow('Max Discount', '₹${maxDiscount.toStringAsFixed(0)}'),
+                  _detailRow(
+                      'Max Discount', '₹${maxDiscount.toStringAsFixed(0)}'),
                 if (minOrder != null)
-                  _detailRow('Minimum Order', '₹${minOrder.toStringAsFixed(0)}'),
+                  _detailRow(
+                      'Minimum Order', '₹${minOrder.toStringAsFixed(0)}'),
+                _detailRow(
+                  // ✅ NEW
+                  'Applies To',
+                  appliesTo == 'iron'
+                      ? 'Iron Services Only'
+                      : appliesTo == 'wash'
+                      ? 'Wash Services Only'
+                      : 'All Services',
+                ),
                 if (expiry != null) _detailRow('Valid Till', expiry),
 
                 const SizedBox(height: 12),
@@ -786,10 +874,6 @@ class _ApplyCouponScreenState extends State<ApplyCouponScreen>
       },
     );
   }
-
-
-
-
 
   Widget _detailRow(String label, String value) {
     return Padding(

@@ -175,36 +175,39 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
 
   Future<void> _fetchServices() async {
     try {
-      // Parse allowed service UUIDs from product (uuid[] / JSON string / csv / single)
-      final allowedServiceIds = _parseServiceIds(_product?['services_provided']);
+      // Fetch product-specific service prices
+      final resp = await supabase
+          .from('product_service_prices')
+          .select('*, services:service_id(id, name, service_description, service_full_description, icon, color_hex)')
+          .eq('product_id', widget.productId)
+          .eq('is_available', true)
+          .order('price', ascending: true);
 
-      var query = supabase
-          .from('services')
-          .select('*')
-          .eq('is_active', true);
-
-      if (allowedServiceIds.isNotEmpty) {
-        query = query.inFilter('id', allowedServiceIds); // correct Supabase filter
-      }
-
-      final response = await query.order('sort_order');
-      final serviceList = List<Map<String, dynamic>>.from(response ?? []);
+      final servicePrices = List<Map<String, dynamic>>.from(resp ?? []);
 
       setState(() {
-        _services = serviceList;
+        // Transform the data to match existing structure
+        _services = servicePrices.map((priceData) {
+          final serviceData = priceData['services'] as Map<String, dynamic>;
+          return {
+            'id': serviceData['id'],
+            'name': serviceData['name'],
+            'price': (priceData['price'] as num?)?.toInt() ?? 0, // Use product-specific price
+            'service_description': serviceData['service_description'] ?? '',
+            'service_full_description': serviceData['service_full_description'] ?? 'No description available',
+            'icon': serviceData['icon'],
+            'color_hex': serviceData['color_hex'],
+          };
+        }).toList();
 
         if (_services.isNotEmpty) {
-          // prefer recommended if present and in filtered list
           final recId = (_recommendedServiceId ?? '').toString();
           Map<String, dynamic>? recommendedService;
           if (recId.isNotEmpty) {
             try {
-              recommendedService = _services.firstWhere(
-                    (s) => (s['id']?.toString() ?? '') == recId,
-              );
+              recommendedService = _services.firstWhere((s) => (s['id']?.toString() ?? '') == recId);
             } catch (_) {}
           }
-
           final chosen = recommendedService ?? _services.first;
           _selectedService = chosen['name'] ?? '';
           _selectedServicePrice = (chosen['price'] as num?)?.toInt() ?? 0;
@@ -215,8 +218,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
       });
 
       await _fetchCurrentCartQuantity();
-    } catch (_) {
-      // silent as per your style
+    } catch (e) {
+      debugPrint('Error fetching services: $e');
     }
   }
 
@@ -329,18 +332,23 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     try {
       final productId = _product!['id'].toString();
       final name = _product!['product_name'];
-      final basePrice = (_product!['product_price'] as num?)?.toDouble() ?? 0.0;
       final image = _product!['image_url'] ?? '';
       final category = _product!['categories']?['name'] ?? 'General';
-      final totalPrice = (basePrice + _selectedServicePrice) * _quantity;
+      final finalPrice = _selectedServicePrice; // The price from product_service_prices
+      final totalPrice = finalPrice * _quantity;
 
-      // 🔁 Look up existing row by product_id + service_type (not product_name)
+      // Get the selected service ID
+      final selectedServiceId = _services.firstWhere(
+            (s) => s['name'] == _selectedService,
+        orElse: () => {'id': ''},
+      )['id']?.toString() ?? '';
+
       final existing = await supabase
           .from('cart')
           .select('*')
           .eq('user_id', user.id)
           .eq('product_id', productId)
-          .eq('service_type', _selectedService)
+          .eq('service_id', selectedServiceId)
           .maybeSingle();
 
       if (existing != null) {
@@ -371,15 +379,14 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
         } else {
           await supabase.from('cart').insert({
             'user_id': user.id,
-            'product_id': productId,                       // ✅ key for joins
-            // The following are display fields (optional but handy for UI):
+            'product_id': productId,
             'product_name': name,
-            'product_price': basePrice,
+            'product_price': finalPrice.toDouble(), // Store final price
             'product_image': image,
             'category': category,
-            // Selection
+            'service_id': selectedServiceId,
             'service_type': _selectedService,
-            'service_price': _selectedServicePrice.toDouble(),
+            'service_price': 0.0, // No separate service price
             'product_quantity': _quantity,
             'total_price': totalPrice,
           });
@@ -651,7 +658,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
 
   // Product info / service description
   Widget _buildProductInfo() {
-    final singleItemPrice = (_product!['product_price'] ?? 0) + _selectedServicePrice;
+    final singleItemPrice = _selectedServicePrice; // Price already includes everything
 
     final selectedService = _services.firstWhere(
           (s) => s['name'] == _selectedService,
@@ -884,7 +891,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
 
   // Quantity & total
   Widget _buildQuantityAndPrice() {
-    final totalPrice = ((_product!['product_price'] ?? 0) + _selectedServicePrice) * _quantity;
+    final totalPrice = _selectedServicePrice * _quantity;
 
     return Container(
       padding: const EdgeInsets.all(16),

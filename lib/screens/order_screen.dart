@@ -115,7 +115,7 @@ class _OrdersScreenState extends State<OrdersScreen>
       final response = await supabase
           .from('products')
           .select(
-          'id, product_name, product_price, image_url, category_id, is_enabled, created_at, sort_order, tag, recommended_service_id, services_provided, categories(name)'
+          'id, product_name,image_url, category_id, is_enabled, created_at, sort_order,recommended_service_id, services_provided, categories(name)'
       )
 
           .eq('is_enabled', true)
@@ -623,9 +623,7 @@ class _OrdersScreenState extends State<OrdersScreen>
           .eq('user_id', user.id)
           .eq('product_id', productId);
 
-      if (serviceType != null) {
-        query = query.eq('service_type', serviceType);
-      }
+
 
       final existingItems = await query;
 
@@ -665,7 +663,7 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   // ✅ CHANGED: add by product_id (+ service_type uniqueness)
   Future<void> _addToCartWithService(
-      Map<String, dynamic> product, String service, int servicePrice) async {
+      Map<String, dynamic> product, String serviceId, String serviceName, int finalPrice) async {
     final user = supabase.auth.currentUser;
     if (user == null) {
       if (mounted) {
@@ -680,41 +678,45 @@ class _OrdersScreenState extends State<OrdersScreen>
     if (productId.isEmpty) return;
 
     final name = product['product_name'] ?? '';
-    final basePrice = (product['product_price'] as num?)?.toDouble() ?? 0.0;
     final image = product['image_url'] ?? '';
     final category = product['categories']?['name'] ?? '';
-    final totalPrice = basePrice + servicePrice;
 
     try {
       if (mounted) setState(() => _addedStatus[productId] = true);
 
+      // Check if item already exists in cart
       final existing = await supabase
           .from('cart')
           .select('*')
           .eq('user_id', user.id)
           .eq('product_id', productId)
-          .eq('service_type', service)
+          .eq('service_id', serviceId)
           .maybeSingle();
 
       if (existing != null) {
+        // Update existing cart item
         final newQty = (existing['product_quantity'] as int) + 1;
-        final newTotalPrice = (basePrice + servicePrice) * newQty;
+        final newTotalPrice = finalPrice * newQty;
         await supabase
             .from('cart')
-            .update({'product_quantity': newQty, 'total_price': newTotalPrice})
+            .update({
+          'product_quantity': newQty,
+          'total_price': newTotalPrice,
+        })
             .eq('id', existing['id']);
       } else {
+        // Insert new cart item
         await supabase.from('cart').insert({
           'user_id': user.id,
-          'product_id': productId, // ✅ key field
-          // the following are display fields (kept for convenience)
+          'product_id': productId,
           'product_name': name,
           'product_image': image,
-          'product_price': basePrice,
-          'service_type': service,
-          'service_price': servicePrice.toDouble(),
+          'product_price': finalPrice.toDouble(), // Store the final price
+          'service_id': serviceId,
+          'service_type': serviceName,
+          'service_price': 0.0, // No separate service price anymore
           'product_quantity': 1,
-          'total_price': totalPrice,
+          'total_price': finalPrice.toDouble(),
           'category': category,
         });
       }
@@ -722,11 +724,12 @@ class _OrdersScreenState extends State<OrdersScreen>
       _productQuantities[productId] = (_productQuantities[productId] ?? 0) + 1;
       _triggerAnimations(productId);
 
+      await _fetchCartData();
+
       await Future.delayed(const Duration(milliseconds: 1500));
       if (mounted) setState(() => _addedStatus[productId] = false);
-
-      await _fetchCartData();
     } catch (e) {
+      debugPrint('Error adding to cart: $e');
       if (mounted) setState(() => _addedStatus[productId] = false);
     }
   }
@@ -761,106 +764,32 @@ class _OrdersScreenState extends State<OrdersScreen>
   }
 
   Future<void> _showServiceSelectionPopup(Map<String, dynamic> product) async {
-    final user = supabase.auth.currentUser;
-    if (user == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please login to add items to cart')),
-        );
-      }
-      return;
-    }
-
-    // --- Robust parser for services_provided in ANY format ---
-    List<String> _parseServiceIds(dynamic raw) {
-      try {
-        if (raw == null) return [];
-        // If already a List
-        if (raw is List) {
-          return raw
-              .map((e) => e?.toString().trim() ?? '')
-              .where((s) => s.isNotEmpty)
-              .toList();
-        }
-        // If string JSON (e.g. '["id1","id2"]')
-        if (raw is String) {
-          final s = raw.trim();
-          if (s.isEmpty) return [];
-          if ((s.startsWith('[') && s.endsWith(']')) ||
-              (s.startsWith('"') && s.endsWith('"'))) {
-            final decoded = jsonDecode(s);
-            if (decoded is List) {
-              return decoded
-                  .map((e) => e?.toString().trim() ?? '')
-                  .where((x) => x.isNotEmpty)
-                  .toList();
-            }
-          }
-          // If comma-separated string
-          if (s.contains(',')) {
-            return s
-                .split(',')
-                .map((e) => e.trim())
-                .where((e) => e.isNotEmpty)
-                .toList();
-          }
-          // Single id as string
-          return [s];
-        }
-        return [];
-      } catch (_) {
-        return [];
-      }
-    }
+    final productId = (product['id'] ?? '').toString();
+    if (productId.isEmpty) return;
 
     try {
-      if (mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => const Center(child: CircularProgressIndicator()),
-        );
-      }
+      // Fetch available services with their prices for this specific product
+      final resp = await supabase
+          .from('product_service_prices')
+          .select('*, services:service_id(id, name, service_description, icon_name, color_hex)')
+          .eq('product_id', productId)
+          .eq('is_available', true)
+          .order('price', ascending: true);
 
-      // Parse allowed service UUIDs from product
-      final allowedServiceIds = _parseServiceIds(product['services_provided']);
+      final servicePrices = List<Map<String, dynamic>>.from(resp ?? []);
 
-// Fetch services
-      List<Map<String, dynamic>> services;
-      if (allowedServiceIds.isNotEmpty) {
-        final resp = await supabase
-            .from('services')
-            .select('*')
-            .inFilter('id', allowedServiceIds) // <-- use inFilter
-            .eq('is_active', true)
-            .order('sort_order');
-
-        services = List<Map<String, dynamic>>.from(resp ?? []);
-      } else {
-        // Fallback: show all active (keep or switch to strict block as you prefer)
-        final resp = await supabase
-            .from('services')
-            .select('*')
-            .eq('is_active', true)
-            .order('sort_order');
-
-        services = List<Map<String, dynamic>>.from(resp ?? []);
-      }
-
-
-      if (mounted) Navigator.pop(context);
-
-      if (services.isEmpty) {
+      if (servicePrices.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No services available')),
+            const SnackBar(
+              content: Text('No services available for this product'),
+            ),
           );
         }
         return;
       }
 
-      final basePrice = (product['product_price'] as num?)?.toDouble() ?? 0.0;
-      final recommendedServiceId = product['recommended_service_id']?.toString();
+      final productName = product['product_name'] ?? '';
 
       if (!mounted) return;
       showDialog(
@@ -884,7 +813,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Select service for ${product['product_name']}',
+                    'Select service for $productName',
                     style: const TextStyle(fontSize: 14, color: Colors.black54),
                     textAlign: TextAlign.center,
                   ),
@@ -892,24 +821,21 @@ class _OrdersScreenState extends State<OrdersScreen>
                   Flexible(
                     child: ListView.builder(
                       shrinkWrap: true,
-                      itemCount: services.length,
+                      itemCount: servicePrices.length,
                       itemBuilder: (context, index) {
-                        final service = services[index];
-                        final serviceId = service['id']?.toString();
-                        final name = service['name'] ?? '';
-                        final int priceInt = (service['price'] as num?)?.toInt() ?? 0;
-                        final description = service['service_description'] ?? '';
-                        final iconName = service['icon_name'];
-                        final totalPrice = basePrice + priceInt.toDouble();
+                        final priceData = servicePrices[index];
+                        final serviceData = priceData['services'];
 
-                        final isRecommended = recommendedServiceId != null &&
-                            recommendedServiceId.isNotEmpty &&
-                            serviceId == recommendedServiceId;
+                        final serviceId = serviceData['id']?.toString() ?? '';
+                        final serviceName = serviceData['name'] ?? '';
+                        final int price = (priceData['price'] as num?)?.toInt() ?? 0;
+                        final description = (serviceData['service_description'] ?? '').toString();
+                        final iconName = serviceData['icon_name'];
 
                         return GestureDetector(
                           onTap: () async {
                             Navigator.pop(context);
-                            await _addToCartWithService(product, name, priceInt);
+                            await _addToCartWithService(product, serviceId, serviceName, price);
                           },
                           child: Container(
                             margin: const EdgeInsets.only(bottom: 12),
@@ -919,84 +845,56 @@ class _OrdersScreenState extends State<OrdersScreen>
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(color: Colors.grey.shade200, width: 1),
                             ),
-                            child: Stack(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(6),
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: kPrimaryColor.withOpacity(0.1),
-                                      ),
-                                      child: Icon(
-                                        _getServiceIcon(iconName),
-                                        size: 20,
-                                        color: kPrimaryColor,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            name,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w600,
-                                              fontSize: 13.5,
-                                            ),
-                                            overflow: TextOverflow.ellipsis,
-                                            maxLines: 1,
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            description,
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.grey.shade600,
-                                            ),
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
+                                Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: kPrimaryColor.withOpacity(0.1),
+                                  ),
+                                  child: Icon(
+                                    _getServiceIcon(iconName),
+                                    size: 20,
+                                    color: kPrimaryColor,
+                                  ),
                                 ),
-                                Positioned(
-                                  top: 0,
-                                  right: 0,
+                                const SizedBox(width: 10),
+                                Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      if (isRecommended)
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: Colors.redAccent,
-                                            borderRadius: BorderRadius.circular(6),
-                                          ),
-                                          child: const Text(
-                                            'Recommended',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 9,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ),
-                                      const SizedBox(height: 4),
                                       Text(
-                                        '₹${totalPrice.toInt()}',
-                                        style: TextStyle(
+                                        serviceName,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
                                           fontSize: 13.5,
-                                          fontWeight: FontWeight.bold,
-                                          color: kPrimaryColor,
                                         ),
+                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: 1,
                                       ),
+                                      const SizedBox(height: 4),
+                                      if (description.isNotEmpty)
+                                        Text(
+                                          description,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
                                     ],
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '₹$price',
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: kPrimaryColor,
                                   ),
                                 ),
                               ],
@@ -1019,7 +917,6 @@ class _OrdersScreenState extends State<OrdersScreen>
       );
     } catch (e) {
       if (!mounted) return;
-      Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to load services: $e')),
       );
