@@ -1,9 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- #YuKNOW -->
-    <uses-sdk android:minSdkVersion="23" />
-
     <!-- Required permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
@@ -48,25 +45,18 @@
             android:name="com.google.android.gms.version"
             android:value="@integer/google_play_services_version" />
 
-        <!-- Firebase Messaging Service -->
-        <service
-            android:name="io.flutter.plugins.firebase.messaging.FlutterFirebaseMessagingService"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT" />
-            </intent-filter>
-        </service>
-
         <!-- Google Sign-In Activities -->
         <activity
             android:name="com.google.android.gms.auth.api.signin.internal.SignInHubActivity"
             android:excludeFromRecents="true"
             android:exported="false"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            tools:node="replace" />
         <activity
             android:name="com.google.android.gms.common.api.GoogleApiActivity"
             android:exported="false"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            tools:node="replace" />
 
         <activity
             android:name=".MainActivity"
@@ -76,6 +66,11 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
+
+            <!-- Explicitly declare Flutter v2 embedding -->
+            <meta-data
+                android:name="flutterEmbedding"
+                android:value="2" />
 
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
@@ -87,79 +82,54 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!--
-              ✅ FIXED: Custom scheme intent filters (NO autoVerify for custom schemes)
-              This handles: com.yuknow.ironly://auth-callback
-            -->
+            <!-- Custom scheme intent filters -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="com.yuknow.ironly" />
-                <data android:host="auth-callback" />
+                <data android:scheme="com.yuknow.ironly" android:host="auth-callback" />
             </intent-filter>
 
-            <!--
-              ✅ FIXED: Custom scheme OAuth callbacks (NO autoVerify for custom schemes)
-              This handles: com.yuknow.ironly://oauth-callback
-            -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="com.yuknow.ironly" />
-                <data android:host="oauth-callback" />
+                <data android:scheme="com.yuknow.ironly" android:host="oauth-callback" />
             </intent-filter>
 
-            <!--
-              ✅ CORRECT: Supabase HTTPS redirect (valid domain with autoVerify)
-              This handles: https://qehtgclgjhzdlqcjujpp.supabase.co/auth/v1/callback
-            -->
+            <!-- Supabase HTTPS redirect -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https"
+                <data
+                    android:scheme="https"
                     android:host="qehtgclgjhzdlqcjujpp.supabase.co"
                     android:pathPrefix="/auth/v1/callback" />
             </intent-filter>
 
         </activity>
 
-        <!-- Flutter plugin registration -->
-        <meta-data
-            android:name="flutterEmbedding"
-            android:value="2" />
     </application>
 
-    <!--
-      ✅ UPDATED QUERIES BLOCK
-      Enhanced for better OAuth and browser handling
-    -->
+    <!-- Queries for OAuth and browser handling -->
     <queries>
-        <!-- Allows url_launcher to open browser URLs -->
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />
         </intent>
-
-        <!-- Allows url_launcher to open HTTP URLs (fallback) -->
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="http" />
         </intent>
-
-        <!-- Allows Flutter engine to detect text-processing apps -->
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />
         </intent>
 
-        <!-- Required for Google Sign-In -->
+        <!-- Required packages -->
         <package android:name="com.google.android.gms" />
         <package android:name="com.android.vending" />
-
-        <!-- Common browsers for OAuth -->
         <package android:name="com.android.chrome" />
         <package android:name="com.google.android.apps.chrome" />
         <package android:name="org.mozilla.firefox" />

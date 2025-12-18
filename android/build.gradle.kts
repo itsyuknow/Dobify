@@ -1,7 +1,6 @@
-// ✅ Modern plugins block
 plugins {
     id("com.google.gms.google-services") version "4.4.0" apply false
-    id("org.jetbrains.kotlin.android") version "2.1.0" apply false  //#YuKNOW
+    id("org.jetbrains.kotlin.android") version "2.1.0" apply false
 }
 
 allprojects {
@@ -11,7 +10,6 @@ allprojects {
     }
 }
 
-// ✅ Build directory configuration
 val newBuildDir: Directory = rootProject.layout.buildDirectory.dir("../../build").get()
 rootProject.layout.buildDirectory.set(newBuildDir)
 

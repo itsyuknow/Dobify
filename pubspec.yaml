@@ -2,7 +2,7 @@ name: ironly
 description: A new dynamic laundry app.
 publish_to: 'none'
 
-version: 2.2.0+2
+version: 3.4.0+4
 
 environment:
   sdk: '>=3.5.0 <4.0.0'
@@ -16,7 +16,7 @@ dependencies:
   geocoding: ^4.0.0
   geolocator: ^14.0.1
   google_sign_in: ^6.0.0
-  app_links: ^6.1.4
+  app_links: ^6.1.46
 
   # ✅ Core dependencies
   flutter_rating_bar: ^4.0.1

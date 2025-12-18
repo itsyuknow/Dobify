@@ -1,7 +1,7 @@
 // lib/helpers/razorpay_web_helper.dart
 // This file is ONLY imported on web
-import 'dart:js' as js;
-import 'dart:js_util' as jsu;
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 
 // Store callbacks at module level
 Function(String)? _onSuccessCallback;
@@ -21,7 +21,7 @@ void setupWebCallbacks({
   _onErrorCallback = onError;
 
   // Setup global handlers that Razorpay will call
-  js.context['razorpaySuccessHandler'] = js.allowInterop((response) {
+  globalContext['razorpaySuccessHandler'] = ((JSAny response) {
     print('🎉 Razorpay success handler called');
     print('📦 Response type: ${response.runtimeType}');
 
@@ -34,26 +34,16 @@ void setupWebCallbacks({
       if (response != null) {
         // Try to get all possible fields
         try {
-          // Use callMethod to access properties
-          paymentId = js.JsObject.fromBrowserObject(response)['razorpay_payment_id']?.toString();
-          orderId = js.JsObject.fromBrowserObject(response)['razorpay_order_id']?.toString();
-          signature = js.JsObject.fromBrowserObject(response)['razorpay_signature']?.toString();
+          // Use getProperty to access properties
+          paymentId = (response as JSObject).getProperty('razorpay_payment_id'.toJS)?.toString();
+          orderId = (response as JSObject).getProperty('razorpay_order_id'.toJS)?.toString();
+          signature = (response as JSObject).getProperty('razorpay_signature'.toJS)?.toString();
 
           print('💳 Payment ID (direct): $paymentId');
           print('🆔 Order ID: $orderId');
           print('🔐 Signature: ${signature?.substring(0, 10)}...');
         } catch (e) {
           print('Direct access failed: $e');
-        }
-
-        // Alternative: Try getProperty
-        if (paymentId == null) {
-          try {
-            paymentId = jsu.getProperty(response, 'razorpay_payment_id')?.toString();
-            print('💳 Payment ID (getProperty): $paymentId');
-          } catch (e) {
-            print('getProperty failed: $e');
-          }
         }
 
         // Last resort: Convert to string and parse
@@ -92,26 +82,26 @@ void setupWebCallbacks({
       print('📍 Stack: $stackTrace');
       _onErrorCallback?.call('Error processing payment: ${e.toString()}');
     }
-  });
+  }).toJS;
 
-  js.context['razorpayDismissHandler'] = js.allowInterop(() {
+  globalContext['razorpayDismissHandler'] = (() {
     print('🚪 Razorpay dismiss handler called');
     try {
       _onDismissCallback?.call();
     } catch (e) {
       print('❌ Error in dismiss handler: $e');
     }
-  });
+  }).toJS;
 
-  js.context['razorpayErrorHandler'] = js.allowInterop((dynamic error) {
+  globalContext['razorpayErrorHandler'] = ((JSAny error) {
     print('💥 Razorpay error handler called: $error');
     try {
-      final errorMsg = error?.toString() ?? 'Unknown payment error';
+      final errorMsg = error.toString();
       _onErrorCallback?.call(errorMsg);
     } catch (e) {
       print('❌ Error in error handler: $e');
     }
-  });
+  }).toJS;
 
   print('✓ All callbacks registered');
 }
@@ -122,12 +112,12 @@ void openRazorpayWeb(Map<String, dynamic> options) {
     print('📦 Options keys: ${options.keys.join(', ')}');
 
     // Check if Razorpay is loaded
-    if (js.context['Razorpay'] == null) {
+    if (!globalContext.has('Razorpay')) {
       throw Exception('Razorpay SDK not loaded. Check index.html');
     }
 
     // Ensure callbacks are set
-    if (js.context['razorpaySuccessHandler'] == null) {
+    if (!globalContext.has('razorpaySuccessHandler')) {
       throw Exception('Success handler not registered. Call setupWebCallbacks first.');
     }
 
@@ -135,7 +125,7 @@ void openRazorpayWeb(Map<String, dynamic> options) {
     print('✅ Success handler registered');
 
     // Create options object with proper handler
-    final jsOptions = js.JsObject.jsify({
+    final jsOptions = {
       'key': options['key'],
       'amount': options['amount'],
       'currency': 'INR',
@@ -151,25 +141,24 @@ void openRazorpayWeb(Map<String, dynamic> options) {
         'color': options['theme']?['color'] ?? '#3399cc',
       },
       'modal': {
-        'ondismiss': js.allowInterop(() {
+        'ondismiss': (() {
           print('🚪 Modal dismissed via ondismiss');
-          js.context.callMethod('eval', ['window.razorpayDismissHandler()']);
-        }),
+          globalContext.callMethod('eval'.toJS, 'window.razorpayDismissHandler()'.toJS);
+        }).toJS,
       },
-    });
-
-    // Add handler as direct property (not inside jsify)
-    jsOptions['handler'] = js.context['razorpaySuccessHandler'];
+      'handler': globalContext['razorpaySuccessHandler'],
+    }.jsify() as JSObject;
 
     print('🚀 Creating Razorpay instance');
     print('🔑 Key: ${options['key']}');
     print('💰 Amount: ${options['amount']}');
     print('🆔 Order ID: ${options['order_id']}');
 
-    final razorpayInstance = js.JsObject(js.context['Razorpay'], [jsOptions]);
+    final razorpayClass = globalContext['Razorpay'] as JSFunction;
+    final razorpayInstance = razorpayClass.callAsConstructor(jsOptions);
 
     print('🎬 Opening Razorpay modal');
-    razorpayInstance.callMethod('open');
+    (razorpayInstance as JSObject).callMethod('open'.toJS);
 
     print('✅ Razorpay opened successfully');
 
