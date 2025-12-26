@@ -59,7 +59,7 @@ dependencies:
 
 
   # ✅ Image & file support
-  image_picker: ^1.0.4
+  file_selector: ^1.0.3
   path: ^1.9.0
 
   # ✅ State management

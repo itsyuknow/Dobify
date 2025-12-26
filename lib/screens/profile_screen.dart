@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
@@ -28,11 +28,11 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen>
     with TickerProviderStateMixin {
   final SupabaseClient supabase = Supabase.instance.client;
-  final ImagePicker picker = ImagePicker();
+
   final ScrollController _scrollController = ScrollController();
 
 
-  Future<String?> _pickAndUploadImageFromDialog(ImageSource source) async {
+  Future<String?> _pickAndUploadImageFromDialog() async {
     if (!mounted) return null;
 
     final user = supabase.auth.currentUser;
@@ -42,18 +42,21 @@ class _ProfileScreenState extends State<ProfileScreen>
     }
 
     try {
-      final picked = await picker.pickImage(
-        source: source,
-        maxWidth: 1000,
-        maxHeight: 1000,
-        imageQuality: 90,
+      // Use file selector for both web and mobile
+      const XTypeGroup typeGroup = XTypeGroup(
+        label: 'images',
+        extensions: ['jpg', 'jpeg', 'png', 'webp'],
+        mimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
       );
+
+      final XFile? picked = await openFile(
+        acceptedTypeGroups: [typeGroup],
+      );
+
       if (picked == null) return null;
 
-      // --- Validate type/size and upload (web vs non-web) ---
-      final ext = (kIsWeb ? p.extension(picked.name) : p.extension(picked.path))
-          .toLowerCase();
-
+      // Validate extension
+      final ext = p.extension(picked.name).toLowerCase();
       if (!['.jpg', '.jpeg', '.png', '.webp'].contains(ext)) {
         throw Exception('Invalid file format. Please use JPG, PNG, or WebP');
       }
@@ -73,44 +76,22 @@ class _ProfileScreenState extends State<ProfileScreen>
       if (ext == '.png') contentType = 'image/png';
       if (ext == '.webp') contentType = 'image/webp';
 
-      if (kIsWeb) {
-        // ✅ WEB: read bytes and uploadBinary
-        final bytes = await picked.readAsBytes();
-        final size = bytes.length;
-        if (size > 5 * 1024 * 1024) {
-          throw Exception('File size too large (max 5MB)');
-        }
-
-        await supabase.storage.from('avatars').uploadBinary(
-          fileName,
-          bytes,
-          fileOptions: FileOptions(
-            cacheControl: '3600',
-            upsert: true,
-            contentType: contentType,
-          ),
-        );
-      } else {
-        // ✅ MOBILE/DESKTOP: use dart:io File
-        final file = File(picked.path);
-        if (!await file.exists()) {
-          throw Exception('Selected file does not exist');
-        }
-        final size = await file.length();
-        if (size > 5 * 1024 * 1024) {
-          throw Exception('File size too large (max 5MB)');
-        }
-
-        await supabase.storage.from('avatars').upload(
-          fileName,
-          file,
-          fileOptions: FileOptions(
-            cacheControl: '3600',
-            upsert: true,
-            contentType: contentType,
-          ),
-        );
+      // Read bytes and upload
+      final bytes = await picked.readAsBytes();
+      final size = bytes.length;
+      if (size > 5 * 1024 * 1024) {
+        throw Exception('File size too large (max 5MB)');
       }
+
+      await supabase.storage.from('avatars').uploadBinary(
+        fileName,
+        bytes,
+        fileOptions: FileOptions(
+          cacheControl: '3600',
+          upsert: true,
+          contentType: contentType,
+        ),
+      );
 
       final url = supabase.storage.from('avatars').getPublicUrl(fileName);
       if (mounted) {
@@ -498,83 +479,18 @@ class _ProfileScreenState extends State<ProfileScreen>
 
     HapticFeedback.lightImpact();
 
-    final ImageSource? source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
-        ),
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 50,
-              height: 5,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2.5),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'Choose Profile Picture',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: Colors.grey.shade800,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Select how you want to add your photo',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade600,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildImageSourceOption(
-                    icon: Icons.camera_alt,
-                    title: 'Camera',
-                    subtitle: 'Take a new photo',
-                    gradient: [kPrimaryColor, kPrimaryColor.withOpacity(0.8)],
-                    onTap: () => Navigator.pop(context, ImageSource.camera),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildImageSourceOption(
-                    icon: Icons.photo_library,
-                    title: 'Gallery',
-                    subtitle: 'Choose from photos',
-                    gradient: [kPrimaryColor.withOpacity(0.8), kPrimaryColor.withOpacity(0.6)],
-                    onTap: () => Navigator.pop(context, ImageSource.gallery),
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: MediaQuery.of(context).viewInsets.bottom + 20),
-          ],
-        ),
-      ),
-    );
-
-    if (source == null) return;
-
     try {
-      final pickedFile = await picker.pickImage(
-        source: source,
-        maxWidth: 1000,
-        maxHeight: 1000,
-        imageQuality: 90,
+      // Use file selector
+      const XTypeGroup typeGroup = XTypeGroup(
+        label: 'images',
+        extensions: ['jpg', 'jpeg', 'png', 'webp'],
+        mimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
       );
+
+      final XFile? pickedFile = await openFile(
+        acceptedTypeGroups: [typeGroup],
+      );
+
       if (pickedFile == null) return;
 
       _safeSetState(() {
@@ -583,8 +499,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       });
       _simulateUploadProgress();
 
-      final ext = (kIsWeb ? p.extension(pickedFile.name) : p.extension(pickedFile.path))
-          .toLowerCase();
+      final ext = p.extension(pickedFile.name).toLowerCase();
       if (!['.jpg', '.jpeg', '.png', '.webp'].contains(ext)) {
         throw Exception('Invalid file format. Please use JPG, PNG, or WebP');
       }
@@ -604,43 +519,21 @@ class _ProfileScreenState extends State<ProfileScreen>
       if (ext == '.png') contentType = 'image/png';
       if (ext == '.webp') contentType = 'image/webp';
 
-      if (kIsWeb) {
-        // ✅ WEB path: bytes + uploadBinary
-        final bytes = await pickedFile.readAsBytes();
-        if (bytes.length > 5 * 1024 * 1024) {
-          throw Exception('File size too large (max 5MB)');
-        }
-
-        await supabase.storage.from('avatars').uploadBinary(
-          fileName,
-          bytes,
-          fileOptions: FileOptions(
-            cacheControl: '3600',
-            upsert: true,
-            contentType: contentType,
-          ),
-        );
-      } else {
-        // ✅ MOBILE path: File + upload
-        final file = File(pickedFile.path);
-        if (!await file.exists()) {
-          throw Exception('Selected file does not exist');
-        }
-        final fileSize = await file.length();
-        if (fileSize > 5 * 1024 * 1024) {
-          throw Exception('File size too large (max 5MB)');
-        }
-
-        await supabase.storage.from('avatars').upload(
-          fileName,
-          file,
-          fileOptions: FileOptions(
-            cacheControl: '3600',
-            upsert: true,
-            contentType: contentType,
-          ),
-        );
+      // Read bytes and upload
+      final bytes = await pickedFile.readAsBytes();
+      if (bytes.length > 5 * 1024 * 1024) {
+        throw Exception('File size too large (max 5MB)');
       }
+
+      await supabase.storage.from('avatars').uploadBinary(
+        fileName,
+        bytes,
+        fileOptions: FileOptions(
+          cacheControl: '3600',
+          upsert: true,
+          contentType: contentType,
+        ),
+      );
 
       final publicUrl = supabase.storage.from('avatars').getPublicUrl(fileName);
 
@@ -668,57 +561,7 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
 
-  Widget _buildImageSourceOption({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required List<Color> gradient,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.lightImpact();
-        onTap();
-      },
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(colors: gradient),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: gradient[0].withOpacity(0.3),
-              blurRadius: 12,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: Colors.white, size: 32),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                fontSize: 16,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.9),
-                fontSize: 12,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+
 
   void _simulateUploadProgress() {
     Timer.periodic(const Duration(milliseconds: 100), (timer) {
@@ -2127,44 +1970,23 @@ class _ProfileScreenState extends State<ProfileScreen>
                                         ),
                                         const SizedBox(width: 12),
                                         Expanded(
-                                          child: Row(
-                                            children: [
-                                              Expanded(
-                                                child: OutlinedButton.icon(
-                                                  onPressed: () async {
-                                                    final url = await _pickAndUploadImageFromDialog(ImageSource.camera);
-                                                    if (url != null) {
-                                                      setDialogState(() => localAvatarUrl = url);
-                                                    }
-                                                  },
-                                                  icon: const Icon(Icons.camera_alt_rounded, size: 16),
-                                                  label: const Text('Camera'),
-                                                  style: OutlinedButton.styleFrom(
-                                                    foregroundColor: kPrimaryColor,
-                                                    side: BorderSide(color: kPrimaryColor.withOpacity(0.4)),
-                                                    padding: const EdgeInsets.symmetric(vertical: 10),
-                                                  ),
-                                                ),
+                                          child: ElevatedButton.icon(
+                                            onPressed: () async {
+                                              final url = await _pickAndUploadImageFromDialog();
+                                              if (url != null) {
+                                                setDialogState(() => localAvatarUrl = url);
+                                              }
+                                            },
+                                            icon: const Icon(Icons.photo_library_rounded, size: 16),
+                                            label: const Text('Choose Photo'),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: kPrimaryColor,
+                                              foregroundColor: Colors.white,
+                                              padding: const EdgeInsets.symmetric(vertical: 12),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius: BorderRadius.circular(12),
                                               ),
-                                              const SizedBox(width: 8),
-                                              Expanded(
-                                                child: OutlinedButton.icon(
-                                                  onPressed: () async {
-                                                    final url = await _pickAndUploadImageFromDialog(ImageSource.gallery);
-                                                    if (url != null) {
-                                                      setDialogState(() => localAvatarUrl = url);
-                                                    }
-                                                  },
-                                                  icon: const Icon(Icons.photo_library_rounded, size: 16),
-                                                  label: const Text('Gallery'),
-                                                  style: OutlinedButton.styleFrom(
-                                                    foregroundColor: kPrimaryColor,
-                                                    side: BorderSide(color: kPrimaryColor.withOpacity(0.4)),
-                                                    padding: const EdgeInsets.symmetric(vertical: 10),
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
+                                            ),
                                           ),
                                         ),
                                       ],
