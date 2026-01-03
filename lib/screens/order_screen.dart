@@ -587,7 +587,7 @@ class _OrdersScreenState extends State<OrdersScreen>
 
 
 
-  // ✅ CHANGED: read by product_id and sum counts by product_id
+  // ✅ CHANGED: read by product_id and sum counts by product_id (considering wash types)
   Future<void> _fetchCartData() async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
@@ -595,7 +595,7 @@ class _OrdersScreenState extends State<OrdersScreen>
     try {
       final data = await supabase
           .from('cart')
-          .select('product_id, product_quantity')
+          .select('product_id, product_quantity, service_type')
           .eq('user_id', user.id);
 
       _productQuantities.clear();
@@ -604,7 +604,16 @@ class _OrdersScreenState extends State<OrdersScreen>
         final pid = (item['product_id'] ?? '').toString();
         if (pid.isEmpty) continue; // ignore legacy rows without product_id
         final quantity = item['product_quantity'] as int? ?? 0;
-        _productQuantities[pid] = (_productQuantities[pid] ?? 0) + quantity;
+        final serviceType = item['service_type'] as String? ?? '';
+
+        // For wash services, we need to check if it's the same service without wash type
+        if (serviceType.contains(' - ')) {
+          // This is a wash service with wash type, we still count it for the product
+          _productQuantities[pid] = (_productQuantities[pid] ?? 0) + quantity;
+        } else {
+          // Regular service
+          _productQuantities[pid] = (_productQuantities[pid] ?? 0) + quantity;
+        }
       }
 
       final totalCount =
@@ -675,9 +684,13 @@ class _OrdersScreenState extends State<OrdersScreen>
     } catch (_) {}
   }
 
-  // ✅ CHANGED: add by product_id (+ service_type uniqueness)
+  // ✅ CHANGED: add by product_id (+ service_type uniqueness with wash type)
   Future<void> _addToCartWithService(
-      Map<String, dynamic> product, String serviceId, String serviceName, int finalPrice) async {
+      Map<String, dynamic> product,
+      String serviceId,
+      String serviceName,
+      int finalPrice,
+      String washType) async {
     final user = supabase.auth.currentUser;
     if (user == null) {
       if (mounted) {
@@ -698,6 +711,14 @@ class _OrdersScreenState extends State<OrdersScreen>
     try {
       if (mounted) setState(() => _addedStatus[productId] = true);
 
+      // Determine if this is a wash service
+      final bool isWashService = washType.contains('Wash');
+
+      // Prepare service type with wash type
+      final String fullServiceType = isWashService
+          ? '$serviceName - $washType'
+          : serviceName;
+
       // Check if item already exists in cart
       final existing = await supabase
           .from('cart')
@@ -705,6 +726,7 @@ class _OrdersScreenState extends State<OrdersScreen>
           .eq('user_id', user.id)
           .eq('product_id', productId)
           .eq('service_id', serviceId)
+          .eq('service_type', fullServiceType) // Match exact service type including wash type
           .maybeSingle();
 
       if (existing != null) {
@@ -727,7 +749,8 @@ class _OrdersScreenState extends State<OrdersScreen>
           'product_image': image,
           'product_price': finalPrice.toDouble(), // Store the final price
           'service_id': serviceId,
-          'service_type': serviceName,
+          'service_type': fullServiceType, // Store with wash type
+          'wash_type': isWashService ? washType : null, // Store wash type separately if needed
           'service_price': 0.0, // No separate service price anymore
           'product_quantity': 1,
           'total_price': finalPrice.toDouble(),
@@ -776,6 +799,8 @@ class _OrdersScreenState extends State<OrdersScreen>
     await _fetchCategoriesAndProducts();
     await _fetchCartData();
   }
+
+  // Replace _showServiceSelectionPopup method with this:
 
   Future<void> _showServiceSelectionPopup(Map<String, dynamic> product) async {
     final productId = (product['id'] ?? '').toString();
@@ -842,14 +867,17 @@ class _OrdersScreenState extends State<OrdersScreen>
 
                         final serviceId = serviceData['id']?.toString() ?? '';
                         final serviceName = serviceData['name'] ?? '';
-                        final int price = (priceData['price'] as num?)?.toInt() ?? 0;
+                        final int regularPrice = (priceData['regular_wash_price'] as num?)?.toInt() ??
+                            (priceData['price'] as num?)?.toInt() ?? 0;
+                        final int? heavyPrice = (priceData['heavy_wash_price'] as num?)?.toInt();
                         final description = (serviceData['service_description'] ?? '').toString();
                         final iconName = serviceData['icon_name'];
 
                         return GestureDetector(
                           onTap: () async {
                             Navigator.pop(context);
-                            await _addToCartWithService(product, serviceId, serviceName, price);
+                            // Show wash type selection
+                            await _showWashTypeSelection(product, serviceId, serviceName, regularPrice, heavyPrice, priceData);
                           },
                           child: Container(
                             margin: const EdgeInsets.only(bottom: 12),
@@ -904,9 +932,9 @@ class _OrdersScreenState extends State<OrdersScreen>
                                 ),
                                 const SizedBox(width: 6),
                                 Text(
-                                  '₹$price',
+                                  'From ₹$regularPrice',
                                   style: TextStyle(
-                                    fontSize: 13.5,
+                                    fontSize: 12,
                                     fontWeight: FontWeight.bold,
                                     color: kPrimaryColor,
                                   ),
@@ -937,6 +965,221 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
   }
 
+  // ✅ UPDATED: Show wash type selection and store wash type
+  Future<void> _showWashTypeSelection(
+      Map<String, dynamic> product,
+      String serviceId,
+      String serviceName,
+      int regularPrice,
+      int? heavyPrice,
+      Map<String, dynamic> priceData) async {
+    if (!mounted) return;
+
+    // ✅ FIXED: Check if this is a wash service by checking if it's actually a WASH service
+    // Only show wash type selection for services that contain "Wash" in the name AND have heavyPrice
+    final isWashService = serviceName.toLowerCase().contains('wash') && heavyPrice != null;
+
+    // ✅ If NOT a wash service, directly add to cart with service name
+    if (!isWashService) {
+      await _addToCartWithService(product, serviceId, serviceName, regularPrice, serviceName);
+      return;
+    }
+
+    // ✅ If IS a wash service (and has heavyPrice), show the wash type selection modal
+    await showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (BuildContext context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Handle at top
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+
+              Text(
+                'Select Wash Type',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                serviceName,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Regular Wash Option
+              InkWell(
+                onTap: () {
+                  Navigator.pop(context);
+                  _addToCartWithService(product, serviceId, serviceName, regularPrice, 'Regular Wash');
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: kPrimaryColor, width: 1.5),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: kPrimaryColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(
+                          Icons.water_drop_outlined,
+                          color: kPrimaryColor,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Regular Wash',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Standard cleaning',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Text(
+                        '₹$regularPrice',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: kPrimaryColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Heavy Wash Option
+              InkWell(
+                onTap: () {
+                  Navigator.pop(context);
+                  _addToCartWithService(product, serviceId, serviceName, heavyPrice!, 'Heavy Wash');
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.orange, width: 1.5),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.water_damage,
+                          color: Colors.orange,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Heavy Wash',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Deep cleaning for tough stains',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Text(
+                        '₹$heavyPrice',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.orange,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Cancel Button
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                ),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey,
+                  ),
+                ),
+              ),
+
+              SizedBox(height: MediaQuery.of(context).padding.bottom),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
 
 
