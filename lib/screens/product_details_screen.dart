@@ -534,7 +534,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
     return null;
   }
 
-// NEW: Show wash type selection
+  // NEW: Show wash type selection
   Future<void> _showWashTypeSelection(String serviceId, String serviceName) async {
     if (!mounted) return;
 
@@ -548,6 +548,9 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
 
     final regularPrice = washDetails['regular_price'] as int;
     final heavyPrice = washDetails['heavy_price'] as int;
+
+    // ✅ Calculate the total price for heavy wash
+    final heavyWashTotalPrice = regularPrice + heavyPrice;
 
     await showModalBottomSheet(
       context: context,
@@ -589,10 +592,11 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
               ),
               const SizedBox(height: 20),
 
-              // Regular Wash Option
+              // Regular Wash Option - Shows only regularPrice
               InkWell(
                 onTap: () {
                   Navigator.pop(context);
+                  // ✅ Pass regularPrice as-is for Regular Wash
                   _addToCartWithWashType('Regular Wash', regularPrice);
                 },
                 child: Container(
@@ -641,7 +645,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                         ),
                       ),
                       Text(
-                        '₹$regularPrice',
+                        '₹$regularPrice',  // ✅ Shows only regular price
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -655,11 +659,12 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
 
               const SizedBox(height: 12),
 
-              // Heavy Wash Option
+              // Heavy Wash Option - Shows regularPrice + heavyPrice
               InkWell(
                 onTap: () {
                   Navigator.pop(context);
-                  _addToCartWithWashType('Heavy Wash', heavyPrice);
+                  // ✅ Pass the TOTAL price (regularPrice + heavyPrice) for Heavy Wash
+                  _addToCartWithWashType('Heavy Wash', heavyWashTotalPrice);
                 },
                 child: Container(
                   padding: const EdgeInsets.all(16),
@@ -697,7 +702,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Deep cleaning for tough stains',
+                              'Deep cleaning for tough stains (+₹$heavyPrice)',  // ✅ Show the extra charge
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.grey.shade600,
@@ -706,13 +711,25 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen>
                           ],
                         ),
                       ),
-                      Text(
-                        '₹$heavyPrice',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.orange,
-                        ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            '₹$heavyWashTotalPrice',  // ✅ Shows total (regular + heavy)
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.orange,
+                            ),
+                          ),
+                          Text(
+                            '₹$regularPrice + ₹$heavyPrice',  // ✅ Shows breakdown
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.grey.shade500,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

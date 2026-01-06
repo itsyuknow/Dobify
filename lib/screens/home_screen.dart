@@ -936,45 +936,26 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
         ),
         const SizedBox(height: 40),
 
-        /// 👇 Staggered layout to match the new image
+        // ✅ Dynamic grid that shows ALL categories
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Column(
             children: [
-              // First row - 2 cards side by side
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildStaggeredCategoryCard(0),
-                  const SizedBox(width: 32), // Increased gap
-                  _buildStaggeredCategoryCard(1),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Second row - 2 cards side by side
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildStaggeredCategoryCard(2),
-                  const SizedBox(width: 32), // Increased gap
-                  _buildStaggeredCategoryCard(3),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Third row - cards left aligned (if more items exist)
-              if (_categories.length > 4)
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _buildStaggeredCategoryCard(4),
-                    const SizedBox(width: 32),
-                    if (_categories.length > 5)
-                      _buildStaggeredCategoryCard(5)
-                    else
-                      SizedBox(width: 140), // Placeholder to maintain alignment
-                  ],
+              // Build rows dynamically
+              for (int i = 0; i < _categories.length; i += 2)
+                Padding(
+                  padding: EdgeInsets.only(bottom: i + 2 < _categories.length ? 16 : 0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildStaggeredCategoryCard(i),
+                      const SizedBox(width: 32),
+                      if (i + 1 < _categories.length)
+                        _buildStaggeredCategoryCard(i + 1)
+                      else
+                        const SizedBox(width: 140), // Placeholder for odd number
+                    ],
+                  ),
                 ),
             ],
           ),

@@ -965,7 +965,6 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
   }
 
-  // ✅ UPDATED: Show wash type selection and store wash type
   Future<void> _showWashTypeSelection(
       Map<String, dynamic> product,
       String serviceId,
@@ -975,17 +974,20 @@ class _OrdersScreenState extends State<OrdersScreen>
       Map<String, dynamic> priceData) async {
     if (!mounted) return;
 
-    // ✅ FIXED: Check if this is a wash service by checking if it's actually a WASH service
-    // Only show wash type selection for services that contain "Wash" in the name AND have heavyPrice
+    // Check if this is a wash service by checking if it contains "Wash" in the name AND has heavyPrice
     final isWashService = serviceName.toLowerCase().contains('wash') && heavyPrice != null;
 
-    // ✅ If NOT a wash service, directly add to cart with service name
+    // If NOT a wash service, directly add to cart with service name
     if (!isWashService) {
       await _addToCartWithService(product, serviceId, serviceName, regularPrice, serviceName);
       return;
     }
 
-    // ✅ If IS a wash service (and has heavyPrice), show the wash type selection modal
+    // ✅ NEW: Calculate the actual heavy wash total price
+    // Heavy wash shows: regularPrice + heavyPrice
+    final int heavyWashTotalPrice = regularPrice + (heavyPrice ?? 0);
+
+    // If IS a wash service (and has heavyPrice), show the wash type selection modal
     await showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -1026,10 +1028,11 @@ class _OrdersScreenState extends State<OrdersScreen>
               ),
               const SizedBox(height: 20),
 
-              // Regular Wash Option
+              // Regular Wash Option - Shows only regularPrice
               InkWell(
                 onTap: () {
                   Navigator.pop(context);
+                  // ✅ Pass regularPrice as-is for Regular Wash
                   _addToCartWithService(product, serviceId, serviceName, regularPrice, 'Regular Wash');
                 },
                 child: Container(
@@ -1078,7 +1081,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                         ),
                       ),
                       Text(
-                        '₹$regularPrice',
+                        '₹$regularPrice',  // ✅ Shows only regular price
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -1092,11 +1095,12 @@ class _OrdersScreenState extends State<OrdersScreen>
 
               const SizedBox(height: 12),
 
-              // Heavy Wash Option
+              // Heavy Wash Option - Shows regularPrice + heavyPrice
               InkWell(
                 onTap: () {
                   Navigator.pop(context);
-                  _addToCartWithService(product, serviceId, serviceName, heavyPrice!, 'Heavy Wash');
+                  // ✅ Pass the TOTAL price (regularPrice + heavyPrice) for Heavy Wash
+                  _addToCartWithService(product, serviceId, serviceName, heavyWashTotalPrice, 'Heavy Wash');
                 },
                 child: Container(
                   padding: const EdgeInsets.all(16),
@@ -1134,7 +1138,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Deep cleaning for tough stains',
+                              'Deep cleaning for tough stains (+₹${heavyPrice ?? 0})',  // ✅ Show the extra charge
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.grey.shade600,
@@ -1143,13 +1147,26 @@ class _OrdersScreenState extends State<OrdersScreen>
                           ],
                         ),
                       ),
-                      Text(
-                        '₹$heavyPrice',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.orange,
-                        ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            '₹$heavyWashTotalPrice',  // ✅ Shows total (regular + heavy)
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.orange,
+                            ),
+                          ),
+                          if (heavyPrice != null)
+                            Text(
+                              '₹$regularPrice + ₹$heavyPrice',  // ✅ Shows breakdown
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
+                        ],
                       ),
                     ],
                   ),
