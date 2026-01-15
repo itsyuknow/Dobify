@@ -29,6 +29,7 @@ class _OrdersScreenState extends State<OrdersScreen>
   String _selectedCategory = 'All';
 
   final List<Map<String, dynamic>> _products = [];
+  final Map<String, String?> _categoryTaglines = {}; // Store taglines by category name
 
   // ✅ CHANGED: Key by productId instead of productName
   final Map<String, int> _productQuantities = {};
@@ -115,7 +116,7 @@ class _OrdersScreenState extends State<OrdersScreen>
       final response = await supabase
           .from('products')
           .select(
-          'id, product_name,image_url, category_id, is_enabled, created_at, sort_order,recommended_service_id, services_provided, categories(name)'
+          'id, product_name,image_url, category_id, is_enabled, created_at, sort_order,recommended_service_id, services_provided, categories(name, tagline)'
       )
 
           .eq('is_enabled', true)
@@ -128,14 +129,19 @@ class _OrdersScreenState extends State<OrdersScreen>
         ..addAll(productList);
 
       if (_categories.length == 1) {
-        final unique = _products
-            .map((p) => p['categories']?['name']?.toString())
-            .where((name) => name != null && name!.isNotEmpty)
-            .cast<String>()
-            .toSet()
-            .toList()
-          ..sort();
-        _categories = ['All', ...unique];
+        final unique = <String>{};
+        for (var p in _products) {
+          final catName = p['categories']?['name']?.toString();
+          final catTagline = p['categories']?['tagline']?.toString();
+          if (catName != null && catName.isNotEmpty) {
+            unique.add(catName);
+            if (catTagline != null && catTagline.isNotEmpty) {
+              _categoryTaglines[catName] = catTagline;
+            }
+          }
+        }
+        final sortedList = unique.toList()..sort();
+        _categories = ['All', ...sortedList];
       }
 
       _cachedProducts = List<Map<String, dynamic>>.from(_products);
@@ -159,9 +165,9 @@ class _OrdersScreenState extends State<OrdersScreen>
 
           final categoriesResponse = await supabase
               .from('categories')
-              .select('id, name')
+              .select('id, name, tagline')
               .eq('is_active', true)
-              .order('sort_order', ascending: true); // ✅ Also sort categories
+              .order('sort_order', ascending: true);
 
           final categoriesMap = <String, String>{};
           for (var category in categoriesResponse) {
@@ -174,13 +180,19 @@ class _OrdersScreenState extends State<OrdersScreen>
           }
 
           if (_categories.length == 1) {
-            final orderedNames =
-            List<Map<String, dynamic>>.from(categoriesResponse)
-                .map((e) => (e['name'] as String?)?.trim())
-                .where((e) => e != null && e!.isNotEmpty)
-                .cast<String>()
-                .toList();
-            _categories = ['All', ...orderedNames];
+            final unique = <String>{};
+            for (var p in _products) {
+              final catName = p['categories']?['name']?.toString();
+              final catTagline = p['categories']?['tagline']?.toString();
+              if (catName != null && catName.isNotEmpty) {
+                unique.add(catName);
+                if (catTagline != null && catTagline.isNotEmpty) {
+                  _categoryTaglines[catName] = catTagline;
+                }
+              }
+            }
+            final sortedList = unique.toList()..sort();
+            _categories = ['All', ...sortedList];
           }
 
           _cachedProducts = List<Map<String, dynamic>>.from(_products);
@@ -214,15 +226,21 @@ class _OrdersScreenState extends State<OrdersScreen>
       // ✅ UPDATED: Added sort_order to category loading
       final rows = await supabase
           .from('categories')
-          .select('name,is_active')
+          .select('name, tagline, is_active')
           .eq('is_active', true)
           .order('sort_order', ascending: true);
 
-      final names = List<Map<String, dynamic>>.from(rows)
-          .map((e) => (e['name'] as String?)?.trim())
-          .where((e) => e != null && e!.isNotEmpty)
-          .cast<String>()
-          .toList();
+      final names = <String>[];
+      for (var row in List<Map<String, dynamic>>.from(rows)) {
+        final name = (row['name'] as String?)?.trim();
+        final tagline = (row['tagline'] as String?)?.trim();
+        if (name != null && name.isNotEmpty) {
+          names.add(name);
+          if (tagline != null && tagline.isNotEmpty) {
+            _categoryTaglines[name] = tagline;
+          }
+        }
+      }
 
       if (mounted && names.isNotEmpty) {
         setState(() {
@@ -414,12 +432,13 @@ class _OrdersScreenState extends State<OrdersScreen>
     });
   }
 
-  void _onSearchChanged() {
+  void _onSearchChanged() async {
     setState(() {
       _searchQuery = _searchController.text;
-      _generateSearchSuggestions();
       _showSearchSuggestions = _searchController.text.isNotEmpty;
     });
+    await _generateSearchSuggestions();
+    if (mounted) setState(() {});
   }
 
   void _onSearchFocusChanged() {
@@ -428,17 +447,49 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
   }
 
-  void _generateSearchSuggestions() {
+  Future<void> _generateSearchSuggestions() async {
     if (_searchQuery.isEmpty) {
       _searchSuggestions.clear();
       return;
     }
     final query = _searchQuery.toLowerCase();
-    _searchSuggestions = _products
+    final matchingProducts = _products
         .where((product) =>
         product['product_name'].toString().toLowerCase().contains(query))
         .take(8)
         .toList();
+
+    // Fetch lowest price for each product
+    final enrichedProducts = <Map<String, dynamic>>[];
+    for (var product in matchingProducts) {
+      final productId = product['id']?.toString();
+      if (productId != null && productId.isNotEmpty) {
+        try {
+          // Fetch the lowest service price for this product
+          final priceData = await supabase
+              .from('product_service_prices')
+              .select('regular_wash_price, price')
+              .eq('product_id', productId)
+              .eq('is_available', true)
+              .order('regular_wash_price', ascending: true)
+              .limit(1)
+              .maybeSingle();
+
+          if (priceData != null) {
+            final lowestPrice = (priceData['regular_wash_price'] as num?)?.toInt() ??
+                (priceData['price'] as num?)?.toInt() ?? 0;
+            product['lowest_service_price'] = lowestPrice;
+          } else {
+            product['lowest_service_price'] = 0;
+          }
+        } catch (e) {
+          product['lowest_service_price'] = 0;
+        }
+      }
+      enrichedProducts.add(product);
+    }
+
+    _searchSuggestions = enrichedProducts;
   }
 
   void _selectSearchSuggestion(Map<String, dynamic> product) {
@@ -1677,7 +1728,8 @@ class _OrdersScreenState extends State<OrdersScreen>
                     final productName = product['product_name'] as String;
                     final categoryName = product['categories']?['name'] ?? '';
                     final imageUrl = product['image_url'] ?? '';
-                    final price = (product['product_price'] as num?)?.toInt() ?? 0;
+                    final price = (product['lowest_service_price'] as num?)?.toInt() ?? 0;
+
 
                     return InkWell(
                       onTap: () => _selectSearchSuggestion(product),
@@ -1757,7 +1809,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
                                 Text(
-                                  'For ₹$price',
+                                  price > 0 ? 'Starts with ₹$price' : 'Select service',
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
@@ -1879,7 +1931,6 @@ class _OrdersScreenState extends State<OrdersScreen>
     return _buildPremiumProductGrid(context, products);
   }
 
-  @override
   PreferredSizeWidget _buildPremiumAppBar() {
     return AppBar(
       automaticallyImplyLeading: false,
@@ -2130,7 +2181,7 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   Widget _buildPremiumCategoryTabs() {
     return Container(
-      height: 50,
+      height: 60, // Increased from 56 to accommodate tagline
       margin: const EdgeInsets.symmetric(horizontal: 16),
       child: ListView.builder(
         controller: _scrollController,
@@ -2139,6 +2190,7 @@ class _OrdersScreenState extends State<OrdersScreen>
         itemBuilder: (context, index) {
           final cat = _categories[index];
           final isSelected = _selectedCategory == cat;
+          final hasTagline = _categoryTaglines[cat] != null && _categoryTaglines[cat]!.isNotEmpty;
 
           // Ensure each category has a stable GlobalKey
           final key = _categoryKeys.putIfAbsent(cat, () => GlobalKey());
@@ -2156,7 +2208,10 @@ class _OrdersScreenState extends State<OrdersScreen>
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 250),
                 margin: const EdgeInsets.only(right: 12, top: 4, bottom: 4),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                padding: EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: hasTagline ? 6 : 8, // Adjust padding based on tagline presence
+                ),
                 constraints: const BoxConstraints(minWidth: 80),
                 decoration: BoxDecoration(
                   gradient: isSelected
@@ -2177,15 +2232,44 @@ class _OrdersScreenState extends State<OrdersScreen>
                   ],
                 ),
                 child: Center(
-                  child: Text(
-                    cat,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                      color: isSelected ? Colors.white : Colors.black87,
-                    ),
-                    textAlign: TextAlign.center,
-                    overflow: TextOverflow.ellipsis,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // Category Name
+                      Text(
+                        cat,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13, // Slightly reduced from 14
+                          color: isSelected ? Colors.white : Colors.black87,
+                          height: 1.1, // Tighter line height
+                        ),
+                        textAlign: TextAlign.center,
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                      // Tagline (if exists)
+                      if (hasTagline) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          _categoryTaglines[cat]!,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w500,
+                            fontSize: 9, // Reduced from 10
+                            color: isSelected
+                                ? Colors.white.withOpacity(0.9)
+                                : const Color(0xFF42A5F5), // Blue color
+                            letterSpacing: 0.2,
+                            height: 1.0, // Tighter line height
+                          ),
+                          textAlign: TextAlign.center,
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),
