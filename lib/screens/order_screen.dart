@@ -250,16 +250,26 @@ class _OrdersScreenState extends State<OrdersScreen>
     } catch (_) {}
   }
 
-  // ✅ UPDATED: Search + Category filter with sorting maintained
+
   List<Map<String, dynamic>> _getFilteredProducts() {
     List<Map<String, dynamic>> filteredProducts;
 
     if (_selectedCategory == 'All') {
       filteredProducts = _products;
     } else {
-      filteredProducts = _products
-          .where((p) => p['categories']?['name'] == _selectedCategory)
-          .toList();
+      filteredProducts = _products.where((p) {
+        final categoryData = p['categories'];
+        if (categoryData == null) return false;
+
+        final categoryName = categoryData['name']?.toString();
+        if (categoryName == null) return false;
+
+        // Normalize both strings for better matching
+        final normalizedSelected = _selectedCategory.trim().toLowerCase();
+        final normalizedCategory = categoryName.trim().toLowerCase();
+
+        return normalizedSelected == normalizedCategory;
+      }).toList();
     }
 
     if (_searchQuery.isNotEmpty) {
