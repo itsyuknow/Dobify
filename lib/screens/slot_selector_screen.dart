@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 // Conditional import - uses web helper on web, stub on mobile
 import 'package:ironly/helpers/razorpay_web_helper_stub.dart'
 if (dart.library.js) 'package:ironly/helpers/razorpay_web_helper.dart';
+import 'package:shimmer/shimmer.dart';
 
 
 
@@ -38,21 +39,209 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
 
 
 
-  // Iron-only service IDs
-  static const Set<String> _ironOnlyServiceIds = {
-    'bdfd29d1-7af8-4578-a915-896e75d263a2', // Ironing (Steam)
-    'e1962f17-318d-491e-9fc5-989510d97e63', // Ironing (Regular)
-  };
+// Add these variables
+  Map<DateTime, bool> _deliveryDateAvailabilityCache = {};
+  bool _isDeliveryAvailabilityLoaded = false;
 
-  bool _hasWashServices() {
+// NEW: Load ALL delivery dates availability at once
+  Future<void> _preloadDeliveryAvailability() async {
+    if (_isDeliveryAvailabilityLoaded || selectedPickupSlot == null) return;
+
+    final int maxServiceHours = await _getMaxServiceHours();
+    final int minHours = isExpressDelivery ? (maxServiceHours - 12) : maxServiceHours;
+
+    final pickupDate = selectedPickupDate;
+    final pickupSlotStart = _parseTimeString(selectedPickupSlot!['start_time']);
+    final pickupDateTime = DateTime(
+      pickupDate.year,
+      pickupDate.month,
+      pickupDate.day,
+      pickupSlotStart.hour,
+      pickupSlotStart.minute,
+    );
+
+    final minDeliveryDateTime = pickupDateTime.add(Duration(hours: minHours));
+
+    // Check each delivery date
+    for (final date in deliveryDates) {
+      bool hasSlots = false;
+
+      // Get delivery slots for this date
+      int deliveryDayOfWeek = date.weekday;
+      List<Map<String, dynamic>> daySlots = deliverySlots.where((slot) {
+        int slotDayOfWeek = slot['day_of_week'] ?? 0;
+        bool dayMatches = slotDayOfWeek == deliveryDayOfWeek ||
+            (deliveryDayOfWeek == 7 && slotDayOfWeek == 0) ||
+            (slotDayOfWeek == 7 && deliveryDayOfWeek == 0);
+
+        bool typeMatches = isExpressDelivery
+            ? (slot['slot_type'] == 'express' || slot['slot_type'] == 'both')
+            : (slot['slot_type'] == 'standard' || slot['slot_type'] == 'both');
+
+        return dayMatches && typeMatches;
+      }).toList();
+
+      // Check if any slot is after minDeliveryDateTime
+      if (daySlots.isNotEmpty) {
+        final now = DateTime.now();
+        final isDeliveryToday = date.day == now.day &&
+            date.month == now.month &&
+            date.year == now.year;
+
+        for (final slot in daySlots) {
+          // Skip if slot has passed today
+          if (isDeliveryToday) {
+            final slotStart = _parseTimeString(slot['start_time']);
+            final currentTime = TimeOfDay.now();
+            if (slotStart.hour < currentTime.hour) continue;
+            if (slotStart.hour == currentTime.hour && slotStart.minute < currentTime.minute) continue;
+          }
+
+          // Calculate slot datetime
+          final slotStart = _parseTimeString(slot['start_time']);
+          final slotDateTime = DateTime(
+            date.year,
+            date.month,
+            date.day,
+            slotStart.hour,
+            slotStart.minute,
+          );
+
+          if (slotDateTime.isAfter(minDeliveryDateTime) ||
+              slotDateTime.isAtSameMomentAs(minDeliveryDateTime)) {
+            hasSlots = true;
+            break;
+          }
+        }
+      }
+
+      _deliveryDateAvailabilityCache[date] = hasSlots;
+    }
+
+    _isDeliveryAvailabilityLoaded = true;
+    if (mounted) setState(() {});
+  }
+
+
+  Future<int> _getMaxServiceHours({bool forceRefresh = false}) async {
+    // Return cached value if available
+    if (_cachedMaxServiceHours != null && !forceRefresh && _isMaxServiceHoursCalculated) {
+      return _cachedMaxServiceHours!;
+    }
+
+    // Load service hours if not already loaded
+    await _loadServiceHours();
+
+    int maxHours = 24; // Start with minimum express delivery time
+
     for (final item in widget.cartItems) {
-      final serviceId = item['service_id']?.toString() ?? '';
-      if (serviceId.isNotEmpty && !_ironOnlyServiceIds.contains(serviceId)) {
-        return true;
+      final serviceType = item['service_type']?.toString() ?? '';
+
+      if (serviceType.isNotEmpty) {
+        // Try to get from cache first
+        final int? cachedHours = _serviceHoursCache[serviceType];
+
+        if (cachedHours != null) {
+          if (cachedHours > maxHours) {
+            maxHours = cachedHours;
+          }
+        } else {
+          // If not in cache, use fallback based on service type patterns
+          final int fallbackHours = _getFallbackServiceHours(serviceType);
+          if (fallbackHours > maxHours) {
+            maxHours = fallbackHours;
+          }
+
+          debugPrint('⚠️ Service hours not found for: $serviceType, using fallback: $fallbackHours');
+        }
       }
     }
-    return false;
+
+    debugPrint('📦 Max service hours calculated: $maxHours');
+
+    // Cache the result
+    _cachedMaxServiceHours = maxHours;
+    _isMaxServiceHoursCalculated = true;
+
+    return maxHours;
   }
+
+  Future<void> _precalculateMaxServiceHours() async {
+    // Pre-calculate max service hours during initialization
+    try {
+      await _getMaxServiceHours();
+    } catch (e) {
+      debugPrint('Error precalculating service hours: $e');
+    }
+  }
+
+// Helper for fallback hours when service not found in database
+  int _getFallbackServiceHours(String serviceType) {
+    // Common patterns based on your service table
+    if (serviceType.contains('Dry Cleaning')) return 72;
+    if (serviceType.contains('Wash (') &&
+        (serviceType.contains('Regular') ||
+            serviceType.contains('Premium') ||
+            serviceType.contains('Deep'))) return 72;
+    if (serviceType.contains('Small') ||
+        serviceType.contains('Medium') ||
+        serviceType.contains('Large')) return 72;
+    if (serviceType.contains('Ironing')) return 24;
+    if (serviceType.contains('Wash &')) return 48;
+
+    return 48; // Default for any other service
+  }
+
+  // Cache for service hours to avoid repeated database queries
+  Map<String, int> _serviceHoursCache = {};
+  bool _isServiceHoursLoaded = false;
+
+  bool _isLoadingServiceHours = false;
+  // Cache for max service hours
+  int? _cachedMaxServiceHours;
+  bool _isMaxServiceHoursCalculated = false;
+
+  Future<void> _loadServiceHours() async {
+    if (_isServiceHoursLoaded) return;
+
+    setState(() {
+      _isLoadingServiceHours = true;
+    });
+
+    try {
+      final response = await supabase
+          .from('services')
+          .select('name, service_hours');
+
+      for (final service in response) {
+        final String name = service['name']?.toString() ?? '';
+        final dynamic hoursRaw = service['service_hours'];
+
+        if (name.isNotEmpty && hoursRaw != null) {
+          int hours = 48;
+          if (hoursRaw is num) {
+            hours = hoursRaw.toInt();
+          } else if (hoursRaw is String) {
+            hours = int.tryParse(hoursRaw) ?? 48;
+          }
+          _serviceHoursCache[name] = hours;
+        }
+      }
+
+      _isServiceHoursLoaded = true;
+      debugPrint('✅ Loaded ${_serviceHoursCache.length} service hours from database');
+    } catch (e) {
+      debugPrint('❌ Error loading service hours: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingServiceHours = false;
+        });
+      }
+    }
+  }
+
+
 
   bool isExpressDelivery = false;
   Map<String, dynamic>? selectedAddress;
@@ -144,10 +333,22 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     super.initState();
     _initializeDates();
     _loadBillingSettings();
-    _loadSlots();
+    _loadSlots().then((_) {
+      // After slots are loaded, preload delivery availability
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (selectedPickupSlot != null) {
+          _preloadDeliveryAvailability();
+        }
+      });
+    });
     _loadDefaultAddress();
     _initializeRazorpay();
     _initializeAnimations();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadServiceHours();
+      _precalculateMaxServiceHours();
+    });
   }
 
   void _initializeAnimations() {
@@ -203,32 +404,30 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     print('🔄 External Wallet: ${response.walletName}');
   }
 
-  void _initializeDates() {
+  Future<void> _initializeDates() async {
     pickupDates = List.generate(7, (index) => DateTime.now().add(Duration(days: index)));
 
     // Initialize delivery dates based on service type
-    final bool hasWash = _hasWashServices();
-    final int minDeliveryHours = isExpressDelivery ? 36 : (hasWash ? 48 : 0);
+    final int maxServiceHours = await _getMaxServiceHours();
+    final int minDeliveryHours = isExpressDelivery
+        ? (maxServiceHours - 12)  // Express is 12 hours less
+        : maxServiceHours;
 
-    if (hasWash) {
-      // For wash services, start delivery dates from minimum required hours
-      deliveryDates = List.generate(7, (index) {
-        return DateTime.now().add(Duration(hours: minDeliveryHours + (index * 24)));
-      });
-    } else {
-      // For iron-only, use same-day delivery possibility
-      deliveryDates = List.generate(7, (index) => selectedPickupDate.add(Duration(days: index)));
-    }
+    // Start delivery dates from minimum required hours
+    deliveryDates = List.generate(7, (index) {
+      return DateTime.now().add(Duration(hours: minDeliveryHours + (index * 24)));
+    });
   }
 
-  void _updateDeliveryDates() {
-    final bool hasWash = _hasWashServices();
+  Future<void> _updateDeliveryDates() async {
+    final int maxServiceHours = await _getMaxServiceHours();
+    final int minHours = isExpressDelivery
+        ? (maxServiceHours - 12)
+        : maxServiceHours;
 
-    if (hasWash) {
-      // For wash services: 48 hours Standard, 36 hours Express
-      final int minHours = isExpressDelivery ? 36 : 48;
-      final DateTime minDeliveryDate = selectedPickupDate.add(Duration(hours: minHours));
+    final DateTime minDeliveryDate = selectedPickupDate.add(Duration(hours: minHours));
 
+    setState(() {
       deliveryDates = List.generate(7, (index) {
         return DateTime(
           minDeliveryDate.year,
@@ -242,89 +441,50 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
         minDeliveryDate.month,
         minDeliveryDate.day,
       );
-    } else {
-      // For iron-only services
-      if (isExpressDelivery) {
-        // Express: Same day delivery possible (6 hours gap)
-        deliveryDates = List.generate(7, (index) => selectedPickupDate.add(Duration(days: index)));
-
-        if (selectedDeliveryDate.isBefore(selectedPickupDate)) {
-          selectedDeliveryDate = selectedPickupDate;
-        }
-      } else {
-        // Standard: Minimum 24 hours (next day)
-        final DateTime minDeliveryDate = selectedPickupDate.add(Duration(hours: 24));
-        deliveryDates = List.generate(7, (index) {
-          return DateTime(
-            minDeliveryDate.year,
-            minDeliveryDate.month,
-            minDeliveryDate.day,
-          ).add(Duration(days: index));
-        });
-
-        selectedDeliveryDate = DateTime(
-          minDeliveryDate.year,
-          minDeliveryDate.month,
-          minDeliveryDate.day,
-        );
-      }
-    }
+    });
   }
 
   // NEW METHOD: Check if a specific date has available delivery slots
-  bool _hasAvailableDeliverySlots(DateTime date) {
-    int dayOfWeek = date.weekday;
+  Future<bool> _hasAvailableDeliverySlots(DateTime date) async {
+    // Use the batch method to get available slots for this date
+    final originalDeliveryDate = selectedDeliveryDate;
 
-    List<Map<String, dynamic>> daySlots = deliverySlots.where((slot) {
-      int slotDayOfWeek = slot['day_of_week'] ?? 0;
-      bool dayMatches = slotDayOfWeek == dayOfWeek ||
-          (dayOfWeek == 7 && slotDayOfWeek == 0) ||
-          (slotDayOfWeek == 7 && dayOfWeek == 0);
+    // Temporarily set the delivery date to check
+    setState(() {
+      selectedDeliveryDate = date;
+    });
 
-      bool typeMatches = isExpressDelivery
-          ? (slot['slot_type'] == 'express' || slot['slot_type'] == 'both')
-          : (slot['slot_type'] == 'standard' || slot['slot_type'] == 'both');
+    final availableSlots = await _getAvailableDeliverySlotsBatch();
 
-      return dayMatches && typeMatches;
-    }).toList();
+    // Restore original date
+    setState(() {
+      selectedDeliveryDate = originalDeliveryDate;
+    });
 
-    if (daySlots.isEmpty) return false;
-
-    // Check if any slot would be available for this date
-    for (var slot in daySlots) {
-      // Create a temporary selected delivery date to test availability
-      DateTime tempDeliveryDate = selectedDeliveryDate;
-      setState(() {
-        selectedDeliveryDate = date;
-      });
-
-      bool isAvailable = _isDeliverySlotAvailable(slot);
-
-      // Restore original date
-      setState(() {
-        selectedDeliveryDate = tempDeliveryDate;
-      });
-
-      if (isAvailable) return true;
-    }
-
-    return false;
+    return availableSlots.isNotEmpty;
   }
 
   // NEW METHOD: Find next available delivery date
-  DateTime? _findNextAvailableDeliveryDate() {
+  Future<DateTime?> _findNextAvailableDeliveryDate() async {
     for (int i = 0; i < deliveryDates.length; i++) {
       DateTime date = deliveryDates[i];
-      if (_hasAvailableDeliverySlots(date)) {
+      if (await _hasAvailableDeliverySlots(date)) {
         return date;
       }
     }
     return null;
   }
 
-  // UPDATED METHOD: Filter delivery dates to only show those with available slots
+  // UPDATED: Get available delivery dates from cache (sync)
   List<DateTime> _getAvailableDeliveryDates() {
-    return deliveryDates.where((date) => _hasAvailableDeliverySlots(date)).toList();
+    if (!_isDeliveryAvailabilityLoaded || selectedPickupSlot == null) {
+      // Return all dates while loading
+      return deliveryDates;
+    }
+
+    return deliveryDates.where((date) {
+      return _deliveryDateAvailabilityCache[date] == true;
+    }).toList();
   }
 
   Future<void> _loadBillingSettings() async {
@@ -783,16 +943,23 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
       selectedPickupSlot = slot;
       selectedDeliverySlot = null;
       currentStep = 1;
-      // Update delivery dates based on pickup date
-      _updateDeliveryDates();
+    });
 
+    // Update delivery dates based on pickup date
+    _updateDeliveryDates().then((_) {
       // Auto-select next available delivery date
-      DateTime? nextAvailableDate = _findNextAvailableDeliveryDate();
-      if (nextAvailableDate != null) {
-        selectedDeliveryDate = nextAvailableDate;
-      } else {
-        selectedDeliveryDate = selectedPickupDate; // Fallback to pickup date
-      }
+      _findNextAvailableDeliveryDate().then((nextAvailableDate) {
+        if (nextAvailableDate != null && mounted) {
+          setState(() {
+            selectedDeliveryDate = nextAvailableDate;
+          });
+        } else {
+          // Fallback to pickup date
+          setState(() {
+            selectedDeliveryDate = selectedPickupDate;
+          });
+        }
+      });
     });
 
     // Auto-scroll to delivery slot section
@@ -1025,114 +1192,8 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     return daySlots;
   }
 
-  List<Map<String, dynamic>> _getFilteredDeliverySlots() {
-    List<Map<String, dynamic>> allSlots = _getAllDeliverySlots();
-
-    if (selectedPickupSlot == null) return [];
-
-    final pickupDate = selectedPickupDate;
-    final deliveryDate = selectedDeliveryDate;
-    final bool hasWash = _hasWashServices();
-
-    // Get current time for today's filtering
-    final now = DateTime.now();
-    final isDeliveryToday = deliveryDate.day == now.day &&
-        deliveryDate.month == now.month &&
-        deliveryDate.year == now.year;
-
-    final pickupSlotStart = _parseTimeString(selectedPickupSlot!['start_time']);
-    final pickupDateTime = DateTime(
-      pickupDate.year,
-      pickupDate.month,
-      pickupDate.day,
-      pickupSlotStart.hour,
-      pickupSlotStart.minute,
-    );
-
-    // For wash services, use time-based filtering (48/36 hours)
-    if (hasWash) {
-      final int minHours = isExpressDelivery ? 36 : 48;
-      final minDeliveryDateTime = pickupDateTime.add(Duration(hours: minHours));
-
-      return allSlots.where((slot) {
-        final slotStart = _parseTimeString(slot['start_time']);
-        final slotDateTime = DateTime(
-          deliveryDate.year,
-          deliveryDate.month,
-          deliveryDate.day,
-          slotStart.hour,
-          slotStart.minute,
-        );
-
-        // Filter out slots that have already passed today
-        if (isDeliveryToday) {
-          final currentTime = TimeOfDay.now();
-          int currentMinutes = currentTime.hour * 60 + currentTime.minute;
-          int slotEndMinutes = _parseTimeString(slot['end_time']).hour * 60 + _parseTimeString(slot['end_time']).minute;
-
-          // Skip if slot has already ended
-          if (currentMinutes >= slotEndMinutes) return false;
-        }
-
-        return slotDateTime.isAfter(minDeliveryDateTime) ||
-            slotDateTime.isAtSameMomentAs(minDeliveryDateTime);
-      }).toList();
-    }
-
-    // For iron-only services
-    if (isExpressDelivery) {
-      // Express iron: 6 hours minimum gap
-      final minDeliveryDateTime = pickupDateTime.add(Duration(hours: 6));
-
-      return allSlots.where((slot) {
-        final slotStart = _parseTimeString(slot['start_time']);
-        final slotDateTime = DateTime(
-          deliveryDate.year,
-          deliveryDate.month,
-          deliveryDate.day,
-          slotStart.hour,
-          slotStart.minute,
-        );
-
-        // Filter out slots that have already passed today
-        if (isDeliveryToday) {
-          final currentTime = TimeOfDay.now();
-          int currentMinutes = currentTime.hour * 60 + currentTime.minute;
-          int slotEndMinutes = _parseTimeString(slot['end_time']).hour * 60 + _parseTimeString(slot['end_time']).minute;
-
-          if (currentMinutes >= slotEndMinutes) return false;
-        }
-
-        return slotDateTime.isAfter(minDeliveryDateTime) ||
-            slotDateTime.isAtSameMomentAs(minDeliveryDateTime);
-      }).toList();
-    } else {
-      // Standard iron: 24 hours minimum gap
-      final minDeliveryDateTime = pickupDateTime.add(Duration(hours: 24));
-
-      return allSlots.where((slot) {
-        final slotStart = _parseTimeString(slot['start_time']);
-        final slotDateTime = DateTime(
-          deliveryDate.year,
-          deliveryDate.month,
-          deliveryDate.day,
-          slotStart.hour,
-          slotStart.minute,
-        );
-
-        // Filter out slots that have already passed today
-        if (isDeliveryToday) {
-          final currentTime = TimeOfDay.now();
-          int currentMinutes = currentTime.hour * 60 + currentTime.minute;
-          int slotEndMinutes = _parseTimeString(slot['end_time']).hour * 60 + _parseTimeString(slot['end_time']).minute;
-
-          if (currentMinutes >= slotEndMinutes) return false;
-        }
-
-        return slotDateTime.isAfter(minDeliveryDateTime) ||
-            slotDateTime.isAtSameMomentAs(minDeliveryDateTime);
-      }).toList();
-    }
+  Future<List<Map<String, dynamic>>> _getFilteredDeliverySlots() async {
+    return await _getAvailableDeliverySlotsBatch();
   }
 
   bool _isPickupSlotAvailable(Map<String, dynamic> slot) {
@@ -1157,12 +1218,14 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
     return availableSlots.any((availableSlot) => availableSlot['id'] == slot['id']);
   }
 
-  bool _isDeliverySlotAvailable(Map<String, dynamic> slot) {
+  Future<bool> _isDeliverySlotAvailable(Map<String, dynamic> slot) async {
     if (selectedPickupSlot == null) return false;
 
     final pickupDate = selectedPickupDate;
     final deliveryDate = selectedDeliveryDate;
-    final bool hasWash = _hasWashServices();
+
+    // Use cached value if available, otherwise calculate once
+    final int maxServiceHours = _cachedMaxServiceHours ?? await _getMaxServiceHours();
 
     final now = DateTime.now();
     final isDeliveryToday = deliveryDate.day == now.day &&
@@ -1196,27 +1259,68 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
       slotStart.minute,
     );
 
-    // For wash services: 48 hours Standard, 36 hours Express
-    if (hasWash) {
-      final int minHours = isExpressDelivery ? 36 : 48;
-      final minDeliveryDateTime = pickupDateTime.add(Duration(hours: minHours));
+    // Dynamic hours based on service
+    final int minHours = isExpressDelivery
+        ? (maxServiceHours - 12)
+        : maxServiceHours;
+    final minDeliveryDateTime = pickupDateTime.add(Duration(hours: minHours));
 
-      return slotDateTime.isAfter(minDeliveryDateTime) ||
-          slotDateTime.isAtSameMomentAs(minDeliveryDateTime);
-    }
+    return slotDateTime.isAfter(minDeliveryDateTime) ||
+        slotDateTime.isAtSameMomentAs(minDeliveryDateTime);
+  }
 
-    // For iron-only services
-    if (isExpressDelivery) {
-      // Express iron: 6 hours minimum
-      final minDeliveryDateTime = pickupDateTime.add(Duration(hours: 6));
+  Future<List<Map<String, dynamic>>> _getAvailableDeliverySlotsBatch() async {
+    if (selectedPickupSlot == null) return [];
+
+    final int maxServiceHours = _cachedMaxServiceHours ?? await _getMaxServiceHours();
+    final int minHours = isExpressDelivery ? (maxServiceHours - 12) : maxServiceHours;
+
+    final pickupDate = selectedPickupDate;
+    final deliveryDate = selectedDeliveryDate;
+    final now = DateTime.now();
+    final isDeliveryToday = deliveryDate.day == now.day &&
+        deliveryDate.month == now.month &&
+        deliveryDate.year == now.year;
+
+    final pickupSlotStart = _parseTimeString(selectedPickupSlot!['start_time']);
+    final pickupDateTime = DateTime(
+      pickupDate.year,
+      pickupDate.month,
+      pickupDate.day,
+      pickupSlotStart.hour,
+      pickupSlotStart.minute,
+    );
+
+    final minDeliveryDateTime = pickupDateTime.add(Duration(hours: minHours));
+
+    // Get all possible delivery slots for this date
+    List<Map<String, dynamic>> allSlots = _getAllDeliverySlots();
+
+    // Filter in batch (no async calls inside the filter)
+    return allSlots.where((slot) {
+      // Check if slot has passed today
+      if (isDeliveryToday) {
+        final slotStart = _parseTimeString(slot['start_time']);
+        final currentTime = TimeOfDay.now();
+
+        if (slotStart.hour < currentTime.hour) return false;
+        if (slotStart.hour == currentTime.hour && slotStart.minute < currentTime.minute) return false;
+      }
+
+      // Calculate slot datetime
+      final slotStart = _parseTimeString(slot['start_time']);
+      final slotDateTime = DateTime(
+        deliveryDate.year,
+        deliveryDate.month,
+        deliveryDate.day,
+        slotStart.hour,
+        slotStart.minute,
+      );
+
+      // Check if slot is after minimum delivery time
       return slotDateTime.isAfter(minDeliveryDateTime) ||
           slotDateTime.isAtSameMomentAs(minDeliveryDateTime);
-    } else {
-      // Standard iron: 24 hours minimum
-      final minDeliveryDateTime = pickupDateTime.add(Duration(hours: 24));
-      return slotDateTime.isAfter(minDeliveryDateTime) ||
-          slotDateTime.isAtSameMomentAs(minDeliveryDateTime);
-    }
+    }).toList();
   }
 
   bool _isSlotPassed(Map<String, dynamic> slot, DateTime selectedDate) {
@@ -1571,7 +1675,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                         _buildDeliveryTypeToggle(cardMargin, cardPadding, isSmallScreen),
                         _buildProgressIndicator(cardMargin, isSmallScreen),
                         if (currentStep == 0) ...[
-                          _buildDateSelector(true, cardMargin, isSmallScreen),
+                          _buildDateSelector(true, cardMargin, cardPadding, isSmallScreen), // ✅ Added cardPadding
                           if (isLoadingSlots)
                             Container(
                               padding: EdgeInsets.all(cardPadding * 2),
@@ -1583,7 +1687,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                             _buildPickupSlotsSection(cardMargin, cardPadding, isSmallScreen),
                         ],
                         if (currentStep == 1) ...[
-                          _buildDateSelector(false, cardMargin, isSmallScreen),
+                          _buildDateSelector(false, cardMargin, cardPadding, isSmallScreen), // ✅ Added cardPadding
                           if (isLoadingSlots)
                             Container(
                               padding: EdgeInsets.all(cardPadding * 2),
@@ -1593,7 +1697,7 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                             )
                           else
                             Container(
-                              key: _deliverySlotSectionKey, // Add this line
+                              key: _deliverySlotSectionKey,
                               child: _buildDeliverySlotsSection(cardMargin, cardPadding, isSmallScreen),
                             ),
                         ],
@@ -1605,10 +1709,9 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
                           _buildBillingSummary(cardMargin, cardPadding, isSmallScreen),
 
                         // Payment Method Selection
-                        // Payment Method Selection
                         if (selectedPickupSlot != null && selectedDeliverySlot != null)
                           Container(
-                            key: _paymentSectionKey, // Add this line
+                            key: _paymentSectionKey,
                             child: _buildPaymentMethodSelection(cardMargin, cardPadding, isSmallScreen),
                           ),
 
@@ -2266,11 +2369,34 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
   }
 
   // UPDATED METHOD: Only show delivery dates that have available slots
-  Widget _buildDateSelector(bool isPickup, double cardMargin, bool isSmallScreen) {
+  Widget _buildDateSelector(bool isPickup, double cardMargin, double cardPadding, bool isSmallScreen) {
     DateTime selectedDate = isPickup ? selectedPickupDate : selectedDeliveryDate;
     ScrollController controller = isPickup ? _pickupDateScrollController : _deliveryDateScrollController;
-    List<DateTime> availableDates = isPickup ? pickupDates : _getAvailableDeliveryDates();
 
+    List<DateTime> dates = isPickup ? pickupDates : _getAvailableDeliveryDates();
+
+    return _buildDateSelectorWidget(
+        isPickup,
+        selectedDate,
+        controller,
+        dates,
+        cardMargin,
+        cardPadding,
+        isSmallScreen
+    );
+  }
+
+// Helper method for the actual date selector widget
+  // Helper method for the actual date selector widget
+  Widget _buildDateSelectorWidget(
+      bool isPickup,
+      DateTime selectedDate,
+      ScrollController controller,
+      List<DateTime> availableDates,
+      double cardMargin,
+      double cardPadding, // Add this parameter
+      bool isSmallScreen
+      ) {
     return Container(
       margin: EdgeInsets.symmetric(horizontal: cardMargin, vertical: cardMargin / 2),
       child: Column(
@@ -2658,133 +2784,140 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
 
 
   Widget _buildDeliveryTypeToggle(double cardMargin, double cardPadding, bool isSmallScreen) {
-    return Container(
-      margin: EdgeInsets.symmetric(horizontal: cardMargin, vertical: cardMargin / 2),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return FutureBuilder<int>(
+      future: _getMaxServiceHours(),
+      builder: (context, snapshot) {
+        final maxHours = snapshot.data ?? 72; // Default if still loading
+
+        return Container(
+          margin: EdgeInsets.symmetric(horizontal: cardMargin, vertical: cardMargin / 2),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Delivery Type:',
-                style: TextStyle(
-                  fontSize: isSmallScreen ? 14 : 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const Spacer(),
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade200,
-                  borderRadius: BorderRadius.circular(25),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          isExpressDelivery = false;
-                          selectedPickupSlot = null;
-                          selectedDeliverySlot = null;
-                          currentStep = 0;
-                        });
-                      },
-                      child: Container(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: isSmallScreen ? 16 : 20,
-                          vertical: isSmallScreen ? 8 : 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: !isExpressDelivery ? kPrimaryColor : Colors.transparent,
-                          borderRadius: BorderRadius.circular(25),
-                        ),
-                        child: Text(
-                          'Standard',
-                          style: TextStyle(
-                            color: !isExpressDelivery ? Colors.white : Colors.black54,
-                            fontWeight: FontWeight.w600,
-                            fontSize: isSmallScreen ? 12 : 14,
-                          ),
-                        ),
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          isExpressDelivery = true;
-                          selectedPickupSlot = null;
-                          selectedDeliverySlot = null;
-                          currentStep = 0;
-                        });
-                      },
-                      child: Container(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: isSmallScreen ? 16 : 20,
-                          vertical: isSmallScreen ? 8 : 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isExpressDelivery ? kPrimaryColor : Colors.transparent,
-                          borderRadius: BorderRadius.circular(25),
-                        ),
-                        child: Text(
-                          'Express',
-                          style: TextStyle(
-                            color: isExpressDelivery ? Colors.white : Colors.black54,
-                            fontWeight: FontWeight.w600,
-                            fontSize: isSmallScreen ? 12 : 14,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: cardPadding / 3),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  _hasWashServices()
-                      ? (isExpressDelivery
-                      ? 'Wash services: 36 hours for Express'
-                      : 'Wash services: 48 hours for Standard')
-                      : (isExpressDelivery
-                      ? 'Iron-only: Same day (6 hours min)'
-                      : 'Iron-only: Next day (24 hours min)'),
-                  style: TextStyle(
-                    fontSize: isSmallScreen ? 10 : 12,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
-              ),
-              // ✅ FIXED: Change express delivery fee color to dark red
-              if (isExpressDelivery && !isLoadingBillingSettings)
-                Container(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: isSmallScreen ? 6 : 8,
-                    vertical: isSmallScreen ? 3 : 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.green, // ✅ CHANGED: Light red background
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.green.withOpacity(0.3)), // ✅ CHANGED: Dark red border
-                  ),
-                  child: Text(
-                    '+₹${(expressDeliveryFee - standardDeliveryFee).toStringAsFixed(0)} extra',
+              Row(
+                children: [
+                  Text(
+                    'Delivery Type:',
                     style: TextStyle(
-                      fontSize: isSmallScreen ? 9 : 11,
+                      fontSize: isSmallScreen ? 14 : 16,
                       fontWeight: FontWeight.w600,
-                      color: Colors.white, // ✅ CHANGED: Dark red text
                     ),
                   ),
-                ),
+                  const Spacer(),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(25),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        GestureDetector(
+                          // In _buildDeliveryTypeToggle, update the onTap handlers:
+                          onTap: () {
+                            setState(() {
+                              isExpressDelivery = false;
+                              selectedPickupSlot = null;
+                              selectedDeliverySlot = null;
+                              currentStep = 0;
+
+                              // Clear cache when delivery type changes
+                              _deliveryDateAvailabilityCache.clear();
+                              _isDeliveryAvailabilityLoaded = false;
+                            });
+                          },
+                          child: Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isSmallScreen ? 16 : 20,
+                              vertical: isSmallScreen ? 8 : 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: !isExpressDelivery ? kPrimaryColor : Colors.transparent,
+                              borderRadius: BorderRadius.circular(25),
+                            ),
+                            child: Text(
+                              'Standard',
+                              style: TextStyle(
+                                color: !isExpressDelivery ? Colors.white : Colors.black54,
+                                fontWeight: FontWeight.w600,
+                                fontSize: isSmallScreen ? 12 : 14,
+                              ),
+                            ),
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              isExpressDelivery = true;
+                              selectedPickupSlot = null;
+                              selectedDeliverySlot = null;
+                              currentStep = 0;
+                            });
+                          },
+                          child: Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isSmallScreen ? 16 : 20,
+                              vertical: isSmallScreen ? 8 : 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isExpressDelivery ? kPrimaryColor : Colors.transparent,
+                              borderRadius: BorderRadius.circular(25),
+                            ),
+                            child: Text(
+                              'Express',
+                              style: TextStyle(
+                                color: isExpressDelivery ? Colors.white : Colors.black54,
+                                fontWeight: FontWeight.w600,
+                                fontSize: isSmallScreen ? 12 : 14,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: cardPadding / 3),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      isExpressDelivery
+                          ? 'Express: ${maxHours - 12} hours minimum'
+                          : 'Standard: $maxHours hours minimum',
+                      style: TextStyle(
+                        fontSize: isSmallScreen ? 10 : 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ),
+                  if (isExpressDelivery && !isLoadingBillingSettings)
+                    Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isSmallScreen ? 6 : 8,
+                        vertical: isSmallScreen ? 3 : 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.green,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.green.withOpacity(0.3)),
+                      ),
+                      child: Text(
+                        '+₹${(expressDeliveryFee - standardDeliveryFee).toStringAsFixed(0)} extra',
+                        style: TextStyle(
+                          fontSize: isSmallScreen ? 9 : 11,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -2824,45 +2957,118 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
 
 
   Widget _buildDeliverySlotsSection(double cardMargin, double cardPadding, bool isSmallScreen) {
-    List<Map<String, dynamic>> allSlots = _getAllDeliverySlots();
-    return Container(
-      margin: EdgeInsets.all(cardMargin),
-      padding: EdgeInsets.all(cardPadding),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              IconButton(
-                onPressed: _goBackToPickup,
-                icon: Icon(Icons.arrow_back, size: isSmallScreen ? 18 : 20, color: kPrimaryColor), // 👈 blue arrow
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-              SizedBox(width: cardPadding / 2),
-              Icon(Icons.local_shipping, color: kPrimaryColor, size: isSmallScreen ? 18 : 20),
-              SizedBox(width: cardPadding / 2),
-              Expanded(
-                child: Text(
-                  'Schedule Delivery ${isExpressDelivery ? '(Express)' : '(Standard)'}',
-                  style: TextStyle(
-                    fontSize: isSmallScreen ? 14 : 16,
-                    fontWeight: FontWeight.w600,
-                    color: kPrimaryColor, // 👈 make title blue
-                  ),
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _getFilteredDeliverySlots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          // Show skeleton loader instead of just spinner
+          return Container(
+            margin: EdgeInsets.all(cardMargin),
+            padding: EdgeInsets.all(cardPadding),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Skeleton header
+                Row(
+                  children: [
+                    IconButton(
+                      onPressed: _goBackToPickup,
+                      icon: Icon(Icons.arrow_back, size: isSmallScreen ? 18 : 20, color: kPrimaryColor),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                    SizedBox(width: cardPadding / 2),
+                    Shimmer.fromColors(
+                      baseColor: Colors.grey.shade300,
+                      highlightColor: Colors.grey.shade100,
+                      child: Container(
+                        width: 150,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
+                SizedBox(height: cardPadding),
+                // Skeleton slots
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: isSmallScreen ? 1 : 2,
+                    childAspectRatio: isSmallScreen ? 4 : 3,
+                    crossAxisSpacing: isSmallScreen ? 6 : 8,
+                    mainAxisSpacing: isSmallScreen ? 6 : 8,
+                  ),
+                  itemCount: 4, // Show 4 skeleton items
+                  itemBuilder: (context, index) {
+                    return Shimmer.fromColors(
+                      baseColor: Colors.grey.shade300,
+                      highlightColor: Colors.grey.shade100,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          );
+        }
+
+        final List<Map<String, dynamic>> allSlots = snapshot.data ?? [];
+
+        return Container(
+          margin: EdgeInsets.all(cardMargin),
+          padding: EdgeInsets.all(cardPadding),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  IconButton(
+                    onPressed: _goBackToPickup,
+                    icon: Icon(Icons.arrow_back, size: isSmallScreen ? 18 : 20, color: kPrimaryColor),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                  SizedBox(width: cardPadding / 2),
+                  Icon(Icons.local_shipping, color: kPrimaryColor, size: isSmallScreen ? 18 : 20),
+                  SizedBox(width: cardPadding / 2),
+                  Expanded(
+                    child: Text(
+                      'Schedule Delivery ${isExpressDelivery ? '(Express)' : '(Standard)'}',
+                      style: TextStyle(
+                        fontSize: isSmallScreen ? 14 : 16,
+                        fontWeight: FontWeight.w600,
+                        color: kPrimaryColor,
+                      ),
+                    ),
+                  ),
+                ],
               ),
+              SizedBox(height: cardPadding),
+              _buildTimeSlots(allSlots, false, isSmallScreen),
             ],
           ),
-          SizedBox(height: cardPadding),
-          _buildTimeSlots(allSlots, false, isSmallScreen),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -2886,11 +3092,12 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
         ),
       );
     }
+
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: isSmallScreen ? 1 : 2, // ✅ RESPONSIVE: Single column for small screens
+        crossAxisCount: isSmallScreen ? 1 : 2,
         childAspectRatio: isSmallScreen ? 4 : 3,
         crossAxisSpacing: isSmallScreen ? 6 : 8,
         mainAxisSpacing: isSmallScreen ? 6 : 8,
@@ -2902,71 +3109,107 @@ class _SlotSelectorScreenState extends State<SlotSelectorScreen> with TickerProv
             ? (selectedPickupSlot?['id'] == slot['id'])
             : (selectedDeliverySlot?['id'] == slot['id']);
 
-        bool isSlotAvailable = isPickup
-            ? _isPickupSlotAvailable(slot)
-            : _isDeliverySlotAvailable(slot);
-
         DateTime selectedDate = isPickup ? selectedPickupDate : selectedDeliveryDate;
         bool isSlotPassed = _isSlotPassed(slot, selectedDate);
 
-        return GestureDetector(
-          onTap: (!isSlotAvailable || isSlotPassed) ? null : () {
-            if (isPickup) {
-              _onPickupSlotSelected(slot);
-            } else {
-              _onDeliverySlotSelected(slot);
-            }
-          },
-          child: Container(
-            padding: EdgeInsets.symmetric(
-              horizontal: isSmallScreen ? 8 : 12,
-              vertical: isSmallScreen ? 6 : 8,
-            ),
-            decoration: BoxDecoration(
-              color: (!isSlotAvailable || isSlotPassed)
-                  ? Colors.grey.shade100
-                  : isSelected ? kPrimaryColor : Colors.white,
-              border: Border.all(
-                color: (!isSlotAvailable || isSlotPassed)
-                    ? Colors.grey.shade300
-                    : isSelected ? kPrimaryColor : Colors.grey.shade300,
-                width: 1.5,
-              ),
-              borderRadius: BorderRadius.circular(8),
-              boxShadow: isSelected && isSlotAvailable && !isSlotPassed
-                  ? [BoxShadow(color: kPrimaryColor.withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2))]
-                  : null,
-            ),
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    slot['display_time'] ?? '${slot['start_time']} - ${slot['end_time']}',
-                    style: TextStyle(
-                      color: (!isSlotAvailable || isSlotPassed)
-                          ? Colors.grey.shade500
-                          : isSelected ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.w600,
-                      fontSize: isSmallScreen ? 11 : 12,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  if (!isSlotAvailable || isSlotPassed)
-                    Text(
-                      'Unavailable',
-                      style: TextStyle(
-                        color: Colors.red.shade400,
-                        fontSize: isSmallScreen ? 9 : 10,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        );
+        // Use FutureBuilder for async availability check
+        if (isPickup) {
+          // Pickup slots are synchronous
+          bool isSlotAvailable = _isPickupSlotAvailable(slot);
+          return _buildSlotItem(
+              slot,
+              isSelected,
+              isSlotAvailable,
+              isSlotPassed,
+              isPickup,
+              isSmallScreen
+          );
+        } else {
+          // Delivery slots are async
+          return FutureBuilder<bool>(
+            future: _isDeliverySlotAvailable(slot),
+            builder: (context, snapshot) {
+              bool isSlotAvailable = snapshot.data ?? false;
+              return _buildSlotItem(
+                  slot,
+                  isSelected,
+                  isSlotAvailable,
+                  isSlotPassed,
+                  isPickup,
+                  isSmallScreen
+              );
+            },
+          );
+        }
       },
+    );
+  }
+
+// Helper method for building slot item
+  Widget _buildSlotItem(
+      Map<String, dynamic> slot,
+      bool isSelected,
+      bool isSlotAvailable,
+      bool isSlotPassed,
+      bool isPickup,
+      bool isSmallScreen
+      ) {
+    return GestureDetector(
+      onTap: (!isSlotAvailable || isSlotPassed) ? null : () {
+        if (isPickup) {
+          _onPickupSlotSelected(slot);
+        } else {
+          _onDeliverySlotSelected(slot);
+        }
+      },
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: isSmallScreen ? 8 : 12,
+          vertical: isSmallScreen ? 6 : 8,
+        ),
+        decoration: BoxDecoration(
+          color: (!isSlotAvailable || isSlotPassed)
+              ? Colors.grey.shade100
+              : isSelected ? kPrimaryColor : Colors.white,
+          border: Border.all(
+            color: (!isSlotAvailable || isSlotPassed)
+                ? Colors.grey.shade300
+                : isSelected ? kPrimaryColor : Colors.grey.shade300,
+            width: 1.5,
+          ),
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: isSelected && isSlotAvailable && !isSlotPassed
+              ? [BoxShadow(color: kPrimaryColor.withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2))]
+              : null,
+        ),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                slot['display_time'] ?? '${slot['start_time']} - ${slot['end_time']}',
+                style: TextStyle(
+                  color: (!isSlotAvailable || isSlotPassed)
+                      ? Colors.grey.shade500
+                      : isSelected ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.w600,
+                  fontSize: isSmallScreen ? 11 : 12,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              if (!isSlotAvailable || isSlotPassed)
+                Text(
+                  'Unavailable',
+                  style: TextStyle(
+                    color: Colors.red.shade400,
+                    fontSize: isSmallScreen ? 9 : 10,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
